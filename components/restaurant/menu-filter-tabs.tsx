@@ -1,4 +1,5 @@
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
+import { Fonts } from '@/constants/theme';
 
 const MENU_TABS = [
   { id: 'promotions', label: 'Promotions' },
@@ -42,7 +43,7 @@ const styles = StyleSheet.create({
   },
   title: {
     fontSize: 20,
-    fontWeight: '600',
+    fontFamily: Fonts.semiBold,
     color: '#1A2B3D',
     paddingHorizontal: 20,
     marginBottom: 12,
@@ -61,11 +62,11 @@ const styles = StyleSheet.create({
   },
   tabText: {
     fontSize: 15,
-    fontWeight: '500',
+    fontFamily: Fonts.medium,
     color: '#8A8A8A',
   },
   tabTextSelected: {
     color: '#1A2B3D',
-    fontWeight: '600',
+    fontFamily: Fonts.semiBold,
   },
 });

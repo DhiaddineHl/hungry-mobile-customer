@@ -1,6 +1,7 @@
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { Image } from 'expo-image';
 import { ChevronDown, Bell } from 'lucide-react-native';
+import { Fonts } from '@/constants/theme';
 
 interface HomeHeaderProps {
   deliveryLocation?: string;
@@ -59,7 +60,7 @@ const styles = StyleSheet.create({
   },
   deliverLabel: {
     fontSize: 11,
-    fontWeight: '600',
+    fontFamily: Fonts.semiBold,
     color: '#1A2B3D',
     letterSpacing: 0.5,
     marginBottom: 2,
@@ -72,7 +73,7 @@ const styles = StyleSheet.create({
   locationText: {
     fontSize: 14,
     color: '#F5A623',
-    fontWeight: '500',
+    fontFamily: Fonts.medium,
   },
   logoContainer: {
     flex: 1,
@@ -101,7 +102,7 @@ const styles = StyleSheet.create({
   },
   badgeText: {
     fontSize: 11,
-    fontWeight: '600',
+    fontFamily: Fonts.semiBold,
     color: '#FFFFFF',
   },
 });

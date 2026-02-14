@@ -1,6 +1,7 @@
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { Image } from 'expo-image';
 import { Heart, ThumbsUp, Clock, Bike, Sparkles, ChevronRight } from 'lucide-react-native';
+import { Fonts } from '@/constants/theme';
 
 interface Restaurant {
   id: string;
@@ -189,7 +190,7 @@ const styles = StyleSheet.create({
   },
   title: {
     fontSize: 20,
-    fontWeight: '600',
+    fontFamily: Fonts.semiBold,
     color: '#1A2B3D',
   },
   seeAllButton: {
@@ -200,7 +201,7 @@ const styles = StyleSheet.create({
   seeAllText: {
     fontSize: 14,
     color: '#F5A623',
-    fontWeight: '500',
+    fontFamily: Fonts.medium,
   },
   restaurantsList: {
     paddingHorizontal: 20,
@@ -246,7 +247,7 @@ const styles = StyleSheet.create({
   },
   discountText: {
     fontSize: 12,
-    fontWeight: '600',
+    fontFamily: Fonts.semiBold,
     color: '#FFFFFF',
   },
   newBadge: {
@@ -260,7 +261,7 @@ const styles = StyleSheet.create({
   },
   newText: {
     fontSize: 11,
-    fontWeight: '700',
+    fontFamily: Fonts.bold,
     color: '#FFFFFF',
   },
   cardContent: {
@@ -274,11 +275,12 @@ const styles = StyleSheet.create({
   },
   restaurantName: {
     fontSize: 18,
-    fontWeight: '700',
+    fontFamily: Fonts.bold,
     color: '#1A2B3D',
   },
   categories: {
     fontSize: 13,
+    fontFamily: Fonts.regular,
     color: '#8A8A8A',
     marginBottom: 12,
   },
@@ -295,7 +297,7 @@ const styles = StyleSheet.create({
   infoText: {
     fontSize: 13,
     color: '#8A8A8A',
-    fontWeight: '500',
+    fontFamily: Fonts.medium,
   },
   freeDeliveryText: {
     color: '#4CAF50',

@@ -1,5 +1,6 @@
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
 import { ArrowUpDown } from 'lucide-react-native';
+import { Fonts } from '@/constants/theme';
 
 const FILTERS = [
   { id: '1', label: 'Promotions', hasIcon: false },
@@ -59,7 +60,7 @@ const styles = StyleSheet.create({
   },
   title: {
     fontSize: 20,
-    fontWeight: '600',
+    fontFamily: Fonts.semiBold,
     color: '#1A2B3D',
     paddingHorizontal: 20,
     marginBottom: 12,
@@ -86,7 +87,7 @@ const styles = StyleSheet.create({
   filterText: {
     fontSize: 14,
     color: '#1A2B3D',
-    fontWeight: '500',
+    fontFamily: Fonts.medium,
   },
   filterTextSelected: {
     color: '#FFFFFF',

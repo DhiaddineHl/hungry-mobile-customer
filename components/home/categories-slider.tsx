@@ -1,6 +1,7 @@
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
 import { Image } from 'expo-image';
 import { ChevronRight } from 'lucide-react-native';
+import { Fonts } from '@/constants/theme';
 
 const CATEGORIES = [
   { id: '1', name: 'Pizza', icon: require('@/assets/categories-icons/Mekla_1.svg') },
@@ -72,7 +73,7 @@ const styles = StyleSheet.create({
   },
   title: {
     fontSize: 20,
-    fontWeight: '600',
+    fontFamily: Fonts.semiBold,
     color: '#1A2B3D',
   },
   seeAllButton: {
@@ -83,7 +84,7 @@ const styles = StyleSheet.create({
   seeAllText: {
     fontSize: 14,
     color: '#F5A623',
-    fontWeight: '500',
+    fontFamily: Fonts.medium,
   },
   scrollContent: {
     paddingHorizontal: 20,
@@ -105,7 +106,7 @@ const styles = StyleSheet.create({
   categoryName: {
     fontSize: 13,
     color: '#1A2B3D',
-    fontWeight: '500',
+    fontFamily: Fonts.medium,
     textAlign: 'center',
   },
 });

@@ -1,5 +1,6 @@
 import { View, Text, StyleSheet } from 'react-native';
 import { ProductCard } from './product-card';
+import { Fonts } from '@/constants/theme';
 
 interface Product {
   id: string;
@@ -42,7 +43,7 @@ const styles = StyleSheet.create({
   },
   title: {
     fontSize: 18,
-    fontWeight: '700',
+    fontFamily: Fonts.bold,
     color: '#1A2B3D',
     marginBottom: 16,
   },

@@ -1,5 +1,6 @@
 import { View, TextInput, StyleSheet } from 'react-native';
 import { Search } from 'lucide-react-native';
+import { Fonts } from '@/constants/theme';
 
 interface SearchBarProps {
   value?: string;
@@ -48,6 +49,7 @@ const styles = StyleSheet.create({
   input: {
     flex: 1,
     fontSize: 15,
+    fontFamily: Fonts.regular,
     color: '#1A2B3D',
     padding: 0,
   },

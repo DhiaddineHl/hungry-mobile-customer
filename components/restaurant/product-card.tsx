@@ -1,6 +1,7 @@
 import { View, Text, StyleSheet, TouchableOpacity, Dimensions } from 'react-native';
 import { Image } from 'expo-image';
 import { ThumbsUp } from 'lucide-react-native';
+import { Fonts } from '@/constants/theme';
 
 const { width } = Dimensions.get('window');
 const CARD_WIDTH = (width - 60) / 2;
@@ -84,7 +85,7 @@ const styles = StyleSheet.create({
   },
   discountText: {
     fontSize: 11,
-    fontWeight: '700',
+    fontFamily: Fonts.bold,
     color: '#FFFFFF',
   },
   infoContainer: {
@@ -92,7 +93,7 @@ const styles = StyleSheet.create({
   },
   name: {
     fontSize: 14,
-    fontWeight: '600',
+    fontFamily: Fonts.semiBold,
     color: '#1A2B3D',
     marginBottom: 4,
     lineHeight: 18,
@@ -104,11 +105,12 @@ const styles = StyleSheet.create({
   },
   price: {
     fontSize: 14,
-    fontWeight: '700',
+    fontFamily: Fonts.bold,
     color: '#F5A623',
   },
   originalPrice: {
     fontSize: 12,
+    fontFamily: Fonts.regular,
     color: '#8A8A8A',
     textDecorationLine: 'line-through',
   },
@@ -120,11 +122,12 @@ const styles = StyleSheet.create({
   },
   rating: {
     fontSize: 12,
-    fontWeight: '600',
+    fontFamily: Fonts.semiBold,
     color: '#F5A623',
   },
   reviewCount: {
     fontSize: 12,
+    fontFamily: Fonts.regular,
     color: '#8A8A8A',
   },
 });

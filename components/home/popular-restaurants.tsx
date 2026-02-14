@@ -1,5 +1,6 @@
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
 import { Image } from 'expo-image';
+import { Fonts } from '@/constants/theme';
 
 const POPULAR_RESTAURANTS = [
   {
@@ -78,7 +79,7 @@ const styles = StyleSheet.create({
   },
   title: {
     fontSize: 20,
-    fontWeight: '700',
+    fontFamily: Fonts.bold,
     color: '#1A2B3D',
     paddingHorizontal: 20,
     marginBottom: 16,
@@ -112,12 +113,13 @@ const styles = StyleSheet.create({
   },
   restaurantName: {
     fontSize: 14,
-    fontWeight: '600',
+    fontFamily: Fonts.semiBold,
     color: '#1A2B3D',
     textAlign: 'center',
   },
   restaurantSubtitle: {
     fontSize: 12,
+    fontFamily: Fonts.regular,
     color: '#8A8A8A',
     textAlign: 'center',
     marginTop: 2,

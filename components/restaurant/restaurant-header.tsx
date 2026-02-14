@@ -2,6 +2,7 @@ import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { Image } from 'expo-image';
 import { ArrowLeft, Heart, MoreHorizontal, ThumbsUp, Clock, Bike, ChevronDown } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Fonts } from '@/constants/theme';
 
 interface RestaurantHeaderProps {
   name: string;
@@ -177,7 +178,7 @@ const styles = StyleSheet.create({
   },
   newBadgeText: {
     fontSize: 14,
-    fontWeight: '700',
+    fontFamily: Fonts.bold,
     color: '#FFFFFF',
   },
   logoContainer: {
@@ -219,7 +220,7 @@ const styles = StyleSheet.create({
   },
   tagText: {
     fontSize: 12,
-    fontWeight: '600',
+    fontFamily: Fonts.semiBold,
     color: '#1A2B3D',
   },
   discountTag: {
@@ -227,7 +228,7 @@ const styles = StyleSheet.create({
   },
   discountTagText: {
     fontSize: 12,
-    fontWeight: '600',
+    fontFamily: Fonts.semiBold,
     color: '#FFFFFF',
   },
   minOrderText: {
@@ -235,6 +236,7 @@ const styles = StyleSheet.create({
     bottom: 16,
     left: 16,
     fontSize: 12,
+    fontFamily: Fonts.regular,
     color: '#FFFFFF',
   },
   infoContainer: {
@@ -248,11 +250,12 @@ const styles = StyleSheet.create({
   },
   restaurantName: {
     fontSize: 22,
-    fontWeight: '700',
+    fontFamily: Fonts.bold,
     color: '#1A2B3D',
   },
   distance: {
     fontSize: 14,
+    fontFamily: Fonts.regular,
     color: '#8A8A8A',
   },
   statusRow: {
@@ -263,7 +266,7 @@ const styles = StyleSheet.create({
   },
   statusText: {
     fontSize: 14,
-    fontWeight: '500',
+    fontFamily: Fonts.medium,
   },
   openText: {
     color: '#4CAF50',
@@ -283,11 +286,12 @@ const styles = StyleSheet.create({
   },
   statValue: {
     fontSize: 14,
-    fontWeight: '600',
+    fontFamily: Fonts.semiBold,
     color: '#1A2B3D',
   },
   statLabel: {
     fontSize: 12,
+    fontFamily: Fonts.regular,
     color: '#8A8A8A',
   },
   freeText: {
