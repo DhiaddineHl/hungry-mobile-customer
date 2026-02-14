@@ -1,29 +1,51 @@
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
-import { Link } from 'expo-router';
+import { View, StyleSheet, ScrollView } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { HomeHeader, SearchBar, CategoriesSlider } from '@/components/home';
 
 export default function HomeScreen() {
+  const insets = useSafeAreaInsets();
+
+  const handleLocationPress = () => {
+    console.log('Location pressed');
+  };
+
+  const handleNotificationPress = () => {
+    console.log('Notification pressed');
+  };
+
+  const handleSearch = (text: string) => {
+    console.log('Search:', text);
+  };
+
+  const handleCategoryPress = (categoryId: string) => {
+    console.log('Category pressed:', categoryId);
+  };
+
+  const handleSeeAllCategories = () => {
+    console.log('See all categories');
+  };
+
   return (
-    <View style={styles.container}>
-      <View style={styles.content}>
-        <Text style={styles.emoji}>🍕</Text>
-        <Text style={styles.title}>Welcome to Hungry!</Text>
-        <Text style={styles.subtitle}>Your favorite food delivery app</Text>
-        <Text style={styles.description}>
-          Start exploring delicious food from your favorite restaurants
-        </Text>
-        <View style={styles.buttons}>
-          <Link href="/login" asChild>
-            <TouchableOpacity style={styles.primaryButton}>
-              <Text style={styles.primaryButtonText}>LOG IN</Text>
-            </TouchableOpacity>
-          </Link>
-          <Link href="/signup" asChild>
-            <TouchableOpacity style={styles.secondaryButton}>
-              <Text style={styles.secondaryButtonText}>SIGN UP</Text>
-            </TouchableOpacity>
-          </Link>
-        </View>
-      </View>
+    <View style={[styles.container, { paddingTop: insets.top }]}>
+      <HomeHeader
+        deliveryLocation="Home"
+        notificationCount={2}
+        onLocationPress={handleLocationPress}
+        onNotificationPress={handleNotificationPress}
+      />
+      <ScrollView
+        style={styles.scrollView}
+        showsVerticalScrollIndicator={false}
+      >
+        <SearchBar
+          placeholder="Search the menu"
+          onChangeText={handleSearch}
+        />
+        <CategoriesSlider
+          onCategoryPress={handleCategoryPress}
+          onSeeAllPress={handleSeeAllCategories}
+        />
+      </ScrollView>
     </View>
   );
 }
@@ -33,66 +55,7 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#FFFFFF',
   },
-  content: {
+  scrollView: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 24,
-  },
-  emoji: {
-    fontSize: 80,
-    marginBottom: 24,
-  },
-  title: {
-    fontSize: 32,
-    fontWeight: '700',
-    color: '#1A2B3D',
-    marginBottom: 8,
-    textAlign: 'center',
-  },
-  subtitle: {
-    fontSize: 16,
-    color: '#666666',
-    marginBottom: 16,
-    textAlign: 'center',
-  },
-  description: {
-    fontSize: 15,
-    color: '#999999',
-    textAlign: 'center',
-    lineHeight: 22,
-  },
-  buttons: {
-    width: '100%',
-    marginTop: 40,
-    gap: 12,
-  },
-  primaryButton: {
-    height: 52,
-    borderRadius: 26,
-    backgroundColor: '#F5A623',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  primaryButtonText: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#FFFFFF',
-    letterSpacing: 1,
-  },
-  secondaryButton: {
-    height: 52,
-    borderRadius: 26,
-    borderWidth: 1,
-    borderColor: '#F5A623',
-    backgroundColor: 'transparent',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  secondaryButtonText: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#F5A623',
-    letterSpacing: 1,
   },
 });
