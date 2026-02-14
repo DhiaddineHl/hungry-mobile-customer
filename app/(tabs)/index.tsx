@@ -1,4 +1,5 @@
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { Link } from 'expo-router';
 
 export default function HomeScreen() {
   return (
@@ -10,6 +11,18 @@ export default function HomeScreen() {
         <Text style={styles.description}>
           Start exploring delicious food from your favorite restaurants
         </Text>
+        <View style={styles.buttons}>
+          <Link href="/login" asChild>
+            <TouchableOpacity style={styles.primaryButton}>
+              <Text style={styles.primaryButtonText}>LOG IN</Text>
+            </TouchableOpacity>
+          </Link>
+          <Link href="/signup" asChild>
+            <TouchableOpacity style={styles.secondaryButton}>
+              <Text style={styles.secondaryButtonText}>SIGN UP</Text>
+            </TouchableOpacity>
+          </Link>
+        </View>
       </View>
     </View>
   );
@@ -48,5 +61,38 @@ const styles = StyleSheet.create({
     color: '#999999',
     textAlign: 'center',
     lineHeight: 22,
+  },
+  buttons: {
+    width: '100%',
+    marginTop: 40,
+    gap: 12,
+  },
+  primaryButton: {
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: '#F5A623',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  primaryButtonText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    letterSpacing: 1,
+  },
+  secondaryButton: {
+    height: 52,
+    borderRadius: 26,
+    borderWidth: 1,
+    borderColor: '#F5A623',
+    backgroundColor: 'transparent',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  secondaryButtonText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#F5A623',
+    letterSpacing: 1,
   },
 });
