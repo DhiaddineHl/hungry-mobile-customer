@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { View, StyleSheet, ScrollView } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useRouter } from 'expo-router';
 import {
   HomeHeader,
   SearchBar,
@@ -12,6 +13,7 @@ import {
 
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
+  const router = useRouter();
   const [selectedFilters, setSelectedFilters] = useState<string[]>([]);
 
   const handleLocationPress = () => {
@@ -43,11 +45,11 @@ export default function HomeScreen() {
   };
 
   const handlePopularRestaurantPress = (restaurantId: string) => {
-    console.log('Popular restaurant pressed:', restaurantId);
+    router.push(`/restaurant/${restaurantId}`);
   };
 
   const handleRestaurantPress = (restaurantId: string) => {
-    console.log('Restaurant pressed:', restaurantId);
+    router.push(`/restaurant/${restaurantId}`);
   };
 
   const handleSeeAllRestaurants = () => {
