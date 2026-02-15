@@ -45,6 +45,7 @@ export default function RootLayout() {
         <Stack.Screen name="verification" options={{ headerShown: false }} />
         <Stack.Screen name="location" options={{ headerShown: false }} />
         <Stack.Screen name="restaurant/[id]" options={{ headerShown: false }} />
+        <Stack.Screen name="cart/[id]" options={{ headerShown: false }} />
         <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
       </Stack>
       <StatusBar style="dark" />
