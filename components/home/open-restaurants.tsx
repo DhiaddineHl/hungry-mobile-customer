@@ -1,7 +1,7 @@
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
-import { Image } from 'expo-image';
-import { Heart, ThumbsUp, Clock, Bike, Sparkles, ChevronRight } from 'lucide-react-native';
 import { Fonts } from '@/constants/theme';
+import { Image } from 'expo-image';
+import { ChevronRight, Heart, Motorbike, Sparkles, ThumbsUp, Timer } from 'lucide-react-native';
+import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 interface Restaurant {
   id: string;
@@ -122,11 +122,11 @@ function RestaurantCard({ restaurant, onPress, onFavoritePress }: RestaurantCard
             <Text style={styles.infoText}>{restaurant.rating}</Text>
           </View>
           <View style={styles.infoItem}>
-            <Clock size={14} color="#8A8A8A" />
+            <Timer size={14} color="#8A8A8A" />
             <Text style={styles.infoText}>{restaurant.deliveryTime}</Text>
           </View>
           <View style={styles.infoItem}>
-            <Bike size={14} color={restaurant.isFreeDelivery ? '#4CAF50' : '#8A8A8A'} />
+            <Motorbike size={14} color={restaurant.isFreeDelivery ? '#4CAF50' : '#8A8A8A'} />
             <Text
               style={[
                 styles.infoText,

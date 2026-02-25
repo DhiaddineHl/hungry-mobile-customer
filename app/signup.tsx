@@ -1,19 +1,19 @@
-import { useState } from 'react';
-import { useForm, Controller } from 'react-hook-form';
+import { AuthButton, AuthInput, GoogleButton, PhoneInput } from '@/components/auth';
+import { SignupFormData, signupSchema } from '@/schemas/auth';
 import { zodResolver } from '@hookform/resolvers/zod';
+import { Image } from 'expo-image';
+import { Link, router } from 'expo-router';
+import { useState } from 'react';
+import { Controller, useForm } from 'react-hook-form';
 import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  TouchableOpacity,
   KeyboardAvoidingView,
   Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
-import { Image } from 'expo-image';
-import { Link } from 'expo-router';
-import { AuthInput, AuthButton, GoogleButton, PhoneInput } from '@/components/auth';
-import { signupSchema, SignupFormData } from '@/schemas/auth';
 
 export default function SignupScreen() {
   const [countryCode] = useState('+216');
@@ -36,6 +36,7 @@ export default function SignupScreen() {
 
   const onSubmit = (data: SignupFormData) => {
     console.log('Signup data:', data);
+    router.push('/location')
   };
 
   return (

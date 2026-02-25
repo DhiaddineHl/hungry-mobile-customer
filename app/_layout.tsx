@@ -1,24 +1,29 @@
-import { useEffect } from 'react';
-import { DefaultTheme, ThemeProvider } from '@react-navigation/native';
-import { Stack } from 'expo-router';
-import { StatusBar } from 'expo-status-bar';
-import * as SplashScreen from 'expo-splash-screen';
-import { useFonts } from 'expo-font';
 import {
   Montserrat_400Regular,
   Montserrat_500Medium,
   Montserrat_600SemiBold,
   Montserrat_700Bold,
 } from '@expo-google-fonts/montserrat';
+import { DefaultTheme, ThemeProvider } from '@react-navigation/native';
+import { useFonts } from 'expo-font';
+import { Stack, useRouter } from 'expo-router';
+import * as SplashScreen from 'expo-splash-screen';
+import { StatusBar } from 'expo-status-bar';
+import { useEffect } from 'react';
 import 'react-native-reanimated';
 
 SplashScreen.preventAutoHideAsync();
+
+// TODO: replace with real auth state when auth is implemented
+const isAuthenticated = false;
 
 export const unstable_settings = {
   anchor: '(tabs)',
 };
 
 export default function RootLayout() {
+  const router = useRouter();
+
   const [fontsLoaded, fontError] = useFonts({
     'Montserrat-Regular': Montserrat_400Regular,
     'Montserrat-Medium': Montserrat_500Medium,
@@ -29,6 +34,16 @@ export default function RootLayout() {
   useEffect(() => {
     if (fontsLoaded || fontError) {
       SplashScreen.hideAsync();
+    }
+  }, [fontsLoaded, fontError]);
+
+  useEffect(() => {
+    if (!fontsLoaded && !fontError) return;
+
+    if (isAuthenticated) {
+      router.replace('/(tabs)');
+    } else {
+      router.replace('/login');
     }
   }, [fontsLoaded, fontError]);
 
