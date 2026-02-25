@@ -15,7 +15,7 @@ import 'react-native-reanimated';
 SplashScreen.preventAutoHideAsync();
 
 // TODO: replace with real auth state when auth is implemented
-const isAuthenticated = false;
+const isAuthenticated = true;
 
 export const unstable_settings = {
   anchor: '(tabs)',
