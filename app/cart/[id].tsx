@@ -1,10 +1,10 @@
-import { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { CartItem, CheckoutButton, OrderSummary, SuggestedItems } from '@/components/cart';
+import { Fonts } from '@/constants/theme';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { ArrowLeft, Plus } from 'lucide-react-native';
-import { CartItem, SuggestedItems, OrderSummary, CheckoutButton } from '@/components/cart';
-import { Fonts } from '@/constants/theme';
+import { useState } from 'react';
+import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const CART_ITEMS = [
   {
@@ -86,7 +86,7 @@ export default function RestaurantCartScreen() {
   };
 
   const handleCheckout = () => {
-    console.log('Checkout');
+    router.push(`/order-details/${id}`);
   };
 
   return (
