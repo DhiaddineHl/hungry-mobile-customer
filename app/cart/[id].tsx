@@ -86,7 +86,7 @@ export default function RestaurantCartScreen() {
   };
 
   const handleCheckout = () => {
-    console.log('Checkout');
+    router.push(`/order-details/${id}`);
   };
 
   return (
