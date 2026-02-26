@@ -1,11 +1,11 @@
 import { AuthButton, AuthInput, GoogleButton, PhoneInput } from '@/components/auth';
 import { SignupFormData, signupSchema } from '@/schemas/auth';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { Image } from 'expo-image';
 import { Link, router } from 'expo-router';
 import { useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
 import {
+  ImageBackground,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -36,7 +36,7 @@ export default function SignupScreen() {
 
   const onSubmit = (data: SignupFormData) => {
     console.log('Signup data:', data);
-    router.push('/location')
+    router.push('/location');
   };
 
   return (
@@ -44,157 +44,157 @@ export default function SignupScreen() {
       style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
-      <ScrollView
-        style={styles.scrollView}
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled"
+      <ImageBackground
+        source={require('@/assets/auth-page-upper-section.svg')}
+        style={styles.background}
+        resizeMode="cover"
       >
-        <View style={styles.header}>
-          <Image
-            source={require('@/assets/auth-page-upper-section.svg')}
-            style={styles.headerImage}
-            contentFit="cover"
-          />
-        </View>
+        <ScrollView
+          style={styles.scrollView}
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+        >
+          <View style={styles.backgroundSpacer} />
 
-        <View style={styles.formContainer}>
-          <View style={styles.titleSection}>
-            <Text style={styles.title}>Sign Up to Hungry</Text>
-            <Text style={styles.subtitle}>Hungry? We got you !</Text>
-          </View>
+          <View style={styles.formContainer}>
+            <View style={styles.titleSection}>
+              <Text style={styles.title}>Sign Up to Hungry</Text>
+              <Text style={styles.subtitle}>Hungry? We got you !</Text>
+            </View>
 
-          <View style={styles.form}>
-            <View style={styles.nameRow}>
-              <View style={styles.nameField}>
-                <Controller
-                  control={control}
-                  name="firstName"
-                  render={({ field: { onChange, onBlur, value } }) => (
-                    <AuthInput
-                      label="First Name"
-                      placeholder="First Name"
-                      value={value}
-                      onChangeText={onChange}
-                      onBlur={onBlur}
-                      error={errors.firstName?.message}
-                      autoCapitalize="words"
-                    />
-                  )}
-                />
+            <View style={styles.form}>
+              <View style={styles.nameRow}>
+                <View style={styles.nameField}>
+                  <Controller
+                    control={control}
+                    name="firstName"
+                    render={({ field: { onChange, onBlur, value } }) => (
+                      <AuthInput
+                        label="First Name"
+                        placeholder="First Name"
+                        value={value}
+                        onChangeText={onChange}
+                        onBlur={onBlur}
+                        error={errors.firstName?.message}
+                        autoCapitalize="words"
+                      />
+                    )}
+                  />
+                </View>
+                <View style={styles.nameField}>
+                  <Controller
+                    control={control}
+                    name="lastName"
+                    render={({ field: { onChange, onBlur, value } }) => (
+                      <AuthInput
+                        label="Last Name"
+                        placeholder="Last Name"
+                        value={value}
+                        onChangeText={onChange}
+                        onBlur={onBlur}
+                        error={errors.lastName?.message}
+                        autoCapitalize="words"
+                      />
+                    )}
+                  />
+                </View>
               </View>
-              <View style={styles.nameField}>
-                <Controller
-                  control={control}
-                  name="lastName"
-                  render={({ field: { onChange, onBlur, value } }) => (
-                    <AuthInput
-                      label="Last Name"
-                      placeholder="Last Name"
-                      value={value}
-                      onChangeText={onChange}
-                      onBlur={onBlur}
-                      error={errors.lastName?.message}
-                      autoCapitalize="words"
-                    />
-                  )}
-                />
+
+              <Controller
+                control={control}
+                name="phoneNumber"
+                render={({ field: { onChange, value } }) => (
+                  <PhoneInput
+                    label="Phone Number"
+                    value={value}
+                    onChangeText={onChange}
+                    countryCode={countryCode}
+                    error={errors.phoneNumber?.message}
+                  />
+                )}
+              />
+
+              <Controller
+                control={control}
+                name="email"
+                render={({ field: { onChange, onBlur, value } }) => (
+                  <AuthInput
+                    label="Email"
+                    placeholder="Email"
+                    value={value}
+                    onChangeText={onChange}
+                    onBlur={onBlur}
+                    error={errors.email?.message}
+                    keyboardType="email-address"
+                    autoCapitalize="none"
+                  />
+                )}
+              />
+
+              <Controller
+                control={control}
+                name="password"
+                render={({ field: { onChange, onBlur, value } }) => (
+                  <AuthInput
+                    label="Password"
+                    placeholder="Password"
+                    value={value}
+                    onChangeText={onChange}
+                    onBlur={onBlur}
+                    error={errors.password?.message}
+                    isPassword
+                  />
+                )}
+              />
+
+              <Controller
+                control={control}
+                name="confirmPassword"
+                render={({ field: { onChange, onBlur, value } }) => (
+                  <AuthInput
+                    label="Verify Password"
+                    placeholder="Password"
+                    value={value}
+                    onChangeText={onChange}
+                    onBlur={onBlur}
+                    error={errors.confirmPassword?.message}
+                    isPassword
+                  />
+                )}
+              />
+
+              <AuthButton
+                title="SIGN UP"
+                onPress={handleSubmit(onSubmit)}
+                style={styles.submitButton}
+              />
+
+              <View style={styles.loginRow}>
+                <Text style={styles.loginText}>Already have an account ? </Text>
+                <Link href="/login" asChild>
+                  <TouchableOpacity>
+                    <Text style={styles.loginLink}>LOGIN</Text>
+                  </TouchableOpacity>
+                </Link>
               </View>
+
+              <View style={styles.dividerRow}>
+                <Text style={styles.dividerText}>Or</Text>
+              </View>
+
+              <GoogleButton onPress={() => console.log('Google signup')} />
+
+              <Text style={styles.termsText}>
+                By continuing, you automatically accept our{' '}
+                <Text style={styles.termsLink}>Terms & Conditions</Text>,{' '}
+                <Text style={styles.termsLink}>Privacy Policy</Text> and{' '}
+                <Text style={styles.termsLink}>Cookies policy</Text>.
+              </Text>
             </View>
-
-            <Controller
-              control={control}
-              name="phoneNumber"
-              render={({ field: { onChange, value } }) => (
-                <PhoneInput
-                  label="Phone Number"
-                  value={value}
-                  onChangeText={onChange}
-                  countryCode={countryCode}
-                  error={errors.phoneNumber?.message}
-                />
-              )}
-            />
-
-            <Controller
-              control={control}
-              name="email"
-              render={({ field: { onChange, onBlur, value } }) => (
-                <AuthInput
-                  label="Email"
-                  placeholder="Email"
-                  value={value}
-                  onChangeText={onChange}
-                  onBlur={onBlur}
-                  error={errors.email?.message}
-                  keyboardType="email-address"
-                  autoCapitalize="none"
-                />
-              )}
-            />
-
-            <Controller
-              control={control}
-              name="password"
-              render={({ field: { onChange, onBlur, value } }) => (
-                <AuthInput
-                  label="Password"
-                  placeholder="Password"
-                  value={value}
-                  onChangeText={onChange}
-                  onBlur={onBlur}
-                  error={errors.password?.message}
-                  isPassword
-                />
-              )}
-            />
-
-            <Controller
-              control={control}
-              name="confirmPassword"
-              render={({ field: { onChange, onBlur, value } }) => (
-                <AuthInput
-                  label="Verify Password"
-                  placeholder="Password"
-                  value={value}
-                  onChangeText={onChange}
-                  onBlur={onBlur}
-                  error={errors.confirmPassword?.message}
-                  isPassword
-                />
-              )}
-            />
-
-            <AuthButton
-              title="SIGN UP"
-              onPress={handleSubmit(onSubmit)}
-              style={styles.submitButton}
-            />
-
-            <View style={styles.loginRow}>
-              <Text style={styles.loginText}>Already have an account ? </Text>
-              <Link href="/login" asChild>
-                <TouchableOpacity>
-                  <Text style={styles.loginLink}>LOGIN</Text>
-                </TouchableOpacity>
-              </Link>
-            </View>
-
-            <View style={styles.dividerRow}>
-              <Text style={styles.dividerText}>Or</Text>
-            </View>
-
-            <GoogleButton onPress={() => console.log('Google signup')} />
-
-            <Text style={styles.termsText}>
-              By continuing, you automatically accept our{' '}
-              <Text style={styles.termsLink}>Terms & Conditions</Text>,{' '}
-              <Text style={styles.termsLink}>Privacy Policy</Text> and{' '}
-              <Text style={styles.termsLink}>Cookies policy</Text>.
-            </Text>
           </View>
-        </View>
-      </ScrollView>
+        </ScrollView>
+      </ImageBackground>
     </KeyboardAvoidingView>
   );
 }
@@ -204,26 +204,23 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#FFFFFF',
   },
+  background: {
+    flex: 1,
+  },
   scrollView: {
     flex: 1,
   },
   scrollContent: {
     flexGrow: 1,
   },
-  header: {
-    height: 260,
-    width: '100%',
-  },
-  headerImage: {
-    width: '100%',
-    height: '100%',
+  backgroundSpacer: {
+    height: 200,
   },
   formContainer: {
     flex: 1,
     backgroundColor: '#FFFFFF',
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
-    marginTop: -24,
     paddingHorizontal: 24,
     paddingTop: 32,
     paddingBottom: 24,
