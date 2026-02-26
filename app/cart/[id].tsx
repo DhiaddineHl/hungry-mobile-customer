@@ -86,7 +86,10 @@ export default function RestaurantCartScreen() {
   };
 
   const handleCheckout = () => {
-    router.push(`/order-details/${id}`);
+    router.push({
+      pathname: '/order-details/[id]',
+      params: { id },
+    });
   };
 
   return (

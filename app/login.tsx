@@ -8,8 +8,8 @@ import {
   TouchableOpacity,
   KeyboardAvoidingView,
   Platform,
+  ImageBackground,
 } from 'react-native';
-import { Image } from 'expo-image';
 import { Link } from 'expo-router';
 import { AuthInput, AuthButton, GoogleButton } from '@/components/auth';
 import { loginSchema, LoginFormData } from '@/schemas/auth';
@@ -36,94 +36,94 @@ export default function LoginScreen() {
       style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
-      <ScrollView
-        style={styles.scrollView}
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled"
+      <ImageBackground
+        source={require('@/assets/auth-page-upper-section.svg')}
+        style={styles.background}
+        resizeMode="cover"
       >
-        <View style={styles.header}>
-          <Image
-            source={require('@/assets/auth-page-upper-section.svg')}
-            style={styles.headerImage}
-            contentFit="cover"
-          />
-        </View>
+        <ScrollView
+          style={styles.scrollView}
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+        >
+          <View style={styles.backgroundSpacer} />
 
-        <View style={styles.formContainer}>
-          <View style={styles.titleSection}>
-            <Text style={styles.title}>Welcome !</Text>
-            <Text style={styles.subtitle}>Hungry? We got you !</Text>
-          </View>
-
-          <View style={styles.form}>
-            <Controller
-              control={control}
-              name="email"
-              render={({ field: { onChange, onBlur, value } }) => (
-                <AuthInput
-                  label="Email"
-                  placeholder="Email"
-                  value={value}
-                  onChangeText={onChange}
-                  onBlur={onBlur}
-                  error={errors.email?.message}
-                  keyboardType="email-address"
-                  autoCapitalize="none"
-                />
-              )}
-            />
-
-            <Controller
-              control={control}
-              name="password"
-              render={({ field: { onChange, onBlur, value } }) => (
-                <AuthInput
-                  label="Password"
-                  placeholder="Password"
-                  value={value}
-                  onChangeText={onChange}
-                  onBlur={onBlur}
-                  error={errors.password?.message}
-                  isPassword
-                />
-              )}
-            />
-
-            <TouchableOpacity style={styles.forgotPassword}>
-              <Text style={styles.forgotPasswordText}>Forgot Password</Text>
-            </TouchableOpacity>
-
-            <AuthButton
-              title="LOG IN"
-              onPress={handleSubmit(onSubmit)}
-              style={styles.submitButton}
-            />
-
-            <View style={styles.signupRow}>
-              <Text style={styles.signupText}>{"Don't have an account? "}</Text>
-              <Link href="/signup" asChild>
-                <TouchableOpacity>
-                  <Text style={styles.signupLink}>SIGN UP</Text>
-                </TouchableOpacity>
-              </Link>
+          <View style={styles.formContainer}>
+            <View style={styles.titleSection}>
+              <Text style={styles.title}>Welcome !</Text>
+              <Text style={styles.subtitle}>Hungry? We got you !</Text>
             </View>
 
-            <View style={styles.dividerRow}>
-              <Text style={styles.dividerText}>Or</Text>
+            <View style={styles.form}>
+              <Controller
+                control={control}
+                name="email"
+                render={({ field: { onChange, onBlur, value } }) => (
+                  <AuthInput
+                    label="Email"
+                    placeholder="Email"
+                    value={value}
+                    onChangeText={onChange}
+                    onBlur={onBlur}
+                    error={errors.email?.message}
+                    keyboardType="email-address"
+                    autoCapitalize="none"
+                  />
+                )}
+              />
+
+              <Controller
+                control={control}
+                name="password"
+                render={({ field: { onChange, onBlur, value } }) => (
+                  <AuthInput
+                    label="Password"
+                    placeholder="Password"
+                    value={value}
+                    onChangeText={onChange}
+                    onBlur={onBlur}
+                    error={errors.password?.message}
+                    isPassword
+                  />
+                )}
+              />
+
+              <TouchableOpacity style={styles.forgotPassword}>
+                <Text style={styles.forgotPasswordText}>Forgot Password</Text>
+              </TouchableOpacity>
+
+              <AuthButton
+                title="LOG IN"
+                onPress={handleSubmit(onSubmit)}
+                style={styles.submitButton}
+              />
+
+              <View style={styles.signupRow}>
+                <Text style={styles.signupText}>{"Don't have an account? "}</Text>
+                <Link href="/signup" asChild>
+                  <TouchableOpacity>
+                    <Text style={styles.signupLink}>SIGN UP</Text>
+                  </TouchableOpacity>
+                </Link>
+              </View>
+
+              <View style={styles.dividerRow}>
+                <Text style={styles.dividerText}>Or</Text>
+              </View>
+
+              <GoogleButton onPress={() => console.log('Google login')} />
+
+              <Text style={styles.termsText}>
+                By continuing, you automatically accept our{' '}
+                <Text style={styles.termsLink}>Terms & Conditions</Text>,{' '}
+                <Text style={styles.termsLink}>Privacy Policy</Text> and{' '}
+                <Text style={styles.termsLink}>Cookies policy</Text>.
+              </Text>
             </View>
-
-            <GoogleButton onPress={() => console.log('Google login')} />
-
-            <Text style={styles.termsText}>
-              By continuing, you automatically accept our{' '}
-              <Text style={styles.termsLink}>Terms & Conditions</Text>,{' '}
-              <Text style={styles.termsLink}>Privacy Policy</Text> and{' '}
-              <Text style={styles.termsLink}>Cookies policy</Text>.
-            </Text>
           </View>
-        </View>
-      </ScrollView>
+        </ScrollView>
+      </ImageBackground>
     </KeyboardAvoidingView>
   );
 }
@@ -133,26 +133,23 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#FFFFFF',
   },
+  background: {
+    flex: 1,
+  },
   scrollView: {
     flex: 1,
   },
   scrollContent: {
     flexGrow: 1,
   },
-  header: {
-    height: 260,
-    width: '100%',
-  },
-  headerImage: {
-    width: '100%',
-    height: '100%',
+  backgroundSpacer: {
+    height: 240,
   },
   formContainer: {
     flex: 1,
     backgroundColor: '#FFFFFF',
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
-    marginTop: -24,
     paddingHorizontal: 24,
     paddingTop: 32,
     paddingBottom: 24,
