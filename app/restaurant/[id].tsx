@@ -175,7 +175,7 @@ export default function RestaurantDetailsScreen() {
   };
 
   const handleProductPress = (productId: string) => {
-    console.log('Product pressed:', productId);
+    router.push(`/food/${productId}`);
   };
 
   return (
