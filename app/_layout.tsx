@@ -61,7 +61,8 @@ export default function RootLayout() {
         <Stack.Screen name="location" options={{ headerShown: false }} />
         <Stack.Screen name="map-select" options={{ headerShown: false }} />
         <Stack.Screen name="address-info" options={{ headerShown: false }} />
-        <Stack.Screen name="restaurant/[id]" options={{ headerShown: false }} />
+        <Stack.Screen name="restaurant/[id]/index" options={{ headerShown: false }} />
+        <Stack.Screen name="restaurant/[id]/info" options={{ headerShown: false, presentation: 'modal' }} />
         <Stack.Screen name="food/[id]" options={{ headerShown: false }} />
         <Stack.Screen name="cart/[id]" options={{ headerShown: false }} />
         <Stack.Screen name="order-details/[id]" options={{ headerShown: false }} />

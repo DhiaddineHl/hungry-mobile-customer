@@ -23,6 +23,8 @@ interface RestaurantHeaderProps {
   onBackPress?: () => void;
   onFavoritePress?: () => void;
   onMorePress?: () => void;
+  onOpenPress?: () => void;
+  onNamePress?: () => void;
 }
 
 export function RestaurantHeader({
@@ -44,6 +46,8 @@ export function RestaurantHeader({
   onBackPress,
   onFavoritePress,
   onMorePress,
+  onOpenPress,
+  onNamePress,
 }: RestaurantHeaderProps) {
   const insets = useSafeAreaInsets();
 
@@ -99,11 +103,13 @@ export function RestaurantHeader({
 
       <View style={styles.infoContainer}>
         <View style={styles.nameRow}>
-          <Text style={styles.restaurantName}>{name}</Text>
+          <TouchableOpacity onPress={onNamePress}>
+            <Text style={styles.restaurantName}>{name}</Text>
+          </TouchableOpacity>
           <Text style={styles.distance}>{distance}</Text>
         </View>
 
-        <TouchableOpacity style={styles.statusRow}>
+        <TouchableOpacity style={styles.statusRow} onPress={onOpenPress}>
           <Text style={[styles.statusText, isOpen ? styles.openText : styles.closedText]}>
             {isOpen ? 'Open' : 'Closed'}
           </Text>
@@ -263,6 +269,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 4,
     marginBottom: 12,
+    alignSelf: 'flex-start',
   },
   statusText: {
     fontSize: 14,
