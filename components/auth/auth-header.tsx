@@ -1,12 +1,13 @@
-import { View, StyleSheet, Image } from 'react-native';
+import { View, StyleSheet } from 'react-native';
+import AuthPageUpperSection from '@/assets/auth-page-upper-section.svg';
 
 export function AuthHeader() {
   return (
     <View style={styles.container}>
-      <Image
-        source={require('@/assets/auth-page-upper-section.svg')}
-        style={styles.image}
-        resizeMode="cover"
+      <AuthPageUpperSection
+        width="100%"
+        height="100%"
+        preserveAspectRatio="xMidYMid slice"
       />
     </View>
   );
@@ -17,9 +18,5 @@ const styles = StyleSheet.create({
     height: 280,
     width: '100%',
     overflow: 'hidden',
-  },
-  image: {
-    width: '100%',
-    height: '100%',
   },
 });

@@ -1,7 +1,7 @@
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
-import { Image } from 'expo-image';
 import { ChevronDown, Bell } from 'lucide-react-native';
 import { Fonts } from '@/constants/theme';
+import LogoHungry from '@/assets/logo-hungry.svg';
 
 interface HomeHeaderProps {
   deliveryLocation?: string;
@@ -27,11 +27,7 @@ export function HomeHeader({
       </TouchableOpacity>
 
       <View style={styles.logoContainer}>
-        <Image
-          source={require('@/assets/logo-hungry.svg')}
-          style={styles.logo}
-          contentFit="contain"
-        />
+        <LogoHungry width={100} height={32} />
       </View>
 
       <TouchableOpacity style={styles.notificationContainer} onPress={onNotificationPress}>
@@ -78,10 +74,6 @@ const styles = StyleSheet.create({
   logoContainer: {
     flex: 1,
     alignItems: 'center',
-  },
-  logo: {
-    width: 100,
-    height: 32,
   },
   notificationContainer: {
     flex: 1,

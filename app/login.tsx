@@ -8,11 +8,11 @@ import {
   TouchableOpacity,
   KeyboardAvoidingView,
   Platform,
-  ImageBackground,
 } from 'react-native';
 import { Link } from 'expo-router';
 import { AuthInput, AuthButton, GoogleButton } from '@/components/auth';
 import { loginSchema, LoginFormData } from '@/schemas/auth';
+import AuthPageUpperSection from '@/assets/auth-page-upper-section.svg';
 
 export default function LoginScreen() {
   const {
@@ -36,20 +36,20 @@ export default function LoginScreen() {
       style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
-      <ImageBackground
-        source={require('@/assets/auth-page-upper-section.svg')}
-        style={styles.background}
-        resizeMode="cover"
+      <AuthPageUpperSection
+        width="100%"
+        style={styles.svgBackground}
+        preserveAspectRatio="xMidYMid slice"
+      />
+      <ScrollView
+        style={styles.scrollView}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
       >
-        <ScrollView
-          style={styles.scrollView}
-          contentContainerStyle={styles.scrollContent}
-          showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled"
-        >
-          <View style={styles.backgroundSpacer} />
+        <View style={styles.backgroundSpacer} />
 
-          <View style={styles.formContainer}>
+        <View style={styles.formContainer}>
             <View style={styles.titleSection}>
               <Text style={styles.title}>Welcome !</Text>
               <Text style={styles.subtitle}>Hungry? We got you !</Text>
@@ -122,8 +122,7 @@ export default function LoginScreen() {
               </Text>
             </View>
           </View>
-        </ScrollView>
-      </ImageBackground>
+      </ScrollView>
     </KeyboardAvoidingView>
   );
 }
@@ -133,8 +132,11 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#FFFFFF',
   },
-  background: {
-    flex: 1,
+  svgBackground: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
   },
   scrollView: {
     flex: 1,

@@ -9,8 +9,8 @@ import {
   Platform,
   ScrollView,
 } from 'react-native';
-import { Image } from 'expo-image';
 import { useLocalSearchParams } from 'expo-router';
+import VerificationUpperSection from '@/assets/verification-upper-section.svg';
 import { AuthButton } from '@/components/auth';
 
 const CODE_LENGTH = 4;
@@ -72,10 +72,10 @@ export default function VerificationScreen() {
         keyboardShouldPersistTaps="handled"
       >
         <View style={styles.header}>
-          <Image
-            source={require('@/assets/verification-upper-section.svg')}
+          <VerificationUpperSection
+            width="100%"
             style={styles.headerImage}
-            contentFit="cover"
+            preserveAspectRatio="xMidYMid slice"
           />
           <View style={styles.headerContent}>
             <Text style={styles.headerTitle}>Verification</Text>
@@ -149,8 +149,6 @@ const styles = StyleSheet.create({
     position: 'relative',
   },
   headerImage: {
-    width: '100%',
-    height: '100%',
     position: 'absolute',
   },
   headerContent: {

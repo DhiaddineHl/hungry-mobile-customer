@@ -5,7 +5,6 @@ import { Link, router } from 'expo-router';
 import { useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
 import {
-  ImageBackground,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -14,6 +13,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import AuthPageUpperSection from '@/assets/auth-page-upper-section.svg';
 
 export default function SignupScreen() {
   const [countryCode] = useState('+216');
@@ -44,12 +44,12 @@ export default function SignupScreen() {
       style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
-      <ImageBackground
-        source={require('@/assets/auth-page-upper-section.svg')}
-        style={styles.background}
-        resizeMode="cover"
-      >
-        <ScrollView
+      <AuthPageUpperSection
+        width="100%"
+        style={styles.svgBackground}
+        preserveAspectRatio="xMidYMid slice"
+      />
+      <ScrollView
           style={styles.scrollView}
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
@@ -193,8 +193,7 @@ export default function SignupScreen() {
               </Text>
             </View>
           </View>
-        </ScrollView>
-      </ImageBackground>
+      </ScrollView>
     </KeyboardAvoidingView>
   );
 }
@@ -204,8 +203,11 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#FFFFFF',
   },
-  background: {
-    flex: 1,
+  svgBackground: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
   },
   scrollView: {
     flex: 1,

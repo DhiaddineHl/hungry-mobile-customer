@@ -1,6 +1,6 @@
-import { View, TouchableOpacity, StyleSheet } from 'react-native';
 import { BottomTabBarProps } from '@react-navigation/bottom-tabs';
-import { Home, Heart, ShoppingCart, User } from 'lucide-react-native';
+import { Heart, Home, ShoppingCart, User } from 'lucide-react-native';
+import { StyleSheet, TouchableOpacity, View } from 'react-native';
 
 const TAB_ICONS = {
   index: Home,
@@ -88,8 +88,8 @@ export function CustomTabBar({ state, descriptors, navigation }: BottomTabBarPro
 const styles = StyleSheet.create({
   container: {
     backgroundColor: '#FFFFFF',
-    paddingBottom: 20,
-    paddingTop: 8,
+    paddingBottom: 12,
+    paddingTop: 6,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     shadowColor: '#000000',
@@ -108,12 +108,12 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 8,
+    paddingVertical: 4,
   },
   iconContainer: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     alignItems: 'center',
     justifyContent: 'center',
     position: 'relative',

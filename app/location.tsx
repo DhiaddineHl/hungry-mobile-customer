@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Platform } from 'react-native';
-import { Image } from 'expo-image';
 import { MapPin } from 'lucide-react-native';
+import LocalisationLogo from '@/assets/localisation-logo.svg';
 import { useRouter } from 'expo-router';
 import * as Location from 'expo-location';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -64,11 +64,7 @@ export default function LocationScreen() {
     <View style={[styles.container, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
       <View style={styles.content}>
         <View style={styles.imageContainer}>
-          <Image
-            source={require('@/assets/localisation-logo.svg')}
-            style={styles.image}
-            contentFit="contain"
-          />
+          <LocalisationLogo width={240} height={240} />
         </View>
 
         {error && (
@@ -113,13 +109,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 32,
   },
   imageContainer: {
-    width: 240,
-    height: 240,
     marginBottom: 48,
-  },
-  image: {
-    width: '100%',
-    height: '100%',
   },
   errorContainer: {
     backgroundColor: '#FFF3CD',

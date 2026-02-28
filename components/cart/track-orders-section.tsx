@@ -1,17 +1,13 @@
 import { View, Text, StyleSheet } from 'react-native';
-import { Image } from 'expo-image';
 import { Fonts } from '@/constants/theme';
+import DriverLogo from '@/assets/driver-logo.svg';
 
 export function TrackOrdersSection() {
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Track your orders</Text>
       <View style={styles.imageContainer}>
-        <Image
-          source={require('@/assets/driver-logo.svg')}
-          style={styles.image}
-          contentFit="contain"
-        />
+        <DriverLogo width={240} height={200} />
       </View>
       <Text style={styles.description}>Track the orders you placed here</Text>
     </View>
@@ -32,13 +28,7 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   imageContainer: {
-    width: 240,
-    height: 200,
     marginBottom: 16,
-  },
-  image: {
-    width: '100%',
-    height: '100%',
   },
   description: {
     fontSize: 14,
