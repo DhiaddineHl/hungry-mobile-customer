@@ -1,9 +1,10 @@
-import { View, Text, StyleSheet, TouchableOpacity, Clipboard } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Clipboard, Platform } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MapPin, Clock, ThumbsUp, TriangleAlert, Phone, Mail, Copy, ChevronDown, ArrowLeft } from 'lucide-react-native';
 import { Fonts } from '@/constants/theme';
 import { MapPlaceholder } from '@/components/location/map-placeholder';
+import MapView, { Marker } from 'react-native-maps';
 
 const RESTAURANT_INFO = {
   name: 'Tacoth',
@@ -28,7 +29,35 @@ export default function RestaurantInfoModal() {
   return (
     <View style={styles.container}>
       <View style={styles.mapContainer}>
-        <MapPlaceholder />
+        {Platform.OS !== 'web' ? (
+          <MapView
+            style={styles.map}
+            initialRegion={{
+              latitude: RESTAURANT_INFO.coordinates.latitude,
+              longitude: RESTAURANT_INFO.coordinates.longitude,
+              latitudeDelta: 0.005,
+              longitudeDelta: 0.005,
+            }}
+            scrollEnabled={false}
+            zoomEnabled={false}
+            pitchEnabled={false}
+            rotateEnabled={false}
+          >
+            <Marker
+              coordinate={RESTAURANT_INFO.coordinates}
+              anchor={{ x: 0.5, y: 1 }}
+            >
+              <View style={styles.markerContainer}>
+                <View style={styles.markerPin}>
+                  <View style={styles.markerPinInner} />
+                </View>
+                <View style={styles.markerStem} />
+              </View>
+            </Marker>
+          </MapView>
+        ) : (
+          <MapPlaceholder />
+        )}
         <TouchableOpacity
           style={[styles.backBtn, { top: insets.top + 8 }]}
           onPress={() => router.back()}
@@ -101,6 +130,38 @@ const styles = StyleSheet.create({
   mapContainer: {
     height: '38%',
     position: 'relative',
+  },
+  map: {
+    flex: 1,
+  },
+  markerContainer: {
+    alignItems: 'center',
+  },
+  markerPin: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#F5A623',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 5,
+  },
+  markerPinInner: {
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    backgroundColor: '#FFFFFF',
+  },
+  markerStem: {
+    width: 3,
+    height: 10,
+    backgroundColor: '#F5A623',
+    borderBottomLeftRadius: 2,
+    borderBottomRightRadius: 2,
   },
   backBtn: {
     position: 'absolute',
