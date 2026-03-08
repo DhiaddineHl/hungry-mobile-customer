@@ -1,3 +1,4 @@
+import AuthPageUpperSection from '@/assets/auth-page-upper-section.svg';
 import { AuthButton, AuthInput, GoogleButton, PhoneInput } from '@/components/auth';
 import { SignupFormData, signupSchema } from '@/schemas/auth';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -13,7 +14,6 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import AuthPageUpperSection from '@/assets/auth-page-upper-section.svg';
 
 export default function SignupScreen() {
   const [countryCode] = useState('+216');
@@ -36,7 +36,7 @@ export default function SignupScreen() {
 
   const onSubmit = (data: SignupFormData) => {
     console.log('Signup data:', data);
-    router.push('/location');
+    router.push('/verification');
   };
 
   return (

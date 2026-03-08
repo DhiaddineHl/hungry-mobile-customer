@@ -1,6 +1,6 @@
-import { View, Text, StyleSheet, ScrollView } from 'react-native';
 import { BottomSheet } from '@/components/ui/bottom-sheet';
 import { Fonts } from '@/constants/theme';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
 interface Timing {
   day: string;

@@ -1,9 +1,9 @@
-import { useState } from 'react';
-import { View, StyleSheet, ScrollView } from 'react-native';
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import { RestaurantHeader, MenuFilterTabs, MenuSection } from '@/components/restaurant';
 import { SearchBar } from '@/components/home';
+import { MenuFilterTabs, MenuSection, RestaurantHeader } from '@/components/restaurant';
 import { TimingsModal } from '@/components/restaurant/timings-modal';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useState } from 'react';
+import { Platform, ScrollView, StatusBar, StyleSheet, View } from 'react-native';
 
 const RESTAURANT_DATA = {
   id: '1',
@@ -135,14 +135,14 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    paddingBottom: 40,
+    paddingBottom: 30,
   },
   stickyHeader: {
+    paddingTop: StatusBar.currentHeight,
     backgroundColor: '#FFFFFF',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
+    shadowOffset: { width: 0, height: Platform.OS === 'ios' ? 1 : 0 },
     shadowOpacity: 0.06,
-    shadowRadius: 4,
-    elevation: 3,
+    shadowRadius: 4
   },
 });

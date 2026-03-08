@@ -1,17 +1,17 @@
-import { useState, useRef, useEffect } from 'react';
+import VerificationUpperSection from '@/assets/verification-upper-section.svg';
+import { AuthButton } from '@/components/auth';
+import { router, useLocalSearchParams } from 'expo-router';
+import { useEffect, useRef, useState } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  TextInput,
-  TouchableOpacity,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
-import { useLocalSearchParams } from 'expo-router';
-import VerificationUpperSection from '@/assets/verification-upper-section.svg';
-import { AuthButton } from '@/components/auth';
 
 const CODE_LENGTH = 4;
 
@@ -56,6 +56,7 @@ export default function VerificationScreen() {
   const handleVerify = () => {
     const fullCode = code.join('');
     console.log('Verifying code:', fullCode);
+    router.push('/location');
   };
 
   const displayEmail = email || 'ahmad.hamadi@gmail.com';
