@@ -10,11 +10,18 @@ import {
   Platform,
 } from 'react-native';
 import { Link } from 'expo-router';
+import { useState } from 'react';
 import { AuthInput, AuthButton, GoogleButton } from '@/components/auth';
 import { loginSchema, LoginFormData } from '@/schemas/auth';
+import { useAuth } from '@/contexts/auth-context';
 import AuthPageUpperSection from '@/assets/auth-page-upper-section.svg';
 
 export default function LoginScreen() {
+  const { login, loginWithGoogle } = useAuth();
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isGoogleLoading, setIsGoogleLoading] = useState(false);
+
   const {
     control,
     handleSubmit,
@@ -27,8 +34,30 @@ export default function LoginScreen() {
     },
   });
 
-  const onSubmit = (data: LoginFormData) => {
-    console.log('Login data:', data);
+  const onSubmit = async (data: LoginFormData) => {
+    setAuthError(null);
+    setIsSubmitting(true);
+    try {
+      const result = await login(data.email, data.password);
+      if (!result.success) {
+        setAuthError(result.error ?? 'Login failed');
+      }
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleGoogleLogin = async () => {
+    setAuthError(null);
+    setIsGoogleLoading(true);
+    try {
+      const result = await loginWithGoogle();
+      if (!result.success && result.error !== 'Google login was cancelled') {
+        setAuthError(result.error ?? 'Google login failed');
+      }
+    } finally {
+      setIsGoogleLoading(false);
+    }
   };
 
   return (
@@ -56,6 +85,12 @@ export default function LoginScreen() {
             </View>
 
             <View style={styles.form}>
+              {authError && (
+                <View style={styles.errorBanner}>
+                  <Text style={styles.errorBannerText}>{authError}</Text>
+                </View>
+              )}
+
               <Controller
                 control={control}
                 name="email"
@@ -96,6 +131,8 @@ export default function LoginScreen() {
               <AuthButton
                 title="LOG IN"
                 onPress={handleSubmit(onSubmit)}
+                loading={isSubmitting}
+                disabled={isSubmitting || isGoogleLoading}
                 style={styles.submitButton}
               />
 
@@ -112,7 +149,7 @@ export default function LoginScreen() {
                 <Text style={styles.dividerText}>Or</Text>
               </View>
 
-              <GoogleButton onPress={() => console.log('Google login')} />
+              <GoogleButton onPress={handleGoogleLogin} loading={isGoogleLoading} />
 
               <Text style={styles.termsText}>
                 By continuing, you automatically accept our{' '}
@@ -172,6 +209,20 @@ const styles = StyleSheet.create({
   },
   form: {
     flex: 1,
+  },
+  errorBanner: {
+    backgroundColor: '#FEF2F2',
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#FECACA',
+  },
+  errorBannerText: {
+    color: '#DC2626',
+    fontSize: 14,
+    textAlign: 'center' as const,
+    fontWeight: '500' as const,
   },
   forgotPassword: {
     alignSelf: 'flex-end',

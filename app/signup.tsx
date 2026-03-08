@@ -1,7 +1,8 @@
 import { AuthButton, AuthInput, GoogleButton, PhoneInput } from '@/components/auth';
 import { SignupFormData, signupSchema } from '@/schemas/auth';
+import { useAuth } from '@/contexts/auth-context';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { Link, router } from 'expo-router';
+import { Link } from 'expo-router';
 import { useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
 import {
@@ -16,7 +17,11 @@ import {
 import AuthPageUpperSection from '@/assets/auth-page-upper-section.svg';
 
 export default function SignupScreen() {
+  const { register: registerUser, loginWithGoogle } = useAuth();
   const [countryCode] = useState('+216');
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isGoogleLoading, setIsGoogleLoading] = useState(false);
 
   const {
     control,
@@ -34,9 +39,36 @@ export default function SignupScreen() {
     },
   });
 
-  const onSubmit = (data: SignupFormData) => {
-    console.log('Signup data:', data);
-    router.push('/location');
+  const onSubmit = async (data: SignupFormData) => {
+    setAuthError(null);
+    setIsSubmitting(true);
+    try {
+      const result = await registerUser(
+        data.firstName,
+        data.lastName,
+        data.email,
+        data.password,
+        `${countryCode}${data.phoneNumber}`
+      );
+      if (!result.success) {
+        setAuthError(result.error ?? 'Registration failed');
+      }
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleGoogleSignup = async () => {
+    setAuthError(null);
+    setIsGoogleLoading(true);
+    try {
+      const result = await loginWithGoogle();
+      if (!result.success && result.error !== 'Google login was cancelled') {
+        setAuthError(result.error ?? 'Google signup failed');
+      }
+    } finally {
+      setIsGoogleLoading(false);
+    }
   };
 
   return (
@@ -64,6 +96,12 @@ export default function SignupScreen() {
             </View>
 
             <View style={styles.form}>
+              {authError && (
+                <View style={styles.errorBanner}>
+                  <Text style={styles.errorBannerText}>{authError}</Text>
+                </View>
+              )}
+
               <View style={styles.nameRow}>
                 <View style={styles.nameField}>
                   <Controller
@@ -167,6 +205,8 @@ export default function SignupScreen() {
               <AuthButton
                 title="SIGN UP"
                 onPress={handleSubmit(onSubmit)}
+                loading={isSubmitting}
+                disabled={isSubmitting || isGoogleLoading}
                 style={styles.submitButton}
               />
 
@@ -183,7 +223,7 @@ export default function SignupScreen() {
                 <Text style={styles.dividerText}>Or</Text>
               </View>
 
-              <GoogleButton onPress={() => console.log('Google signup')} />
+              <GoogleButton onPress={handleGoogleSignup} loading={isGoogleLoading} />
 
               <Text style={styles.termsText}>
                 By continuing, you automatically accept our{' '}
@@ -243,6 +283,20 @@ const styles = StyleSheet.create({
   },
   form: {
     flex: 1,
+  },
+  errorBanner: {
+    backgroundColor: '#FEF2F2',
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#FECACA',
+  },
+  errorBannerText: {
+    color: '#DC2626',
+    fontSize: 14,
+    textAlign: 'center' as const,
+    fontWeight: '500' as const,
   },
   nameRow: {
     flexDirection: 'row',
