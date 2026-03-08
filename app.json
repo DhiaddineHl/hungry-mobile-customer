@@ -53,7 +53,8 @@
           "locationWhenInUsePermission": "Allow Hungry to use your location while using the app.",
           "locationAlwaysAndWhenInUsePermission": "Allow Hungry to use your location."
         }
-      ]
+      ],
+      "expo-secure-store"
     ],
     "experiments": {
       "typedRoutes": true,

@@ -1,17 +1,29 @@
-import { TouchableOpacity, StyleSheet, Text, Image } from 'react-native';
+import { TouchableOpacity, StyleSheet, Text, Image, ActivityIndicator } from 'react-native';
 
 interface GoogleButtonProps {
   onPress: () => void;
+  loading?: boolean;
 }
 
-export function GoogleButton({ onPress }: GoogleButtonProps) {
+export function GoogleButton({ onPress, loading = false }: GoogleButtonProps) {
   return (
-    <TouchableOpacity style={styles.button} onPress={onPress} activeOpacity={0.8}>
-      <Image
-        source={{ uri: 'https://www.google.com/favicon.ico' }}
-        style={styles.icon}
-      />
-      <Text style={styles.text}>LOG IN WITH GOOGLE</Text>
+    <TouchableOpacity
+      style={styles.button}
+      onPress={onPress}
+      disabled={loading}
+      activeOpacity={0.8}
+    >
+      {loading ? (
+        <ActivityIndicator color="#1A2B3D" />
+      ) : (
+        <>
+          <Image
+            source={{ uri: 'https://www.google.com/favicon.ico' }}
+            style={styles.icon}
+          />
+          <Text style={styles.text}>LOG IN WITH GOOGLE</Text>
+        </>
+      )}
     </TouchableOpacity>
   );
 }
