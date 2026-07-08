@@ -1,43 +1,21 @@
-import { View, StyleSheet, ScrollView } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
 import { CartHeader, RestaurantCartCard, TrackOrdersSection } from '@/components/cart';
-
-const CART_DATA = {
-  restaurantName: 'Tacoth',
-  restaurantLogo: require('@/assets/restaurants-images/restaurant-2.png'),
-  rating: '92%',
-  reviewCount: '1000+',
-  items: [
-    {
-      id: '1',
-      name: 'Crispy Chicken',
-      quantity: 2,
-      image: require('@/assets/products/product-2.png'),
-    },
-  ],
-  totalItems: 2,
-  totalPrice: '28,36 DT',
-};
+import { Fonts, FontSize, Palette, Spacing } from '@/constants/theme';
+import { formatDT, groupByRestaurant, useCartStore } from '@/store/cart-store';
+import { useRouter } from 'expo-router';
+import { ShoppingCart } from 'lucide-react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export default function CartScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
 
+  const items = useCartStore((s) => s.items);
+  const clearRestaurant = useCartStore((s) => s.clearRestaurant);
+  const groups = groupByRestaurant(items);
+
   const handleOrdersPress = () => {
     console.log('Orders pressed');
-  };
-
-  const handleViewCart = () => {
-    router.push('/cart/tacoth');
-  };
-
-  const handleDeleteCart = () => {
-    console.log('Delete cart');
-  };
-
-  const handleAddMore = () => {
-    router.push('/restaurant/1');
   };
 
   return (
@@ -50,14 +28,40 @@ export default function CartScreen() {
       >
         <View style={styles.divider} />
 
-        <View style={styles.cartsSection}>
-          <RestaurantCartCard
-            {...CART_DATA}
-            onViewCart={handleViewCart}
-            onDelete={handleDeleteCart}
-            onAddMore={handleAddMore}
-          />
-        </View>
+        {groups.length === 0 ? (
+          <View style={styles.empty}>
+            <View style={styles.emptyIcon}>
+              <ShoppingCart size={36} color={Palette.primary} />
+            </View>
+            <Text style={styles.emptyTitle}>Your cart is empty</Text>
+            <Text style={styles.emptySubtitle}>
+              Browse the menu and add dishes to get started.
+            </Text>
+          </View>
+        ) : (
+          <View style={styles.cartsSection}>
+            {groups.map((group) => (
+              <RestaurantCartCard
+                key={group.restaurantId}
+                restaurantName={group.restaurantName}
+                restaurantLogo={group.restaurantLogo}
+                rating="92%"
+                reviewCount="1000+"
+                items={group.items.map((line) => ({
+                  id: line.lineId,
+                  name: line.name,
+                  quantity: line.quantity,
+                  image: line.image,
+                }))}
+                totalItems={group.totalQuantity}
+                totalPrice={formatDT(group.totalPrice)}
+                onViewCart={() => router.push(`/cart/${group.restaurantId}`)}
+                onDelete={() => clearRestaurant(group.restaurantId)}
+                onAddMore={() => router.push(`/restaurant/${group.restaurantId}`)}
+              />
+            ))}
+          </View>
+        )}
 
         <TrackOrdersSection />
       </ScrollView>
@@ -84,5 +88,33 @@ const styles = StyleSheet.create({
   },
   cartsSection: {
     marginBottom: 16,
+    gap: 16,
+  },
+  empty: {
+    alignItems: 'center',
+    paddingHorizontal: Spacing.xxl,
+    paddingVertical: Spacing.xxxl,
+    gap: Spacing.sm,
+  },
+  emptyIcon: {
+    width: 88,
+    height: 88,
+    borderRadius: 44,
+    backgroundColor: Palette.primarySoft,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: Spacing.sm,
+  },
+  emptyTitle: {
+    fontSize: FontSize.xl,
+    fontFamily: Fonts.bold,
+    color: Palette.textPrimary,
+  },
+  emptySubtitle: {
+    fontSize: FontSize.md,
+    fontFamily: Fonts.regular,
+    color: Palette.textMuted,
+    textAlign: 'center',
+    lineHeight: 20,
   },
 });

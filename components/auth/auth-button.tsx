@@ -1,10 +1,6 @@
-import {
-  TouchableOpacity,
-  StyleSheet,
-  ActivityIndicator,
-  Text,
-  ViewStyle,
-} from 'react-native';
+import { StyleSheet, ActivityIndicator, Text, ViewStyle } from 'react-native';
+import { PressableScale } from '@/components/ui/pressable-scale';
+import { FontSize, Palette, Radius } from '@/constants/theme';
 
 interface AuthButtonProps {
   title: string;
@@ -21,37 +17,42 @@ export function AuthButton({
   disabled = false,
   style,
 }: AuthButtonProps) {
+  const isDisabled = disabled || loading;
+
   return (
-    <TouchableOpacity
-      style={[styles.button, disabled && styles.buttonDisabled, style]}
-      onPress={onPress}
-      disabled={disabled || loading}
-      activeOpacity={0.8}
+    <PressableScale
+      style={[styles.button, isDisabled && styles.buttonDisabled, style]}
+      onPress={isDisabled ? undefined : onPress}
+      disabled={isDisabled}
+      scaleTo={0.97}
+      dimTo={0.9}
+      haptic
+      accessibilityLabel={title}
     >
       {loading ? (
-        <ActivityIndicator color="#FFFFFF" />
+        <ActivityIndicator color={Palette.textInverse} />
       ) : (
         <Text style={styles.text}>{title}</Text>
       )}
-    </TouchableOpacity>
+    </PressableScale>
   );
 }
 
 const styles = StyleSheet.create({
   button: {
     height: 52,
-    borderRadius: 26,
-    backgroundColor: '#F5A623',
+    borderRadius: Radius.xxl + 2,
+    backgroundColor: Palette.primary,
     justifyContent: 'center',
     alignItems: 'center',
   },
   buttonDisabled: {
-    backgroundColor: '#D4D4D4',
+    backgroundColor: Palette.disabled,
   },
   text: {
-    fontSize: 16,
+    fontSize: FontSize.lg,
     fontWeight: '700',
-    color: '#FFFFFF',
+    color: Palette.textInverse,
     letterSpacing: 1,
   },
 });

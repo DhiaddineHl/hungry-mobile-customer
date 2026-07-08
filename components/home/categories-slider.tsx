@@ -71,14 +71,14 @@ export function CategoriesSlider({ onCategoryPress, onSeeAllPress }: CategoriesS
 
 const styles = StyleSheet.create({
   container: {
-    paddingVertical: 16,
+    paddingVertical: 8,
   },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 20,
-    marginBottom: 16,
+    marginBottom: 12,
   },
   title: {
     fontSize: 20,

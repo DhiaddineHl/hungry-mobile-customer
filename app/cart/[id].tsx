@@ -1,22 +1,10 @@
 import { CartItem, CheckoutButton, OrderSummary, SuggestedItems } from '@/components/cart';
 import { Fonts } from '@/constants/theme';
+import { formatDT, useCartStore } from '@/store/cart-store';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { ArrowLeft, Plus } from 'lucide-react-native';
-import { useState } from 'react';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-
-const CART_ITEMS = [
-  {
-    id: '1',
-    name: 'Crispy Chicken',
-    description: 'Breaded Chicken Escalope, Bell Peppers, Caramelized ...',
-    price: '9,68 DT',
-    originalPrice: '12,9 DT',
-    quantity: 2,
-    image: require('@/assets/products/product-2.png'),
-  },
-];
 
 const SUGGESTED_ITEMS = [
   {
@@ -42,54 +30,39 @@ const SUGGESTED_ITEMS = [
   },
 ];
 
+const SERVICE_FEE = 3;
+
 export default function RestaurantCartScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const insets = useSafeAreaInsets();
 
-  const [cartItems, setCartItems] = useState(CART_ITEMS);
+  const allItems = useCartStore((s) => s.items);
+  const increment = useCartStore((s) => s.increment);
+  const decrement = useCartStore((s) => s.decrement);
+  const removeItem = useCartStore((s) => s.removeItem);
 
-  console.log('Cart ID:', id);
+  const items = allItems.filter((i) => i.restaurantId === id);
+  const restaurantName = items[0]?.restaurantName ?? 'Cart';
 
-  const handleBackPress = () => {
-    router.back();
-  };
+  const subtotal = items.reduce(
+    (sum, line) => sum + line.unitPrice * line.quantity,
+    0,
+  );
+  const total = subtotal + (items.length > 0 ? SERVICE_FEE : 0);
 
-  const handleIncrement = (itemId: string) => {
-    setCartItems((prev) =>
-      prev.map((item) =>
-        item.id === itemId ? { ...item, quantity: item.quantity + 1 } : item
-      )
-    );
-  };
-
-  const handleDecrement = (itemId: string) => {
-    setCartItems((prev) =>
-      prev.map((item) =>
-        item.id === itemId && item.quantity > 1
-          ? { ...item, quantity: item.quantity - 1 }
-          : item
-      )
-    );
-  };
-
-  const handleDeleteItem = (itemId: string) => {
-    setCartItems((prev) => prev.filter((item) => item.id !== itemId));
-  };
+  const handleBackPress = () => router.back();
 
   const handleAddSuggestedItem = (itemId: string) => {
     console.log('Add suggested item:', itemId);
   };
 
   const handleAddItems = () => {
-    router.push('/restaurant/1');
+    router.push(`/restaurant/${id}`);
   };
 
   const handleCheckout = () => {
-    router.push({
-      pathname: '/order-details/[id]',
-      params: { id },
-    });
+    router.push({ pathname: '/order-details/[id]', params: { id } });
   };
 
   return (
@@ -98,7 +71,7 @@ export default function RestaurantCartScreen() {
         <TouchableOpacity onPress={handleBackPress}>
           <ArrowLeft size={24} color="#1A2B3D" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Tacoth Cart</Text>
+        <Text style={styles.headerTitle}>{restaurantName} Cart</Text>
         <View style={styles.headerSpacer} />
       </View>
 
@@ -108,15 +81,30 @@ export default function RestaurantCartScreen() {
         contentContainerStyle={styles.scrollContent}
       >
         <View style={styles.itemsSection}>
-          {cartItems.map((item) => (
-            <CartItem
-              key={item.id}
-              {...item}
-              onIncrement={() => handleIncrement(item.id)}
-              onDecrement={() => handleDecrement(item.id)}
-              onDelete={() => handleDeleteItem(item.id)}
-            />
-          ))}
+          {items.length === 0 ? (
+            <Text style={styles.emptyText}>This cart is empty.</Text>
+          ) : (
+            items.map((line) => {
+              const description =
+                line.addons.map((a) => a.name).join(', ') ||
+                line.note ||
+                '';
+              return (
+                <CartItem
+                  key={line.lineId}
+                  id={line.lineId}
+                  name={line.name}
+                  description={description}
+                  price={formatDT(line.unitPrice * line.quantity)}
+                  quantity={line.quantity}
+                  image={line.image}
+                  onIncrement={() => increment(line.lineId)}
+                  onDecrement={() => decrement(line.lineId)}
+                  onDelete={() => removeItem(line.lineId)}
+                />
+              );
+            })
+          )}
 
           <TouchableOpacity style={styles.addItemsButton} onPress={handleAddItems}>
             <Plus size={18} color="#1A2B3D" />
@@ -124,23 +112,29 @@ export default function RestaurantCartScreen() {
           </TouchableOpacity>
         </View>
 
-        <SuggestedItems
-          title="Based On Your Choice"
-          items={SUGGESTED_ITEMS}
-          onAddItem={handleAddSuggestedItem}
-        />
+        {items.length > 0 && (
+          <>
+            <SuggestedItems
+              title="Based On Your Choice"
+              items={SUGGESTED_ITEMS}
+              onAddItem={handleAddSuggestedItem}
+            />
 
-        <OrderSummary
-          subtotal="28,36 DT"
-          serviceFee="3 DT"
-          deliveryFee="Free"
-          originalDeliveryFee="2,5 DT"
-          isFreeDelivery={true}
-          total="31,36 DT"
-        />
+            <OrderSummary
+              subtotal={formatDT(subtotal)}
+              serviceFee={formatDT(SERVICE_FEE)}
+              deliveryFee="Free"
+              originalDeliveryFee="2,5 DT"
+              isFreeDelivery={true}
+              total={formatDT(total)}
+            />
+          </>
+        )}
       </ScrollView>
 
-      <CheckoutButton total="31,36 DT" onPress={handleCheckout} />
+      {items.length > 0 && (
+        <CheckoutButton total={formatDT(total)} onPress={handleCheckout} />
+      )}
     </View>
   );
 }
@@ -176,6 +170,13 @@ const styles = StyleSheet.create({
   itemsSection: {
     padding: 20,
     gap: 12,
+  },
+  emptyText: {
+    fontSize: 14,
+    fontFamily: Fonts.regular,
+    color: '#8A8A8A',
+    textAlign: 'center',
+    paddingVertical: 24,
   },
   addItemsButton: {
     flexDirection: 'row',

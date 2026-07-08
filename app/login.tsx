@@ -52,7 +52,7 @@ export default function LoginScreen() {
     setIsGoogleLoading(true);
     try {
       const result = await loginWithGoogle();
-      if (!result.success && result.error !== 'Google login was cancelled') {
+      if (!result.success && !result.error?.toLowerCase().includes('cancel')) {
         setAuthError(result.error ?? 'Google login failed');
       }
     } finally {

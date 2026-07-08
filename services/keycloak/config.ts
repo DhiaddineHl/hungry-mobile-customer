@@ -13,5 +13,7 @@ export const keycloakConfig = {
   tokenEndpoint: `${realmUrl}/protocol/openid-connect/token`,
   endSessionEndpoint: `${realmUrl}/protocol/openid-connect/logout`,
   userInfoEndpoint: `${realmUrl}/protocol/openid-connect/userinfo`,
-  registrationEndpoint: `${KEYCLOAK_URL}/admin/realms/${REALM}/users`,
+  // No Admin REST endpoints here on purpose: account creation and profile
+  // updates go through the backend (POST/PUT /customers), which holds the
+  // service-account credentials. See docs/keycloak-setup.md.
 };

@@ -56,14 +56,14 @@ export function FiltersSlider({ selectedFilters = [], onFilterPress }: FiltersSl
 
 const styles = StyleSheet.create({
   container: {
-    paddingVertical: 16,
+    paddingVertical: 8,
   },
   title: {
     fontSize: 20,
     fontFamily: Fonts.semiBold,
     color: '#1A2B3D',
     paddingHorizontal: 20,
-    marginBottom: 12,
+    marginBottom: 10,
   },
   scrollContent: {
     paddingHorizontal: 20,
@@ -72,9 +72,9 @@ const styles = StyleSheet.create({
   filterChip: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 20,
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 16,
     borderWidth: 1,
     borderColor: '#E8E8E8',
     backgroundColor: '#FFFFFF',

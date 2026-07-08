@@ -1,10 +1,11 @@
-import { View, Text, StyleSheet, TouchableOpacity, Dimensions } from 'react-native';
+import { View, Text, StyleSheet } from 'react-native';
 import { Image } from 'expo-image';
 import { ThumbsUp } from 'lucide-react-native';
-import { Fonts } from '@/constants/theme';
+import { Fonts, FontSize, Palette, Radius, Spacing } from '@/constants/theme';
+import { PressableScale } from '@/components/ui/pressable-scale';
 
-const { width } = Dimensions.get('window');
-const CARD_WIDTH = (width - 60) / 2;
+// Fixed width so cards form a horizontal carousel that hints at more items.
+const CARD_WIDTH = 152;
 
 interface ProductCardProps {
   id: string;
@@ -29,7 +30,12 @@ export function ProductCard({
   onPress,
 }: ProductCardProps) {
   return (
-    <TouchableOpacity style={styles.container} onPress={onPress} activeOpacity={0.8}>
+    <PressableScale
+      style={styles.container}
+      onPress={onPress}
+      scaleTo={0.97}
+      accessibilityLabel={name}
+    >
       <View style={styles.imageContainer}>
         <Image source={image} style={styles.image} contentFit="cover" />
         {discount && (
@@ -54,21 +60,21 @@ export function ProductCard({
           </View>
         )}
       </View>
-    </TouchableOpacity>
+    </PressableScale>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     width: CARD_WIDTH,
-    marginBottom: 16,
   },
   imageContainer: {
     width: '100%',
     height: CARD_WIDTH,
-    borderRadius: 12,
+    borderRadius: Radius.lg,
     overflow: 'hidden',
     position: 'relative',
+    backgroundColor: Palette.surfaceMuted,
   },
   image: {
     width: '100%',
@@ -76,26 +82,26 @@ const styles = StyleSheet.create({
   },
   discountBadge: {
     position: 'absolute',
-    bottom: 8,
-    left: 8,
-    backgroundColor: '#F5A623',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 4,
+    top: Spacing.sm,
+    left: Spacing.sm,
+    backgroundColor: Palette.primary,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: Spacing.xs,
+    borderRadius: Radius.sm,
   },
   discountText: {
-    fontSize: 11,
+    fontSize: FontSize.xs,
     fontFamily: Fonts.bold,
-    color: '#FFFFFF',
+    color: Palette.textInverse,
   },
   infoContainer: {
-    marginTop: 8,
+    marginTop: Spacing.sm,
   },
   name: {
-    fontSize: 14,
+    fontSize: FontSize.md,
     fontFamily: Fonts.semiBold,
-    color: '#1A2B3D',
-    marginBottom: 4,
+    color: Palette.textPrimary,
+    marginBottom: Spacing.xs,
     lineHeight: 18,
   },
   priceRow: {
@@ -104,30 +110,30 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   price: {
-    fontSize: 14,
+    fontSize: FontSize.md,
     fontFamily: Fonts.bold,
-    color: '#F5A623',
+    color: Palette.primary,
   },
   originalPrice: {
-    fontSize: 12,
+    fontSize: FontSize.sm,
     fontFamily: Fonts.regular,
-    color: '#8A8A8A',
+    color: Palette.textMuted,
     textDecorationLine: 'line-through',
   },
   ratingRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    marginTop: 4,
+    gap: Spacing.xs,
+    marginTop: Spacing.xs,
   },
   rating: {
-    fontSize: 12,
+    fontSize: FontSize.sm,
     fontFamily: Fonts.semiBold,
-    color: '#F5A623',
+    color: Palette.primary,
   },
   reviewCount: {
-    fontSize: 12,
+    fontSize: FontSize.sm,
     fontFamily: Fonts.regular,
-    color: '#8A8A8A',
+    color: Palette.textMuted,
   },
 });

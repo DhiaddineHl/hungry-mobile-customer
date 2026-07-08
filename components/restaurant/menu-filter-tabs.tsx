@@ -10,12 +10,14 @@ const MENU_TABS = [
 interface MenuFilterTabsProps {
   selectedTab?: string;
   onTabPress?: (tabId: string) => void;
+  /** Slim variant for the sticky header — hides the title and trims padding. */
+  compact?: boolean;
 }
 
-export function MenuFilterTabs({ selectedTab = 'promotions', onTabPress }: MenuFilterTabsProps) {
+export function MenuFilterTabs({ selectedTab = 'promotions', onTabPress, compact }: MenuFilterTabsProps) {
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Explore Menu</Text>
+    <View style={[styles.container, compact && styles.containerCompact]}>
+      {!compact && <Text style={styles.title}>Explore Menu</Text>}
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
@@ -40,6 +42,9 @@ export function MenuFilterTabs({ selectedTab = 'promotions', onTabPress }: MenuF
 const styles = StyleSheet.create({
   container: {
     paddingVertical: 16,
+  },
+  containerCompact: {
+    paddingVertical: 6,
   },
   title: {
     fontSize: 20,

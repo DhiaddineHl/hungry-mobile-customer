@@ -1,0 +1,112 @@
+import { isApiError } from '@/services/api/client';
+import {
+  CustomerRegistration,
+  getCustomerByAccount,
+  registerCustomer,
+  toCustomerAddress,
+  updateCustomer,
+} from '@/services/api/customer-service';
+import { customerKeys } from '@/services/api/query-keys';
+import { Customer, CustomerInput } from '@/services/api/types';
+import { useCustomerStore } from '@/store/customer-store';
+import { AddressData } from '@/types/location';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+
+/**
+ * The customer record linked to a Keycloak account (`sub`). Returns `null`
+ * data (instead of erroring) when the backend has no record for the account,
+ * e.g. one created via Google sign-in before this sync existed.
+ */
+export function useCustomer(keycloakUserId: string | null | undefined) {
+  return useQuery({
+    queryKey: customerKeys.detail(keycloakUserId ?? ''),
+    queryFn: async (): Promise<Customer | null> => {
+      try {
+        return await getCustomerByAccount(keycloakUserId!);
+      } catch (error) {
+        if (isApiError(error, 404)) return null;
+        throw error;
+      }
+    },
+    enabled: !!keycloakUserId,
+    // Profile data rarely changes outside this device's own mutations.
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+/**
+ * Self-registration: one backend call creates the Keycloak login and the
+ * Customer entity atomically. On success the account ids are persisted to
+ * the customer store so the pre-login onboarding (address screen) can
+ * address the record, and the detail cache is seeded with the response.
+ */
+export function useRegisterCustomer() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (registration: CustomerRegistration) => registerCustomer(registration),
+    onSuccess: (customer) => {
+      if (customer.keycloakUserId) {
+        useCustomerStore.getState().setAccount({
+          keycloakUserId: customer.keycloakUserId,
+          customerId: customer.id,
+        });
+        queryClient.setQueryData(customerKeys.detail(customer.keycloakUserId), customer);
+      }
+    },
+  });
+}
+
+/** Generic partial update of the customer record (resolved by `code`). */
+export function useUpdateCustomer() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: CustomerInput) => updateCustomer(input),
+    onSuccess: (customer) => {
+      if (customer.keycloakUserId) {
+        queryClient.setQueryData(customerKeys.detail(customer.keycloakUserId), customer);
+      }
+      queryClient.invalidateQueries({ queryKey: customerKeys.all });
+    },
+  });
+}
+
+/**
+ * Upserts a batch of labeled addresses into the customer's saved list. The
+ * backend replaces the `addresses` list wholesale on update, so the current
+ * list is fetched first and entries with the same label are replaced. The
+ * entry at `defaultIndex` also becomes the customer's top-level `address`,
+ * which is how the backend models the default delivery address.
+ */
+export function useSaveAddresses() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      keycloakUserId,
+      addresses,
+      defaultIndex = 0,
+    }: {
+      keycloakUserId: string;
+      addresses: AddressData[];
+      defaultIndex?: number;
+    }) => {
+      const current = await queryClient.fetchQuery({
+        queryKey: customerKeys.detail(keycloakUserId),
+        queryFn: () => getCustomerByAccount(keycloakUserId),
+        staleTime: 0,
+      });
+      const entries = addresses.map(toCustomerAddress);
+      const names = new Set(entries.map((e) => e.name));
+      const others = (current.addresses ?? []).filter((a) => !names.has(a.name));
+      const defaultEntry = entries[defaultIndex] ?? entries[0];
+      return updateCustomer({
+        code: current.code ?? keycloakUserId,
+        addresses: [...others, ...entries],
+        address: defaultEntry?.details,
+      });
+    },
+    onSuccess: (customer, { keycloakUserId }) => {
+      queryClient.setQueryData(customerKeys.detail(keycloakUserId), customer);
+      queryClient.invalidateQueries({ queryKey: customerKeys.all });
+    },
+  });
+}

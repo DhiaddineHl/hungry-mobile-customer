@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   View,
   Text,
   StyleSheet,
@@ -11,12 +12,14 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { ArrowLeft, Search, Crosshair } from 'lucide-react-native';
 import * as Location from 'expo-location';
+import type MapView from 'react-native-maps';
+import type { Region } from 'react-native-maps';
 import { Fonts } from '@/constants/theme';
-import { AddressType } from '@/types/location';
+import { AddressType, LocationCoords } from '@/types/location';
 import { AddressTypeSelector } from '@/components/location/address-type-selector';
 import { MapPlaceholder } from '@/components/location/map-placeholder';
 
-const DEFAULT_REGION = {
+const DEFAULT_REGION: Region = {
   latitude: 35.8256,
   longitude: 10.6369,
   latitudeDelta: 0.01,
@@ -28,46 +31,117 @@ type BottomSheetState = 'deliver' | 'address-type';
 export default function MapSelectScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const mapRef = useRef<MapView | null>(null);
 
   const [searchQuery, setSearchQuery] = useState('');
+  const [isSearching, setIsSearching] = useState(false);
+  const [isLocating, setIsLocating] = useState(false);
+  const [hint, setHint] = useState<string | null>(null);
   const [bottomSheet, setBottomSheet] = useState<BottomSheetState>('deliver');
-  const [selectedCoords, setSelectedCoords] = useState(DEFAULT_REGION);
-  const [addressText, setAddressText] = useState('RM4+4QR2, Sousse');
+  const [selectedCoords, setSelectedCoords] = useState<LocationCoords>({
+    latitude: DEFAULT_REGION.latitude,
+    longitude: DEFAULT_REGION.longitude,
+  });
+  const [addressText, setAddressText] = useState('');
   const [isLoadingAddress, setIsLoadingAddress] = useState(false);
 
+  // Reverse geocodes race when the user moves the map quickly — only the
+  // latest request may write its result.
+  const geocodeIdRef = useRef(0);
+
   const reverseGeocode = async (lat: number, lng: number) => {
+    const requestId = ++geocodeIdRef.current;
     setIsLoadingAddress(true);
     try {
       const results = await Location.reverseGeocodeAsync({ latitude: lat, longitude: lng });
-      if (results.length > 0) {
-        const r = results[0];
-        const parts = [r.name, r.city, r.country].filter(Boolean);
-        if (parts.length > 0) setAddressText(parts.join(', '));
-      }
+      if (requestId !== geocodeIdRef.current) return;
+      const r = results[0];
+      const parts = r ? [r.name, r.city, r.country].filter(Boolean) : [];
+      setAddressText(parts.length > 0 ? parts.join(', ') : `${lat.toFixed(4)}, ${lng.toFixed(4)}`);
     } catch {
+      if (requestId !== geocodeIdRef.current) return;
       setAddressText(`${lat.toFixed(4)}, ${lng.toFixed(4)}`);
     } finally {
-      setIsLoadingAddress(false);
+      if (requestId === geocodeIdRef.current) setIsLoadingAddress(false);
     }
   };
 
-  const handleMapPress = (e: { nativeEvent: { coordinate: { latitude: number; longitude: number } } }) => {
-    const { latitude, longitude } = e.nativeEvent.coordinate;
-    setSelectedCoords((prev) => ({ ...prev, latitude, longitude }));
-    reverseGeocode(latitude, longitude);
+  // Resolve the starting point: the default region's address right away, and
+  // — when permission was already granted on the previous screen — jump to
+  // the user's position. Never prompts; that stays behind the crosshair button.
+  useEffect(() => {
+    if (Platform.OS === 'web') return;
+    reverseGeocode(DEFAULT_REGION.latitude, DEFAULT_REGION.longitude);
+    (async () => {
+      try {
+        const { status } = await Location.getForegroundPermissionsAsync();
+        if (status !== 'granted') return;
+        const position =
+          (await Location.getLastKnownPositionAsync()) ??
+          (await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }));
+        animateTo(position.coords.latitude, position.coords.longitude);
+      } catch {
+        // Stay on the default region — the user can still search or drag.
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const animateTo = (latitude: number, longitude: number) => {
+    mapRef.current?.animateToRegion(
+      {
+        latitude,
+        longitude,
+        latitudeDelta: DEFAULT_REGION.latitudeDelta,
+        longitudeDelta: DEFAULT_REGION.longitudeDelta,
+      },
+      400
+    );
+  };
+
+  // The map settled (drag, tap, or animation) — the center is the selection.
+  const handleRegionChangeComplete = (region: Region) => {
+    setSelectedCoords({ latitude: region.latitude, longitude: region.longitude });
+    reverseGeocode(region.latitude, region.longitude);
+  };
+
+  const handleSearch = async () => {
+    const query = searchQuery.trim();
+    if (!query || isSearching) return;
+    setIsSearching(true);
+    setHint(null);
+    try {
+      const results = await Location.geocodeAsync(query);
+      if (results.length === 0) {
+        setHint(`No results for "${query}". Try a street or city name.`);
+        return;
+      }
+      animateTo(results[0].latitude, results[0].longitude);
+    } catch {
+      setHint('Search failed. Check your connection and try again.');
+    } finally {
+      setIsSearching(false);
+    }
   };
 
   const handleCenterOnUser = async () => {
+    if (isLocating) return;
+    setIsLocating(true);
+    setHint(null);
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status === 'granted') {
-        const location = await Location.getCurrentPositionAsync({});
-        const { latitude, longitude } = location.coords;
-        setSelectedCoords((prev) => ({ ...prev, latitude, longitude }));
-        reverseGeocode(latitude, longitude);
+      if (status !== 'granted') {
+        setHint('Location permission denied — search or drag the map instead.');
+        return;
       }
+      const location = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Balanced,
+      });
+      animateTo(location.coords.latitude, location.coords.longitude);
     } catch {
-      console.log('Could not get location');
+      setHint('Could not get your location. Try again.');
+    } finally {
+      setIsLocating(false);
     }
   };
 
@@ -103,10 +177,11 @@ export default function MapSelectScreen() {
     const { NativeMapView } = require('@/components/location/map-view-native');
     return (
       <NativeMapView
-        region={selectedCoords}
+        mapRef={mapRef}
+        initialRegion={DEFAULT_REGION}
         addressText={addressText}
         isLoadingAddress={isLoadingAddress}
-        onMapPress={handleMapPress}
+        onRegionChangeComplete={handleRegionChangeComplete}
       />
     );
   };
@@ -115,28 +190,51 @@ export default function MapSelectScreen() {
     <View style={styles.container}>
       {renderMap()}
 
-      <View style={[styles.searchBar, { top: insets.top + 12 }]}>
-        <TouchableOpacity style={styles.backButton} onPress={handleBack}>
-          <ArrowLeft size={18} color="#1A2B3D" />
-        </TouchableOpacity>
-        <TextInput
-          style={styles.searchInput}
-          placeholder="Search for location"
-          placeholderTextColor="#AAAAAA"
-          value={searchQuery}
-          onChangeText={setSearchQuery}
-        />
-        <TouchableOpacity style={styles.searchIcon}>
-          <Search size={18} color="#AAAAAA" />
-        </TouchableOpacity>
+      <View style={[styles.topOverlay, { top: insets.top + 12 }]}>
+        <View style={styles.searchBar}>
+          <TouchableOpacity style={styles.backButton} onPress={handleBack}>
+            <ArrowLeft size={18} color="#1A2B3D" />
+          </TouchableOpacity>
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Search for location"
+            placeholderTextColor="#AAAAAA"
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            onSubmitEditing={handleSearch}
+            returnKeyType="search"
+            autoCorrect={false}
+          />
+          <TouchableOpacity style={styles.searchIcon} onPress={handleSearch} disabled={isSearching}>
+            {isSearching ? (
+              <ActivityIndicator size="small" color="#F5A623" />
+            ) : (
+              <Search size={18} color="#AAAAAA" />
+            )}
+          </TouchableOpacity>
+        </View>
+        {hint && (
+          <View style={styles.hintPill}>
+            <Text style={styles.hintText}>{hint}</Text>
+          </View>
+        )}
       </View>
 
       {bottomSheet === 'deliver' && (
         <View style={[styles.deliverContainer, { paddingBottom: Math.max(insets.bottom, 16) }]}>
           <TouchableOpacity style={styles.centerButton} onPress={handleCenterOnUser}>
-            <Crosshair size={20} color="#F5A623" />
+            {isLocating ? (
+              <ActivityIndicator size="small" color="#F5A623" />
+            ) : (
+              <Crosshair size={20} color="#F5A623" />
+            )}
           </TouchableOpacity>
-          <TouchableOpacity style={styles.deliverButton} onPress={handleDeliverHere} activeOpacity={0.9}>
+          <TouchableOpacity
+            style={[styles.deliverButton, !addressText && styles.deliverButtonDisabled]}
+            onPress={handleDeliverHere}
+            activeOpacity={0.9}
+            disabled={!addressText}
+          >
             <Text style={styles.deliverButtonText}>Deliver to this point</Text>
           </TouchableOpacity>
         </View>
@@ -156,10 +254,13 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#F5F5F5',
   },
-  searchBar: {
+  topOverlay: {
     position: 'absolute',
     left: 16,
     right: 16,
+    gap: 8,
+  },
+  searchBar: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#FFFFFF',
@@ -191,6 +292,24 @@ const styles = StyleSheet.create({
   searchIcon: {
     padding: 4,
   },
+  hintPill: {
+    alignSelf: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  hintText: {
+    fontSize: 12,
+    fontFamily: Fonts.medium,
+    color: '#856404',
+    textAlign: 'center',
+  },
   deliverContainer: {
     position: 'absolute',
     bottom: 0,
@@ -220,6 +339,9 @@ const styles = StyleSheet.create({
     borderRadius: 28,
     paddingVertical: 16,
     alignItems: 'center',
+  },
+  deliverButtonDisabled: {
+    opacity: 0.6,
   },
   deliverButtonText: {
     fontSize: 16,

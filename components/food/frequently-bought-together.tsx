@@ -1,5 +1,5 @@
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
-import { Image } from 'expo-image';
+import { Image, type ImageSource } from 'expo-image';
 import { Plus, Minus, Trash2 } from 'lucide-react-native';
 import { useState } from 'react';
 import { Fonts } from '@/constants/theme';
@@ -9,7 +9,7 @@ interface FrequentItem {
   name: string;
   description?: string;
   price: string;
-  image: ReturnType<typeof require>;
+  image: ImageSource | number;
   isPopular?: boolean;
 }
 

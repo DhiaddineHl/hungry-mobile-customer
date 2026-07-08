@@ -10,6 +10,7 @@ import {
   PopularRestaurants,
   OpenRestaurants,
 } from '@/components/home';
+import { AnimatedEntrance } from '@/components/ui/animated-entrance';
 
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
@@ -56,10 +57,6 @@ export default function HomeScreen() {
     console.log('See all restaurants');
   };
 
-  const handleFavoritePress = (restaurantId: string) => {
-    console.log('Favorite pressed:', restaurantId);
-  };
-
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
       <HomeHeader
@@ -73,26 +70,35 @@ export default function HomeScreen() {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
       >
-        <SearchBar
-          placeholder="Search the menu"
-          onChangeText={handleSearch}
-        />
-        <CategoriesSlider
-          onCategoryPress={handleCategoryPress}
-          onSeeAllPress={handleSeeAllCategories}
-        />
-        <FiltersSlider
-          selectedFilters={selectedFilters}
-          onFilterPress={handleFilterPress}
-        />
-        <PopularRestaurants
-          onRestaurantPress={handlePopularRestaurantPress}
-        />
-        <OpenRestaurants
-          onRestaurantPress={handleRestaurantPress}
-          onSeeAllPress={handleSeeAllRestaurants}
-          onFavoritePress={handleFavoritePress}
-        />
+        <AnimatedEntrance index={0} variant="fade">
+          <SearchBar
+            placeholder="Search the menu"
+            onChangeText={handleSearch}
+          />
+        </AnimatedEntrance>
+        <AnimatedEntrance index={1}>
+          <CategoriesSlider
+            onCategoryPress={handleCategoryPress}
+            onSeeAllPress={handleSeeAllCategories}
+          />
+        </AnimatedEntrance>
+        <AnimatedEntrance index={2}>
+          <FiltersSlider
+            selectedFilters={selectedFilters}
+            onFilterPress={handleFilterPress}
+          />
+        </AnimatedEntrance>
+        <AnimatedEntrance index={3}>
+          <PopularRestaurants
+            onRestaurantPress={handlePopularRestaurantPress}
+          />
+        </AnimatedEntrance>
+        <AnimatedEntrance index={4}>
+          <OpenRestaurants
+            onRestaurantPress={handleRestaurantPress}
+            onSeeAllPress={handleSeeAllRestaurants}
+          />
+        </AnimatedEntrance>
       </ScrollView>
     </View>
   );

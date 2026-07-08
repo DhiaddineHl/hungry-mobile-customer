@@ -9,10 +9,7 @@
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
-      "supportsTablet": true,
-      "config": {
-        "googleMapsApiKey": "AIzaSyARacWYMueK_9OOkL7Xn0O4EUXZS4YkDAQ"
-      }
+      "supportsTablet": true
     },
     "android": {
       "adaptiveIcon": {
@@ -22,12 +19,7 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false,
-      "config": {
-        "googleMaps": {
-          "apiKey": "AIzaSyARacWYMueK_9OOkL7Xn0O4EUXZS4YkDAQ"
-        }
-      }
+      "predictiveBackGestureEnabled": false
     },
     "web": {
       "output": "static",
@@ -54,7 +46,11 @@
           "locationAlwaysAndWhenInUsePermission": "Allow Hungry to use your location."
         }
       ],
-      "expo-secure-store"
+      "expo-secure-store",
+      "expo-font",
+      "expo-image",
+      "expo-status-bar",
+      "expo-web-browser"
     ],
     "experiments": {
       "typedRoutes": true,

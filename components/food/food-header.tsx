@@ -1,6 +1,6 @@
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
-import { Image } from 'expo-image';
-import { ArrowLeft, Heart, ThumbsUp } from 'lucide-react-native';
+import { Image, type ImageSource } from 'expo-image';
+import { ChevronLeft, Heart, ThumbsUp } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Fonts } from '@/constants/theme';
 
@@ -12,7 +12,7 @@ interface FoodHeaderProps {
   description?: string;
   rating?: string;
   reviewCount?: string;
-  image: ReturnType<typeof require>;
+  image: ImageSource | number;
   isFavorite?: boolean;
   onBack?: () => void;
   onFavorite?: () => void;
@@ -39,14 +39,14 @@ export function FoodHeader({
         <Image source={image} style={styles.image} contentFit="cover" />
 
         <View style={[styles.navRow, { top: insets.top + 8 }]}>
-          <TouchableOpacity style={styles.navBtn} onPress={onBack}>
-            <ArrowLeft size={20} color="#1A2B3D" />
+          <TouchableOpacity style={styles.navBtn} onPress={onBack} activeOpacity={0.7}>
+            <ChevronLeft size={24} color="#FFFFFF" />
           </TouchableOpacity>
-          <TouchableOpacity style={styles.navBtn} onPress={onFavorite}>
+          <TouchableOpacity style={styles.navBtn} onPress={onFavorite} activeOpacity={0.7}>
             <Heart
               size={20}
-              color={isFavorite ? '#FF4444' : '#1A2B3D'}
-              fill={isFavorite ? '#FF4444' : 'transparent'}
+              color="#FFFFFF"
+              fill={isFavorite ? '#FFFFFF' : 'transparent'}
             />
           </TouchableOpacity>
         </View>
@@ -94,6 +94,9 @@ const styles = StyleSheet.create({
     height: 240,
     width: '100%',
     position: 'relative',
+    borderBottomLeftRadius: 24,
+    borderBottomRightRadius: 24,
+    overflow: 'hidden',
   },
   image: {
     width: '100%',
@@ -111,7 +114,7 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.9)',
+    backgroundColor: 'rgba(0,0,0,0.35)',
     alignItems: 'center',
     justifyContent: 'center',
   },

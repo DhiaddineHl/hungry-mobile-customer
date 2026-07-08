@@ -1,8 +1,15 @@
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { Image } from 'expo-image';
-import { ArrowLeft, Heart, MoreHorizontal, ThumbsUp, Clock, Bike, ChevronDown } from 'lucide-react-native';
+import { ChevronLeft, Heart, MoreHorizontal, Upload, ThumbsUp, Clock, Bike, ChevronDown, ChevronRight, Info } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Fonts } from '@/constants/theme';
+
+// Circular badge accents, shared with the home restaurant cards.
+const StatBadge = {
+  rating: '#FFE980', // amber
+  time: '#F58D1D', // orange
+  delivery: '#3A974C', // green
+} as const;
 
 interface RestaurantHeaderProps {
   name: string;
@@ -25,6 +32,8 @@ interface RestaurantHeaderProps {
   onMorePress?: () => void;
   onOpenPress?: () => void;
   onNamePress?: () => void;
+  /** Hide the in-banner logo (kept as a spacer) when an animated overlay logo is used. */
+  hideLogo?: boolean;
 }
 
 export function RestaurantHeader({
@@ -48,6 +57,7 @@ export function RestaurantHeader({
   onMorePress,
   onOpenPress,
   onNamePress,
+  hideLogo,
 }: RestaurantHeaderProps) {
   const insets = useSafeAreaInsets();
 
@@ -57,37 +67,33 @@ export function RestaurantHeader({
         <Image source={bannerImage} style={styles.bannerImage} contentFit="cover" />
 
         <View style={[styles.topBar, { paddingTop: insets.top + 8 }]}>
-          <TouchableOpacity style={styles.iconButton} onPress={onBackPress}>
-            <ArrowLeft size={22} color="#FFFFFF" />
+          <TouchableOpacity style={styles.iconButton} onPress={onBackPress} activeOpacity={0.7}>
+            <ChevronLeft size={24} color="#FFFFFF" />
           </TouchableOpacity>
           <View style={styles.topBarRight}>
-            <TouchableOpacity style={styles.iconButton} onPress={onFavoritePress}>
+            <TouchableOpacity style={styles.iconButton} onPress={onFavoritePress} activeOpacity={0.7}>
               <Heart
-                size={22}
+                size={20}
                 color="#FFFFFF"
                 fill={isFavorite ? '#FFFFFF' : 'transparent'}
               />
             </TouchableOpacity>
-            <TouchableOpacity style={styles.iconButton} onPress={onMorePress}>
-              <MoreHorizontal size={22} color="#FFFFFF" />
+            <TouchableOpacity style={styles.iconButton} onPress={onMorePress} activeOpacity={0.7}>
+              <MoreHorizontal size={20} color="#FFFFFF" />
             </TouchableOpacity>
           </View>
         </View>
+      </View>
 
-        {isNew && (
-          <View style={styles.newBadge}>
-            <Text style={styles.newBadgeText}>NEW</Text>
-          </View>
-        )}
-
-        <View style={styles.logoContainer}>
-          <Image source={logoImage} style={styles.logo} contentFit="contain" />
+      <View style={styles.brandRow}>
+        <View style={[styles.logoContainer, hideLogo && styles.logoHidden]}>
+          <Image source={logoImage} style={styles.logo} contentFit="cover" />
         </View>
 
-        <View style={styles.tagsContainer}>
+        <View style={styles.tagsRow}>
           {isTopRated && (
-            <View style={styles.tag}>
-              <ThumbsUp size={12} color="#1A2B3D" />
+            <View style={[styles.tag, styles.topRatedTag]}>
+              <Upload size={13} color="#1A2B3D" />
               <Text style={styles.tagText}>Top Rated</Text>
             </View>
           )}
@@ -97,41 +103,67 @@ export function RestaurantHeader({
             </View>
           )}
         </View>
-
-        <Text style={styles.minOrderText}>Min value in this restaurant is {minOrder}</Text>
       </View>
+
+      <Text style={styles.minOrderText}>
+        Min value in this restaurant is {minOrder}
+      </Text>
 
       <View style={styles.infoContainer}>
         <View style={styles.nameRow}>
-          <TouchableOpacity onPress={onNamePress}>
+          <TouchableOpacity style={styles.nameTouch} onPress={onNamePress} activeOpacity={0.7}>
             <Text style={styles.restaurantName}>{name}</Text>
+            <Text style={styles.distance}>{distance}</Text>
+            <ChevronRight size={18} color="#8A8A8A" />
           </TouchableOpacity>
-          <Text style={styles.distance}>{distance}</Text>
+
+          <TouchableOpacity style={styles.statusRow} onPress={onOpenPress} activeOpacity={0.7}>
+            <Text style={[styles.statusText, isOpen ? styles.openText : styles.closedText]}>
+              {isOpen ? 'Open' : 'Closed'}
+            </Text>
+            <ChevronDown size={16} color={isOpen ? '#4CAF50' : '#FF5252'} />
+          </TouchableOpacity>
         </View>
 
-        <TouchableOpacity style={styles.statusRow} onPress={onOpenPress}>
-          <Text style={[styles.statusText, isOpen ? styles.openText : styles.closedText]}>
-            {isOpen ? 'Open' : 'Closed'}
-          </Text>
-          <ChevronDown size={16} color={isOpen ? '#4CAF50' : '#FF5252'} />
-        </TouchableOpacity>
-
-        <View style={styles.statsRow}>
-          <View style={styles.statItem}>
-            <ThumbsUp size={18} color="#F5A623" />
-            <Text style={styles.statValue}>{rating}</Text>
-            <Text style={styles.statLabel}>({reviewCount})</Text>
+        <View style={styles.statsCard}>
+          <View style={styles.statCell}>
+            <Info size={12} color="#C4C4C4" style={styles.statInfo} />
+            <View style={[styles.statBadge, { backgroundColor: StatBadge.rating }]}>
+              <ThumbsUp size={18} color="#1A2B3D" />
+            </View>
+            <View style={styles.statValueRow}>
+              <Text style={styles.statValue}>{rating}</Text>
+              <Text style={styles.statLabel}> ({reviewCount})</Text>
+            </View>
           </View>
-          <View style={styles.statItem}>
-            <Clock size={18} color="#F5A623" />
+
+          <View style={styles.statDivider} />
+
+          <View style={styles.statCell}>
+            <Info size={12} color="#C4C4C4" style={styles.statInfo} />
+            <View style={[styles.statBadge, { backgroundColor: StatBadge.time }]}>
+              <Clock size={18} color="#1A2B3D" />
+            </View>
             <Text style={styles.statValue}>{deliveryTime}</Text>
           </View>
-          <View style={styles.statItem}>
-            <Bike size={18} color="#F5A623" />
-            <Text style={[styles.statValue, isFreeDelivery && styles.freeText]}>
-              {isFreeDelivery ? 'Free' : deliveryFee}
-            </Text>
-            {!isFreeDelivery && <Text style={styles.statLabel}>{deliveryFee}</Text>}
+
+          <View style={styles.statDivider} />
+
+          <View style={styles.statCell}>
+            <Info size={12} color="#C4C4C4" style={styles.statInfo} />
+            <View style={[styles.statBadge, { backgroundColor: StatBadge.delivery }]}>
+              <Bike size={18} color="#FFFFFF" />
+            </View>
+            <View style={styles.statValueRow}>
+              {isFreeDelivery && (
+                <View style={styles.freePill}>
+                  <Text style={styles.freeText}>Free</Text>
+                </View>
+              )}
+              <Text style={[styles.statValue, isFreeDelivery && styles.strikeFee]}>
+                {deliveryFee}
+              </Text>
+            </View>
           </View>
         </View>
       </View>
@@ -144,8 +176,11 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
   },
   bannerContainer: {
-    height: 220,
+    height: 190,
     position: 'relative',
+    borderBottomLeftRadius: 24,
+    borderBottomRightRadius: 24,
+    overflow: 'hidden',
   },
   bannerImage: {
     width: '100%',
@@ -163,96 +198,100 @@ const styles = StyleSheet.create({
   },
   topBarRight: {
     flexDirection: 'row',
-    gap: 8,
+    gap: 10,
   },
   iconButton: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: 'rgba(0, 0, 0, 0.3)',
+    backgroundColor: 'rgba(0, 0, 0, 0.35)',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  newBadge: {
-    position: 'absolute',
-    top: 16,
-    left: 16,
-    backgroundColor: '#F5A623',
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-    borderRadius: 4,
-  },
-  newBadgeText: {
-    fontSize: 14,
-    fontFamily: Fonts.bold,
-    color: '#FFFFFF',
+  brandRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: 12,
+    paddingHorizontal: 16,
+    marginTop: -32,
   },
   logoContainer: {
-    position: 'absolute',
-    bottom: 50,
-    left: 16,
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    backgroundColor: '#FFFFFF',
-    alignItems: 'center',
-    justifyContent: 'center',
+    width: 68,
+    height: 68,
+    borderRadius: 18,
+    backgroundColor: '#F07D00',
+    borderWidth: 3,
+    borderColor: '#FFFFFF',
     overflow: 'hidden',
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+  },
+  logoHidden: {
+    opacity: 0,
   },
   logo: {
-    width: 50,
-    height: 50,
+    width: '100%',
+    height: '100%',
   },
-  tagsContainer: {
-    position: 'absolute',
-    bottom: 50,
-    left: 90,
+  tagsRow: {
+    flex: 1,
     flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
     gap: 8,
+    paddingBottom: 8,
   },
   tag: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
     paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 16,
-    gap: 4,
+    paddingVertical: 7,
+    borderRadius: 999,
+    borderWidth: 1.5,
+    gap: 5,
+  },
+  topRatedTag: {
+    backgroundColor: '#FFE980',
+    borderColor: '#E5C84D',
   },
   tagText: {
-    fontSize: 12,
+    fontSize: 13,
     fontFamily: Fonts.semiBold,
     color: '#1A2B3D',
   },
   discountTag: {
-    backgroundColor: '#1A2B3D',
+    backgroundColor: '#003049',
+    borderColor: '#00202F',
   },
   discountTagText: {
-    fontSize: 12,
+    fontSize: 13,
     fontFamily: Fonts.semiBold,
     color: '#FFFFFF',
   },
   minOrderText: {
-    position: 'absolute',
-    bottom: 16,
-    left: 16,
     fontSize: 12,
     fontFamily: Fonts.regular,
-    color: '#FFFFFF',
+    color: '#8A8A8A',
+    paddingLeft: 96,
+    paddingRight: 16,
+    marginTop: 6,
+    textAlign: 'right',
   },
   infoContainer: {
-    padding: 16,
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 16,
   },
   nameRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 16,
+  },
+  nameTouch: {
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: 8,
-    marginBottom: 4,
+    flexShrink: 1,
   },
   restaurantName: {
     fontSize: 22,
@@ -268,12 +307,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    marginBottom: 12,
-    alignSelf: 'flex-start',
   },
   statusText: {
     fontSize: 14,
-    fontFamily: Fonts.medium,
+    fontFamily: Fonts.semiBold,
   },
   openText: {
     color: '#4CAF50',
@@ -281,19 +318,45 @@ const styles = StyleSheet.create({
   closedText: {
     color: '#FF5252',
   },
-  statsRow: {
+  statsCard: {
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: 24,
+    alignItems: 'stretch',
+    borderWidth: 1,
+    borderColor: '#EEEEEE',
+    borderRadius: 16,
+    paddingVertical: 12,
   },
-  statItem: {
+  statCell: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: 8,
+    paddingHorizontal: 4,
+  },
+  statInfo: {
+    position: 'absolute',
+    top: 0,
+    left: 12,
+  },
+  statDivider: {
+    width: 1,
+    backgroundColor: '#EEEEEE',
+    marginVertical: 4,
+  },
+  statBadge: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  statValueRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
   },
   statValue: {
     fontSize: 14,
-    fontFamily: Fonts.semiBold,
+    fontFamily: Fonts.bold,
     color: '#1A2B3D',
   },
   statLabel: {
@@ -301,7 +364,21 @@ const styles = StyleSheet.create({
     fontFamily: Fonts.regular,
     color: '#8A8A8A',
   },
+  freePill: {
+    backgroundColor: '#E6F5EC',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 999,
+    marginRight: 6,
+  },
   freeText: {
-    color: '#4CAF50',
+    fontSize: 13,
+    fontFamily: Fonts.semiBold,
+    color: '#2E9E5B',
+  },
+  strikeFee: {
+    color: '#8A8A8A',
+    fontFamily: Fonts.regular,
+    textDecorationLine: 'line-through',
   },
 });

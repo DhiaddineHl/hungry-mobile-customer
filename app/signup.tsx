@@ -1,9 +1,10 @@
 import AuthPageUpperSection from '@/assets/auth-page-upper-section.svg';
 import { AuthButton, AuthInput, GoogleButton, PhoneInput } from '@/components/auth';
 import { useAuth } from '@/contexts/auth-context';
+import { useRegisterCustomer } from '@/hooks/use-customer';
 import { SignupFormData, signupSchema } from '@/schemas/auth';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { Link } from 'expo-router';
+import { Link, useRouter } from 'expo-router';
 import { useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
 import {
@@ -17,11 +18,15 @@ import {
 } from 'react-native';
 
 export default function SignupScreen() {
-  const { register: registerUser, loginWithGoogle } = useAuth();
+  const router = useRouter();
+  const { loginWithGoogle } = useAuth();
+  const registerCustomer = useRegisterCustomer();
   const [countryCode] = useState('+216');
   const [authError, setAuthError] = useState<string | null>(null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
+  const isSubmitting = registerCustomer.isPending;
+
+  const wasCancelled = (error?: string) => !!error && error.toLowerCase().includes('cancel');
 
   const {
     control,
@@ -41,22 +46,22 @@ export default function SignupScreen() {
 
   const onSubmit = async (data: SignupFormData) => {
     setAuthError(null);
-    setIsSubmitting(true);
     try {
-      const result = await registerUser(
-        data.firstName,
-        data.lastName,
-        data.email,
-        data.password,
-        `${countryCode}${data.phoneNumber}`
+      // One backend call creates the Keycloak login account and the Customer
+      // entity in sync (same flow as employees in the back-office app).
+      await registerCustomer.mutateAsync({
+        firstName: data.firstName,
+        lastName: data.lastName,
+        email: data.email,
+        password: data.password,
+        phoneNumber: `${countryCode}${data.phoneNumber}`,
+      });
+      // Account created — walk the new user through location onboarding.
+      router.replace('/location');
+    } catch (error) {
+      setAuthError(
+        error instanceof Error ? error.message : 'An unexpected error occurred. Please try again.'
       );
-      if (!result.success) {
-        setAuthError(result.error ?? 'Registration failed');
-      }
-    } catch {
-      setAuthError('An unexpected error occurred. Please try again.');
-    } finally {
-      setIsSubmitting(false);
     }
   };
 
@@ -65,7 +70,7 @@ export default function SignupScreen() {
     setIsGoogleLoading(true);
     try {
       const result = await loginWithGoogle();
-      if (!result.success && result.error !== 'Google login was cancelled') {
+      if (!result.success && !wasCancelled(result.error)) {
         setAuthError(result.error ?? 'Google signup failed');
       }
     } finally {

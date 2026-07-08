@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Platform } from 'react-native';
 import { MapPin } from 'lucide-react-native';
 import LocalisationLogo from '@/assets/localisation-logo.svg';
@@ -6,12 +6,20 @@ import { useRouter } from 'expo-router';
 import * as Location from 'expo-location';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Fonts } from '@/constants/theme';
+import { useAddressDraftStore } from '@/store/address-draft-store';
 
 export default function LocationScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const clearDrafts = useAddressDraftStore((s) => s.clear);
+
+  // This screen is the entry point of the address onboarding — drop any
+  // drafts left behind by an abandoned earlier run.
+  useEffect(() => {
+    clearDrafts();
+  }, [clearDrafts]);
 
   const handleAllowLocation = async () => {
     if (Platform.OS === 'web') {

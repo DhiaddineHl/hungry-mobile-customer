@@ -1,28 +1,30 @@
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
-import { Image } from 'expo-image';
-import { Fonts } from '@/constants/theme';
+import { AnimatedEntrance } from "@/components/ui/animated-entrance";
+import { PressableScale } from "@/components/ui/pressable-scale";
+import { Fonts, FontSize, Palette, Radius, Spacing } from "@/constants/theme";
+import { Image } from "expo-image";
+import { ScrollView, StyleSheet, Text, View } from "react-native";
 
 const POPULAR_RESTAURANTS = [
   {
-    id: '1',
-    name: 'Taxi Pizza',
-    subtitle: 'Khzema',
-    image: require('@/assets/restaurants-images/restaurant-1.png'),
+    id: "1",
+    name: "Taxi Pizza",
+    subtitle: "Khzema",
+    image: require("@/assets/restaurants-images/restaurant-1.jpg"),
     hasRoundedImage: true,
   },
   {
-    id: '2',
-    name: 'Tacoth',
-    subtitle: '',
-    image: require('@/assets/restaurants-images/restaurant-2.png'),
+    id: "2",
+    name: "Tacoth",
+    subtitle: "",
+    image: require("@/assets/restaurants-images/restaurant-2.jpg"),
     hasRoundedImage: false,
-    backgroundColor: '#F5A623',
+    backgroundColor: "#F5A623",
   },
   {
-    id: '3',
-    name: 'Papadam Food',
-    subtitle: 'Khzema',
-    image: require('@/assets/restaurants-images/restaurant-3.png'),
+    id: "3",
+    name: "Papadam Food",
+    subtitle: "Khzema",
+    image: require("@/assets/restaurants-images/restaurant-3.jpg"),
     hasRoundedImage: true,
   },
 ];
@@ -31,7 +33,9 @@ interface PopularRestaurantsProps {
   onRestaurantPress?: (restaurantId: string) => void;
 }
 
-export function PopularRestaurants({ onRestaurantPress }: PopularRestaurantsProps) {
+export function PopularRestaurants({
+  onRestaurantPress,
+}: PopularRestaurantsProps) {
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Popular</Text>
@@ -40,33 +44,40 @@ export function PopularRestaurants({ onRestaurantPress }: PopularRestaurantsProp
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
       >
-        {POPULAR_RESTAURANTS.map((restaurant) => (
-          <TouchableOpacity
-            key={restaurant.id}
-            style={styles.restaurantItem}
-            onPress={() => onRestaurantPress?.(restaurant.id)}
-          >
-            <View
-              style={[
-                styles.imageContainer,
-                restaurant.hasRoundedImage && styles.imageContainerRounded,
-                restaurant.backgroundColor && { backgroundColor: restaurant.backgroundColor },
-              ]}
+        {POPULAR_RESTAURANTS.map((restaurant, index) => (
+          <AnimatedEntrance key={restaurant.id} index={index} delay={80}>
+            <PressableScale
+              style={styles.restaurantItem}
+              onPress={() => onRestaurantPress?.(restaurant.id)}
+              scaleTo={0.94}
+              accessibilityLabel={restaurant.name}
             >
-              <Image
-                source={restaurant.image}
+              <View
                 style={[
-                  styles.restaurantImage,
-                  restaurant.hasRoundedImage && styles.restaurantImageRounded,
+                  styles.imageContainer,
+                  restaurant.hasRoundedImage && styles.imageContainerRounded,
+                  restaurant.backgroundColor && {
+                    backgroundColor: restaurant.backgroundColor,
+                  },
                 ]}
-                contentFit="contain"
-              />
-            </View>
-            <Text style={styles.restaurantName}>{restaurant.name}</Text>
-            {restaurant.subtitle ? (
-              <Text style={styles.restaurantSubtitle}>{restaurant.subtitle}</Text>
-            ) : null}
-          </TouchableOpacity>
+              >
+                <Image
+                  source={restaurant.image}
+                  style={[
+                    styles.restaurantImage,
+                    restaurant.hasRoundedImage && styles.restaurantImageRounded,
+                  ]}
+                  contentFit="contain"
+                />
+              </View>
+              <Text style={styles.restaurantName}>{restaurant.name}</Text>
+              {restaurant.subtitle ? (
+                <Text style={styles.restaurantSubtitle}>
+                  {restaurant.subtitle}
+                </Text>
+              ) : null}
+            </PressableScale>
+          </AnimatedEntrance>
         ))}
       </ScrollView>
     </View>
@@ -75,53 +86,53 @@ export function PopularRestaurants({ onRestaurantPress }: PopularRestaurantsProp
 
 const styles = StyleSheet.create({
   container: {
-    paddingVertical: 16,
+    paddingVertical: Spacing.sm,
   },
   title: {
-    fontSize: 20,
+    fontSize: FontSize.xxl,
     fontFamily: Fonts.bold,
-    color: '#1A2B3D',
-    paddingHorizontal: 20,
-    marginBottom: 16,
+    color: Palette.textPrimary,
+    paddingHorizontal: Spacing.xl,
+    marginBottom: Spacing.md,
   },
   scrollContent: {
-    paddingHorizontal: 20,
-    gap: 16,
+    paddingHorizontal: Spacing.xl,
+    gap: Spacing.lg,
   },
   restaurantItem: {
-    alignItems: 'center',
+    alignItems: "center",
     width: 100,
   },
   imageContainer: {
     width: 100,
     height: 100,
     marginBottom: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 20,
-    overflow: 'hidden',
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: Radius.xl + 4,
+    overflow: "hidden",
   },
   imageContainerRounded: {
-    backgroundColor: 'transparent',
+    backgroundColor: "transparent",
   },
   restaurantImage: {
-    width: '100%',
-    height: '100%',
+    width: "100%",
+    height: "100%",
   },
   restaurantImageRounded: {
     borderRadius: 20,
   },
   restaurantName: {
-    fontSize: 14,
+    fontSize: FontSize.md,
     fontFamily: Fonts.semiBold,
-    color: '#1A2B3D',
-    textAlign: 'center',
+    color: Palette.textPrimary,
+    textAlign: "center",
   },
   restaurantSubtitle: {
-    fontSize: 12,
+    fontSize: FontSize.sm,
     fontFamily: Fonts.regular,
-    color: '#8A8A8A',
-    textAlign: 'center',
+    color: Palette.textMuted,
+    textAlign: "center",
     marginTop: 2,
   },
 });

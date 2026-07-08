@@ -1,6 +1,7 @@
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Fonts } from '@/constants/theme';
+import { PressableScale } from '@/components/ui/pressable-scale';
+import { Fonts, FontSize, Palette, Radius, Spacing } from '@/constants/theme';
 
 interface CheckoutButtonProps {
   total: string;
@@ -12,39 +13,46 @@ export function CheckoutButton({ total, onPress }: CheckoutButtonProps) {
 
   return (
     <View style={[styles.container, { paddingBottom: Math.max(insets.bottom, 16) }]}>
-      <TouchableOpacity style={styles.button} onPress={onPress} activeOpacity={0.9}>
+      <PressableScale
+        style={styles.button}
+        onPress={onPress}
+        scaleTo={0.98}
+        dimTo={0.95}
+        haptic
+        accessibilityLabel={`Continue to checkout, total ${total}`}
+      >
         <Text style={styles.buttonText}>Continue</Text>
         <Text style={styles.totalText}>{total}</Text>
-      </TouchableOpacity>
+      </PressableScale>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
-    paddingHorizontal: 20,
-    paddingTop: 12,
-    backgroundColor: '#FFFFFF',
+    paddingHorizontal: Spacing.xl,
+    paddingTop: Spacing.md,
+    backgroundColor: Palette.surface,
     borderTopWidth: 1,
-    borderTopColor: '#F0F0F0',
+    borderTopColor: Palette.borderSubtle,
   },
   button: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#1A2B3D',
-    borderRadius: 28,
-    paddingVertical: 16,
-    gap: 20,
+    backgroundColor: Palette.ink,
+    borderRadius: Radius.xxl + 4,
+    paddingVertical: Spacing.lg,
+    gap: Spacing.xl,
   },
   buttonText: {
-    fontSize: 16,
+    fontSize: FontSize.lg,
     fontFamily: Fonts.semiBold,
-    color: '#FFFFFF',
+    color: Palette.textInverse,
   },
   totalText: {
-    fontSize: 16,
+    fontSize: FontSize.lg,
     fontFamily: Fonts.bold,
-    color: '#FFFFFF',
+    color: Palette.textInverse,
   },
 });

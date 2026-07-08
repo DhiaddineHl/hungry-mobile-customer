@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import {
+  Alert,
   View,
   Text,
   StyleSheet,
@@ -11,9 +12,13 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { ArrowLeft, Building2, Briefcase, Home, MapPin } from 'lucide-react-native';
+import { ArrowLeft, Building2, Briefcase, Home, MapPin, Plus, X } from 'lucide-react-native';
 import { Fonts } from '@/constants/theme';
-import { AddressType, AddressLabel } from '@/types/location';
+import { useAuth } from '@/contexts/auth-context';
+import { useSaveAddresses } from '@/hooks/use-customer';
+import { useCustomerStore } from '@/store/customer-store';
+import { useAddressDraftStore } from '@/store/address-draft-store';
+import { AddressType, AddressLabel, AddressData } from '@/types/location';
 
 const ADDRESS_TYPE_CONFIG: Record<AddressType, { label: string; icon: React.ReactNode }> = {
   apartment: { label: 'Apartment', icon: <Building2 size={16} color="#1A2B3D" /> },
@@ -28,9 +33,30 @@ const LABEL_OPTIONS: { value: AddressLabel; display: string }[] = [
   { value: 'custom', display: 'Custom' },
 ];
 
+/** The name an address will be saved under — used to spot label collisions. */
+const resolveName = (label: AddressLabel, customLabel?: string) =>
+  label === 'custom' ? customLabel?.trim() || 'other' : label;
+
+const displayName = (address: AddressData) => {
+  const name = resolveName(address.label, address.customLabel);
+  return name.charAt(0).toUpperCase() + name.slice(1);
+};
+
 export default function AddressInfoScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const { isAuthenticated, user } = useAuth();
+  // During post-sign-up onboarding there is no session yet, so fall back to
+  // the account id persisted by the registration mutation.
+  const pendingKeycloakUserId = useCustomerStore((s) => s.keycloakUserId);
+  const keycloakUserId = user?.sub ?? pendingKeycloakUserId;
+  const saveAddresses = useSaveAddresses();
+  const drafts = useAddressDraftStore((s) => s.drafts);
+  const defaultIndex = useAddressDraftStore((s) => s.defaultIndex);
+  const addDraft = useAddressDraftStore((s) => s.addDraft);
+  const removeDraft = useAddressDraftStore((s) => s.removeDraft);
+  const setDefaultIndex = useAddressDraftStore((s) => s.setDefaultIndex);
+  const clearDrafts = useAddressDraftStore((s) => s.clear);
   const params = useLocalSearchParams<{
     addressType: AddressType;
     addressText: string;
@@ -48,30 +74,67 @@ export default function AddressInfoScreen() {
   const [additionalInfo, setAdditionalInfo] = useState('');
   const [selectedLabel, setSelectedLabel] = useState<AddressLabel>('home');
   const [customLabel, setCustomLabel] = useState('');
-  const [isSaving, setIsSaving] = useState(false);
+  const isSaving = saveAddresses.isPending;
 
   const typeConfig = ADDRESS_TYPE_CONFIG[addressType];
+  // The form being filled in sits conceptually after the committed drafts, so
+  // it competes for "default" under the index `drafts.length`.
+  const currentIndex = drafts.length;
+  const isCurrentDefault = defaultIndex === currentIndex;
+
+  const buildCurrentAddress = (): AddressData => ({
+    coords: { latitude, longitude },
+    addressText,
+    addressType,
+    label: selectedLabel,
+    customLabel: selectedLabel === 'custom' ? customLabel : undefined,
+    floorNumber: floorNumber || undefined,
+    doorNumber: doorNumber || undefined,
+    additionalInfo: additionalInfo || undefined,
+  });
+
+  const hasDuplicateLabel = () => {
+    const currentName = resolveName(selectedLabel, customLabel);
+    if (!drafts.some((d) => resolveName(d.label, d.customLabel) === currentName)) {
+      return false;
+    }
+    Alert.alert(
+      'Label already used',
+      `You already added an address labeled "${currentName}". Pick a different label for this one.`
+    );
+    return true;
+  };
+
+  const handleAddAnother = () => {
+    if (isSaving || hasDuplicateLabel()) return;
+    addDraft(buildCurrentAddress());
+    router.push('/map-select');
+  };
 
   const handleSave = async () => {
     if (isSaving) return;
-    setIsSaving(true);
+    if (!keycloakUserId) {
+      Alert.alert('Not signed in', 'Please log in before saving an address.');
+      router.replace('/login');
+      return;
+    }
+    if (hasDuplicateLabel()) return;
     try {
-      console.log('Saving address:', {
-        addressType,
-        addressText,
-        latitude,
-        longitude,
-        floorNumber,
-        doorNumber,
-        additionalInfo,
-        label: selectedLabel,
-        customLabel: selectedLabel === 'custom' ? customLabel : undefined,
+      const addresses = [...drafts, buildCurrentAddress()];
+      await saveAddresses.mutateAsync({
+        keycloakUserId,
+        addresses,
+        defaultIndex: Math.min(defaultIndex, addresses.length - 1),
       });
-      router.replace('/(tabs)');
+      clearDrafts();
+      // During post-sign-up onboarding the user has no session yet → send them
+      // to login. When an already-signed-in user edits an address → back to app.
+      router.replace(isAuthenticated ? '/(tabs)' : '/login');
     } catch (err) {
-      console.error('Failed to save address:', err);
-    } finally {
-      setIsSaving(false);
+      Alert.alert(
+        'Could not save address',
+        err instanceof Error ? err.message : 'Something went wrong. Please try again.'
+      );
     }
   };
 
@@ -95,6 +158,38 @@ export default function AddressInfoScreen() {
         contentContainerStyle={styles.scrollContent}
         keyboardShouldPersistTaps="handled"
       >
+        {drafts.length > 0 && (
+          <View style={styles.field}>
+            <Text style={styles.fieldLabel}>Added Addresses</Text>
+            {drafts.map((draft, index) => (
+              <View key={`${resolveName(draft.label, draft.customLabel)}-${index}`} style={styles.draftCard}>
+                <View style={styles.draftIcon}>
+                  {ADDRESS_TYPE_CONFIG[draft.addressType].icon}
+                </View>
+                <View style={styles.draftInfo}>
+                  <Text style={styles.draftName}>{displayName(draft)}</Text>
+                  <Text style={styles.draftAddress} numberOfLines={1}>
+                    {draft.addressText}
+                  </Text>
+                </View>
+                <TouchableOpacity
+                  style={styles.radioRow}
+                  onPress={() => setDefaultIndex(index)}
+                  hitSlop={8}
+                >
+                  <View style={[styles.radioOuter, defaultIndex === index && styles.radioOuterActive]}>
+                    {defaultIndex === index && <View style={styles.radioInner} />}
+                  </View>
+                  <Text style={styles.radioText}>Default</Text>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={() => removeDraft(index)} hitSlop={8}>
+                  <X size={18} color="#8A8A8A" />
+                </TouchableOpacity>
+              </View>
+            ))}
+          </View>
+        )}
+
         <View style={styles.addressRow}>
           <View style={styles.addressTypeBadge}>
             {typeConfig.icon}
@@ -174,6 +269,27 @@ export default function AddressInfoScreen() {
             />
           )}
         </View>
+
+        <TouchableOpacity
+          style={styles.defaultRow}
+          onPress={() => setDefaultIndex(currentIndex)}
+          hitSlop={8}
+        >
+          <View style={[styles.radioOuter, isCurrentDefault && styles.radioOuterActive]}>
+            {isCurrentDefault && <View style={styles.radioInner} />}
+          </View>
+          <Text style={styles.defaultRowText}>Set as default address</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.addAnotherButton}
+          onPress={handleAddAnother}
+          activeOpacity={0.8}
+          disabled={isSaving}
+        >
+          <Plus size={18} color="#F5A623" />
+          <Text style={styles.addAnotherButtonText}>Add Another Address</Text>
+        </TouchableOpacity>
       </ScrollView>
 
       <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 16) }]}>
@@ -184,7 +300,11 @@ export default function AddressInfoScreen() {
           disabled={isSaving}
         >
           <Text style={styles.saveButtonText}>
-            {isSaving ? 'Saving...' : 'Save Address Info'}
+            {isSaving
+              ? 'Saving...'
+              : drafts.length > 0
+                ? `Save ${drafts.length + 1} Addresses`
+                : 'Save Address Info'}
           </Text>
         </TouchableOpacity>
       </View>
@@ -221,6 +341,91 @@ const styles = StyleSheet.create({
     paddingTop: 8,
     paddingBottom: 20,
     gap: 24,
+  },
+  draftCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    borderWidth: 1,
+    borderColor: '#EEEEEE',
+    borderRadius: 12,
+    padding: 12,
+    backgroundColor: '#FAFAFA',
+  },
+  draftIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#F0F0F0',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  draftInfo: {
+    flex: 1,
+    gap: 2,
+  },
+  draftName: {
+    fontSize: 14,
+    fontFamily: Fonts.semiBold,
+    color: '#1A2B3D',
+  },
+  draftAddress: {
+    fontSize: 12,
+    fontFamily: Fonts.regular,
+    color: '#8A8A8A',
+  },
+  radioRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  radioOuter: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    borderWidth: 1.5,
+    borderColor: '#CCCCCC',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  radioOuterActive: {
+    borderColor: '#F5A623',
+  },
+  radioInner: {
+    width: 9,
+    height: 9,
+    borderRadius: 4.5,
+    backgroundColor: '#F5A623',
+  },
+  radioText: {
+    fontSize: 12,
+    fontFamily: Fonts.medium,
+    color: '#1A2B3D',
+  },
+  defaultRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  defaultRowText: {
+    fontSize: 14,
+    fontFamily: Fonts.medium,
+    color: '#1A2B3D',
+  },
+  addAnotherButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    borderWidth: 1.5,
+    borderColor: '#F5A623',
+    borderRadius: 28,
+    paddingVertical: 14,
+  },
+  addAnotherButtonText: {
+    fontSize: 15,
+    fontFamily: Fonts.semiBold,
+    color: '#F5A623',
   },
   addressRow: {
     flexDirection: 'row',

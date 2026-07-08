@@ -1,6 +1,7 @@
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet } from 'react-native';
 import { ChevronDown, Bell } from 'lucide-react-native';
-import { Fonts } from '@/constants/theme';
+import { Fonts, FontSize, Palette, Radius } from '@/constants/theme';
+import { PressableScale } from '@/components/ui/pressable-scale';
 import LogoHungry from '@/assets/logo-hungry.svg';
 
 interface HomeHeaderProps {
@@ -18,26 +19,43 @@ export function HomeHeader({
 }: HomeHeaderProps) {
   return (
     <View style={styles.container}>
-      <TouchableOpacity style={styles.locationContainer} onPress={onLocationPress}>
+      <PressableScale
+        style={styles.locationContainer}
+        onPress={onLocationPress}
+        scaleTo={0.97}
+        accessibilityLabel={`Deliver to ${deliveryLocation}. Change address`}
+      >
         <Text style={styles.deliverLabel}>DELIVER TO</Text>
         <View style={styles.locationRow}>
           <Text style={styles.locationText}>{deliveryLocation}</Text>
-          <ChevronDown size={16} color="#F5A623" />
+          <ChevronDown size={16} color={Palette.primary} />
         </View>
-      </TouchableOpacity>
+      </PressableScale>
 
       <View style={styles.logoContainer}>
         <LogoHungry width={100} height={32} />
       </View>
 
-      <TouchableOpacity style={styles.notificationContainer} onPress={onNotificationPress}>
-        <Bell size={24} color="#1A2B3D" />
+      <PressableScale
+        style={styles.notificationContainer}
+        onPress={onNotificationPress}
+        scaleTo={0.9}
+        haptic
+        accessibilityLabel={
+          notificationCount > 0
+            ? `Notifications, ${notificationCount} unread`
+            : 'Notifications'
+        }
+      >
+        <Bell size={24} color={Palette.ink} />
         {notificationCount > 0 && (
           <View style={styles.badge}>
-            <Text style={styles.badgeText}>{notificationCount}</Text>
+            <Text style={styles.badgeText} numberOfLines={1}>
+              {notificationCount > 9 ? '9+' : notificationCount}
+            </Text>
           </View>
         )}
-      </TouchableOpacity>
+      </PressableScale>
     </View>
   );
 }
@@ -55,9 +73,9 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   deliverLabel: {
-    fontSize: 11,
+    fontSize: FontSize.xs,
     fontFamily: Fonts.semiBold,
-    color: '#1A2B3D',
+    color: Palette.textPrimary,
     letterSpacing: 0.5,
     marginBottom: 2,
   },
@@ -67,8 +85,8 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   locationText: {
-    fontSize: 14,
-    color: '#F5A623',
+    fontSize: FontSize.md,
+    color: Palette.primary,
     fontFamily: Fonts.medium,
   },
   logoContainer: {
@@ -84,8 +102,8 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: -4,
     right: -4,
-    backgroundColor: '#F5A623',
-    borderRadius: 10,
+    backgroundColor: Palette.primary,
+    borderRadius: Radius.pill,
     minWidth: 18,
     height: 18,
     alignItems: 'center',
@@ -93,8 +111,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
   },
   badgeText: {
-    fontSize: 11,
+    fontSize: FontSize.xs,
     fontFamily: Fonts.semiBold,
-    color: '#FFFFFF',
+    color: Palette.textInverse,
   },
 });

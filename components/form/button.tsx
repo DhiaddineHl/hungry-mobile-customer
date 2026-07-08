@@ -1,6 +1,7 @@
-import { TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native';
+import { StyleSheet, ActivityIndicator, View } from 'react-native';
 import { ThemedText } from '@/components/themed-text';
-import { useColorScheme } from '@/hooks/use-color-scheme';
+import { PressableScale } from '@/components/ui/pressable-scale';
+import { Fonts, FontSize, Palette, Radius, Spacing } from '@/constants/theme';
 
 interface ThemedButtonProps {
   title: string;
@@ -15,50 +16,71 @@ export function ThemedButton({
   onPress,
   loading = false,
   variant = 'primary',
-  disabled = false
+  disabled = false,
 }: ThemedButtonProps) {
-  const colorScheme = useColorScheme();
   const isPrimary = variant === 'primary';
+  const isDisabled = disabled || loading;
 
-  const backgroundColor = disabled
-    ? '#cccccc'
-    : isPrimary
-      ? (colorScheme === 'dark' ? '#2563eb' : '#3b82f6')
-      : 'transparent';
+  const backgroundColor = isPrimary
+    ? isDisabled
+      ? Palette.disabled
+      : Palette.primary
+    : 'transparent';
 
-  const borderColor = isPrimary ? 'transparent' : (colorScheme === 'dark' ? '#3b82f6' : '#2563eb');
+  const borderColor = isPrimary ? 'transparent' : Palette.primary;
+  const contentColor = isPrimary
+    ? Palette.textInverse
+    : isDisabled
+      ? Palette.textMuted
+      : Palette.primary;
 
   return (
-    <TouchableOpacity
+    <PressableScale
+      onPress={isDisabled ? undefined : onPress}
+      disabled={isDisabled}
+      scaleTo={0.97}
+      dimTo={0.9}
+      haptic={isPrimary}
       style={[
         styles.button,
-        { backgroundColor, borderColor, borderWidth: isPrimary ? 0 : 1 },
+        {
+          backgroundColor,
+          borderColor,
+          borderWidth: isPrimary ? 0 : 1.5,
+          opacity: isDisabled && !isPrimary ? 0.5 : 1,
+        },
       ]}
-      onPress={onPress}
-      disabled={disabled || loading}
-      activeOpacity={0.7}
+      accessibilityLabel={title}
     >
-      {loading ? (
-        <ActivityIndicator color={isPrimary ? '#ffffff' : (colorScheme === 'dark' ? '#3b82f6' : '#2563eb')} />
-      ) : (
-        <ThemedText style={[styles.text, { color: isPrimary ? '#ffffff' : (colorScheme === 'dark' ? '#3b82f6' : '#2563eb') }]}>
-          {title}
-        </ThemedText>
-      )}
-    </TouchableOpacity>
+      <View style={styles.content}>
+        {loading ? (
+          <ActivityIndicator color={contentColor} />
+        ) : (
+          <ThemedText style={[styles.text, { color: contentColor }]}>
+            {title}
+          </ThemedText>
+        )}
+      </View>
+    </PressableScale>
   );
 }
 
 const styles = StyleSheet.create({
   button: {
-    height: 48,
-    borderRadius: 8,
+    height: 52,
+    borderRadius: Radius.lg,
     justifyContent: 'center',
     alignItems: 'center',
-    marginVertical: 8,
+    marginVertical: Spacing.sm,
+  },
+  content: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.sm,
   },
   text: {
-    fontSize: 16,
-    fontWeight: '600',
+    fontSize: FontSize.lg,
+    fontFamily: Fonts.semiBold,
   },
 });

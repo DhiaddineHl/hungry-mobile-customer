@@ -1,10 +1,13 @@
 import { CustomTabBar } from '@/components/navigation/custom-tab-bar';
+import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { Tabs } from 'expo-router';
 
 export default function TabLayout() {
   return (
     <Tabs
-      tabBar={(props) => <CustomTabBar {...props} />}
+      tabBar={(props) => (
+        <CustomTabBar {...(props as unknown as BottomTabBarProps)} />
+      )}
       screenOptions={{
         headerShown: false,
         sceneStyle: { backgroundColor: '#FFFFFF' },

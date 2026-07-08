@@ -1,12 +1,12 @@
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
-import { Image } from 'expo-image';
+import { Image, type ImageSource } from 'expo-image';
 import { ChevronDown } from 'lucide-react-native';
 import { Fonts } from '@/constants/theme';
 
 interface OrderRestaurantRowProps {
   name: string;
   itemCount: number;
-  logo: ReturnType<typeof require>;
+  logo: ImageSource | number;
   onPress?: () => void;
 }
 

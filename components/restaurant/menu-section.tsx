@@ -1,4 +1,4 @@
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, ScrollView } from 'react-native';
 import { ProductCard } from './product-card';
 import { Fonts } from '@/constants/theme';
 
@@ -22,8 +22,12 @@ interface MenuSectionProps {
 export function MenuSection({ title, products, onProductPress }: MenuSectionProps) {
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>{title}</Text>
-      <View style={styles.productsGrid}>
+      {title ? <Text style={styles.title}>{title}</Text> : null}
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.row}
+      >
         {products.map((product) => (
           <ProductCard
             key={product.id}
@@ -31,25 +35,24 @@ export function MenuSection({ title, products, onProductPress }: MenuSectionProp
             onPress={() => onProductPress?.(product.id)}
           />
         ))}
-      </View>
+      </ScrollView>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
-    paddingHorizontal: 20,
-    marginBottom: 8,
+    marginBottom: 20,
   },
   title: {
     fontSize: 18,
     fontFamily: Fonts.bold,
     color: '#1A2B3D',
-    marginBottom: 16,
+    marginBottom: 14,
+    paddingHorizontal: 20,
   },
-  productsGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between',
+  row: {
+    paddingHorizontal: 20,
+    gap: 14,
   },
 });
