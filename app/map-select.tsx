@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Keyboard,
   View,
   Text,
   StyleSheet,
@@ -10,7 +11,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { ArrowLeft, Search, Crosshair } from 'lucide-react-native';
+import { ArrowLeft, Search, Crosshair, MapPin } from 'lucide-react-native';
 import * as Location from 'expo-location';
 import type MapView from 'react-native-maps';
 import type { Region } from 'react-native-maps';
@@ -18,6 +19,12 @@ import { Fonts } from '@/constants/theme';
 import { AddressType, LocationCoords } from '@/types/location';
 import { AddressTypeSelector } from '@/components/location/address-type-selector';
 import { MapPlaceholder } from '@/components/location/map-placeholder';
+import {
+  PlaceSuggestion,
+  autocompletePlaces,
+  getPlaceLocation,
+  newPlacesSessionToken,
+} from '@/services/api/places-service';
 
 const DEFAULT_REGION: Region = {
   latitude: 35.8256,
@@ -44,10 +51,18 @@ export default function MapSelectScreen() {
   });
   const [addressText, setAddressText] = useState('');
   const [isLoadingAddress, setIsLoadingAddress] = useState(false);
+  const [suggestions, setSuggestions] = useState<PlaceSuggestion[]>([]);
 
   // Reverse geocodes race when the user moves the map quickly — only the
   // latest request may write its result.
   const geocodeIdRef = useRef(0);
+  // One Places session token per typing burst — autocomplete calls share it
+  // and the follow-up details call closes it, so Google bills one session.
+  const sessionTokenRef = useRef<string | null>(null);
+  const autocompleteIdRef = useRef(0);
+  // Selecting a suggestion writes its text back into the input; that change
+  // must not re-trigger autocomplete.
+  const suppressAutocompleteRef = useRef(false);
 
   const reverseGeocode = async (lat: number, lng: number) => {
     const requestId = ++geocodeIdRef.current;
@@ -87,6 +102,56 @@ export default function MapSelectScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Debounced Places autocomplete while the user types.
+  useEffect(() => {
+    if (Platform.OS === 'web') return;
+    if (suppressAutocompleteRef.current) {
+      suppressAutocompleteRef.current = false;
+      return;
+    }
+    const query = searchQuery.trim();
+    if (query.length < 3) {
+      setSuggestions([]);
+      return;
+    }
+    const requestId = ++autocompleteIdRef.current;
+    const timeout = setTimeout(async () => {
+      try {
+        sessionTokenRef.current ??= newPlacesSessionToken();
+        const results = await autocompletePlaces(query, {
+          sessionToken: sessionTokenRef.current,
+          near: selectedCoords,
+        });
+        if (requestId === autocompleteIdRef.current) setSuggestions(results);
+      } catch {
+        if (requestId === autocompleteIdRef.current) setSuggestions([]);
+      }
+    }, 350);
+    return () => clearTimeout(timeout);
+    // selectedCoords only biases results — not worth re-querying when it moves.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchQuery]);
+
+  const handleSelectSuggestion = async (suggestion: PlaceSuggestion) => {
+    Keyboard.dismiss();
+    suppressAutocompleteRef.current = true;
+    setSearchQuery(suggestion.description);
+    setSuggestions([]);
+    setHint(null);
+    // The details call ends the billing session — start fresh on next typing.
+    const sessionToken = sessionTokenRef.current;
+    sessionTokenRef.current = null;
+    setIsSearching(true);
+    try {
+      const coords = await getPlaceLocation(suggestion.placeId, sessionToken ?? undefined);
+      animateTo(coords.latitude, coords.longitude);
+    } catch {
+      setHint('Could not load that place. Try another result.');
+    } finally {
+      setIsSearching(false);
+    }
+  };
+
   const animateTo = (latitude: number, longitude: number) => {
     mapRef.current?.animateToRegion(
       {
@@ -106,6 +171,11 @@ export default function MapSelectScreen() {
   };
 
   const handleSearch = async () => {
+    // Submitting with suggestions open picks the top one — the common intent.
+    if (suggestions.length > 0) {
+      handleSelectSuggestion(suggestions[0]);
+      return;
+    }
     const query = searchQuery.trim();
     if (!query || isSearching) return;
     setIsSearching(true);
@@ -162,7 +232,9 @@ export default function MapSelectScreen() {
   };
 
   const handleBack = () => {
-    if (bottomSheet === 'address-type') {
+    if (suggestions.length > 0) {
+      setSuggestions([]);
+    } else if (bottomSheet === 'address-type') {
       setBottomSheet('deliver');
     } else {
       router.back();
@@ -213,6 +285,29 @@ export default function MapSelectScreen() {
             )}
           </TouchableOpacity>
         </View>
+        {suggestions.length > 0 && (
+          <View style={styles.suggestions}>
+            {suggestions.map((suggestion, index) => (
+              <TouchableOpacity
+                key={suggestion.placeId}
+                style={[styles.suggestionRow, index > 0 && styles.suggestionRowBorder]}
+                onPress={() => handleSelectSuggestion(suggestion)}
+              >
+                <MapPin size={16} color="#AAAAAA" />
+                <View style={styles.suggestionTextGroup}>
+                  <Text style={styles.suggestionPrimary} numberOfLines={1}>
+                    {suggestion.primaryText}
+                  </Text>
+                  {!!suggestion.secondaryText && (
+                    <Text style={styles.suggestionSecondary} numberOfLines={1}>
+                      {suggestion.secondaryText}
+                    </Text>
+                  )}
+                </View>
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
         {hint && (
           <View style={styles.hintPill}>
             <Text style={styles.hintText}>{hint}</Text>
@@ -291,6 +386,40 @@ const styles = StyleSheet.create({
   },
   searchIcon: {
     padding: 4,
+  },
+  suggestions: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    paddingVertical: 4,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  suggestionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  suggestionRowBorder: {
+    borderTopWidth: 1,
+    borderTopColor: '#F0F0F0',
+  },
+  suggestionTextGroup: {
+    flex: 1,
+  },
+  suggestionPrimary: {
+    fontSize: 14,
+    fontFamily: Fonts.medium,
+    color: '#1A2B3D',
+  },
+  suggestionSecondary: {
+    fontSize: 12,
+    fontFamily: Fonts.regular,
+    color: '#AAAAAA',
   },
   hintPill: {
     alignSelf: 'center',
