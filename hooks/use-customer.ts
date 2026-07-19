@@ -13,12 +13,13 @@ import { AddressData } from '@/types/location';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 /**
- * The customer record linked to a Keycloak account (`sub`). Returns `null`
- * data (instead of erroring) when the backend has no record for the account,
- * e.g. one created via Google sign-in before this sync existed.
+ * Shared query options for the customer-by-account fetch. Colocated so both
+ * the `useCustomer` hook and imperative prefetches (e.g. warming the cache
+ * right after login in the auth context) resolve to the exact same cache
+ * entry and 404-as-null behaviour.
  */
-export function useCustomer(keycloakUserId: string | null | undefined) {
-  return useQuery({
+export function customerQueryOptions(keycloakUserId: string | null | undefined) {
+  return {
     queryKey: customerKeys.detail(keycloakUserId ?? ''),
     queryFn: async (): Promise<Customer | null> => {
       try {
@@ -31,7 +32,16 @@ export function useCustomer(keycloakUserId: string | null | undefined) {
     enabled: !!keycloakUserId,
     // Profile data rarely changes outside this device's own mutations.
     staleTime: 5 * 60 * 1000,
-  });
+  };
+}
+
+/**
+ * The customer record linked to a Keycloak account (`sub`). Returns `null`
+ * data (instead of erroring) when the backend has no record for the account,
+ * e.g. one created via Google sign-in before this sync existed.
+ */
+export function useCustomer(keycloakUserId: string | null | undefined) {
+  return useQuery(customerQueryOptions(keycloakUserId));
 }
 
 /**

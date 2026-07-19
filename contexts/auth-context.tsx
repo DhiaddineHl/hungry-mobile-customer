@@ -10,7 +10,9 @@ import {
 } from '@/services/keycloak/auth-service';
 import { keycloakConfig } from '@/services/keycloak/config';
 import { clearTokens, getTokens } from '@/services/keycloak/token-storage';
+import { customerQueryOptions } from '@/hooks/use-customer';
 import { useCustomerStore } from '@/store/customer-store';
+import { useDeliveryAddressStore } from '@/store/delivery-address-store';
 import { useQueryClient } from '@tanstack/react-query';
 import * as AuthSession from 'expo-auth-session';
 import { createContext, useCallback, useContext, useEffect, useState } from 'react';
@@ -94,6 +96,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     discovery
   );
 
+  // Warm the customer record into the query cache as soon as we have an
+  // account id, so it is ready across the app right after login/session
+  // restore instead of only when a screen first reads it.
+  const prefetchCustomer = useCallback(
+    (sub?: string | null) => {
+      if (sub) queryClient.prefetchQuery(customerQueryOptions(sub));
+    },
+    [queryClient]
+  );
+
   // Drives a browser auth request to completion: prompt, then exchange the
   // returned authorization code (+ PKCE verifier) for tokens and load the user.
   const runBrowserAuth = useCallback(
@@ -115,6 +127,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           if (tokenResult.success) {
             const userInfo = await fetchUserInfo();
             setState({ isAuthenticated: true, isLoading: false, user: userInfo });
+            prefetchCustomer(userInfo?.sub);
           }
           return tokenResult;
         }
@@ -126,7 +139,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return { success: false, error: 'Authentication failed. Please try again.' };
       }
     },
-    [redirectUri]
+    [redirectUri, prefetchCustomer]
   );
 
   useEffect(() => {
@@ -150,10 +163,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         const userInfo = await fetchUserInfo();
         setState({ isAuthenticated: true, isLoading: false, user: userInfo });
+        prefetchCustomer(userInfo?.sub);
       } catch {
         setState({ isAuthenticated: false, isLoading: false, user: null });
       }
     })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const login = useCallback(async (email: string, password: string): Promise<AuthResult> => {
@@ -161,9 +176,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (result.success) {
       const userInfo = await fetchUserInfo();
       setState({ isAuthenticated: true, isLoading: false, user: userInfo });
+      prefetchCustomer(userInfo?.sub);
     }
     return result;
-  }, []);
+  }, [prefetchCustomer]);
 
   const loginWithGoogleFn = useCallback(
     (): Promise<AuthResult> => runBrowserAuth(googleRequest, promptGoogleAsync),
@@ -183,6 +199,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await keycloakLogout();
     // Drop everything tied to this account so the next login starts clean.
     useCustomerStore.getState().clear();
+    useDeliveryAddressStore.getState().clear();
     queryClient.clear();
     setState({ isAuthenticated: false, isLoading: false, user: null });
   }, [queryClient]);

@@ -17,10 +17,6 @@ export default function HomeScreen() {
   const router = useRouter();
   const [selectedFilters, setSelectedFilters] = useState<string[]>([]);
 
-  const handleLocationPress = () => {
-    console.log('Location pressed');
-  };
-
   const handleNotificationPress = () => {
     console.log('Notification pressed');
   };
@@ -60,9 +56,7 @@ export default function HomeScreen() {
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
       <HomeHeader
-        deliveryLocation="Home"
         notificationCount={2}
-        onLocationPress={handleLocationPress}
         onNotificationPress={handleNotificationPress}
       />
       <ScrollView
