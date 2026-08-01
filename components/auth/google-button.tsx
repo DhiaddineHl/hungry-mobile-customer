@@ -1,53 +1,64 @@
-import { TouchableOpacity, StyleSheet, Text, Image, ActivityIndicator } from 'react-native';
+import { ActivityIndicator, StyleSheet, Text } from 'react-native';
+import { PressableScale } from '@/components/ui/pressable-scale';
+import { GoogleLogo } from './google-logo';
+import { FontSize, Fonts, Palette, Radius, Spacing } from '@/constants/theme';
 
 interface GoogleButtonProps {
   onPress: () => void;
   loading?: boolean;
+  disabled?: boolean;
+  /** Defaults to the label used on both auth screens in the design. */
+  label?: string;
 }
 
-export function GoogleButton({ onPress, loading = false }: GoogleButtonProps) {
+export function GoogleButton({
+  onPress,
+  loading = false,
+  disabled = false,
+  label = 'LOG IN WITH GOOGLE',
+}: GoogleButtonProps) {
+  const isDisabled = disabled || loading;
+
   return (
-    <TouchableOpacity
-      style={styles.button}
-      onPress={onPress}
-      disabled={loading}
-      activeOpacity={0.8}
+    <PressableScale
+      style={[styles.button, isDisabled && styles.buttonDisabled]}
+      onPress={isDisabled ? undefined : onPress}
+      disabled={isDisabled}
+      scaleTo={0.97}
+      dimTo={0.9}
+      accessibilityLabel={label}
     >
       {loading ? (
-        <ActivityIndicator color="#1A2B3D" />
+        <ActivityIndicator color={Palette.ink} />
       ) : (
         <>
-          <Image
-            source={{ uri: 'https://www.google.com/favicon.ico' }}
-            style={styles.icon}
-          />
-          <Text style={styles.text}>LOG IN WITH GOOGLE</Text>
+          <GoogleLogo size={22} />
+          <Text style={styles.text}>{label}</Text>
         </>
       )}
-    </TouchableOpacity>
+    </PressableScale>
   );
 }
 
 const styles = StyleSheet.create({
   button: {
     height: 52,
-    borderRadius: 26,
+    borderRadius: Radius.pill,
     borderWidth: 1,
-    borderColor: '#E5E5E5',
-    backgroundColor: '#FFFFFF',
+    borderColor: Palette.border,
+    backgroundColor: Palette.surface,
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
-    gap: 12,
+    gap: Spacing.md,
   },
-  icon: {
-    width: 24,
-    height: 24,
+  buttonDisabled: {
+    opacity: 0.6,
   },
   text: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#1A2B3D',
+    fontFamily: Fonts.semiBold,
+    fontSize: FontSize.md,
+    color: Palette.ink,
     letterSpacing: 0.5,
   },
 });

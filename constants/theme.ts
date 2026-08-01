@@ -16,17 +16,28 @@ const brandPrimary = '#F5A623';
 const brandPrimaryDark = '#E0900F';
 const brandInk = '#1A2B3D';
 
+// Deep tones lifted straight from the auth artwork (assets/auth-page-upper-section.svg)
+// so the auth screens sit on the same palette as the illustration behind them.
+const brandDeep = '#EA8608';
+const brandNavy = '#003049';
+
 export const Palette = {
   // Brand
   primary: brandPrimary,
   primaryDark: brandPrimaryDark,
+  primaryDeep: brandDeep,
   primarySoft: '#FFF5E6',
+
+  // Auth backdrop
+  navy: brandNavy,
+  navyDeep: '#00263A',
 
   // Ink / text
   ink: brandInk,
   textPrimary: brandInk,
   textSecondary: '#5A6B7B',
   textMuted: '#8A8A8A',
+  textPlaceholder: '#C7C7C7',
   textInverse: '#FFFFFF',
 
   // Surfaces
@@ -89,6 +100,8 @@ export const Spacing = {
   xl: 20,
   xxl: 24,
   xxxl: 32,
+  // Wide gutter used by the auth card, matching the design frames.
+  xxxxl: 40,
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -150,6 +163,8 @@ export const Duration = {
   fast: 150,
   base: 220,
   slow: 320,
+  /** One-off screen reveals (e.g. the auth landing → login intro). */
+  reveal: 880,
 } as const;
 
 // Stagger delay per list/grid item for entrance sequences.

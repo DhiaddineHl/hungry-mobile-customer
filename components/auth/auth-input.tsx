@@ -1,13 +1,16 @@
 import { useState } from 'react';
-import {
-  StyleSheet,
-  TextInput,
-  TextInputProps,
-  View,
-  Text,
-  TouchableOpacity,
-} from 'react-native';
+import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import type { BlurEvent, FocusEvent, TextInputProps } from 'react-native';
+import Animated, {
+  FadeIn,
+  interpolateColor,
+  ReduceMotion,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from 'react-native-reanimated';
 import { Eye, EyeOff } from 'lucide-react-native';
+import { Duration, FontSize, Fonts, Palette, Radius, Spacing } from '@/constants/theme';
 
 interface AuthInputProps extends TextInputProps {
   label: string;
@@ -15,77 +18,117 @@ interface AuthInputProps extends TextInputProps {
   isPassword?: boolean;
 }
 
+/**
+ * Labelled auth field.
+ *
+ * The border colour animates on focus (and to danger when the field is in
+ * error) on the UI thread — only a colour interpolation, never layout. Shared
+ * values use `.get()/.set()` for React Compiler compatibility.
+ */
 export function AuthInput({
   label,
   error,
   isPassword = false,
   style,
+  onFocus,
+  onBlur,
   ...props
 }: AuthInputProps) {
-  const [showPassword, setShowPassword] = useState(false);
+  const [hidden, setHidden] = useState(true);
+  const focus = useSharedValue(0);
+
+  const restColor = error ? Palette.danger : Palette.border;
+  const activeColor = error ? Palette.danger : Palette.primaryDeep;
+
+  const borderStyle = useAnimatedStyle(() => ({
+    borderColor: interpolateColor(focus.get(), [0, 1], [restColor, activeColor]),
+  }));
+
+  const handleFocus = (event: FocusEvent) => {
+    focus.set(withTiming(1, { duration: Duration.fast }));
+    onFocus?.(event);
+  };
+
+  const handleBlur = (event: BlurEvent) => {
+    focus.set(withTiming(0, { duration: Duration.base }));
+    onBlur?.(event);
+  };
 
   return (
     <View style={styles.container}>
       <Text style={styles.label}>{label}</Text>
-      <View style={styles.inputWrapper}>
+      <Animated.View style={[styles.inputWrapper, borderStyle]}>
         <TextInput
-          style={[styles.input, error && styles.inputError, style]}
-          placeholderTextColor="#AAAAAA"
-          secureTextEntry={isPassword && !showPassword}
+          style={[styles.input, style]}
+          placeholderTextColor={Palette.textPlaceholder}
+          secureTextEntry={isPassword && hidden}
+          onFocus={handleFocus}
+          onBlur={handleBlur}
           {...props}
         />
-        {isPassword && (
-          <TouchableOpacity
+        {isPassword ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={hidden ? 'Show password' : 'Hide password'}
+            onPress={() => setHidden((prev) => !prev)}
+            hitSlop={10}
             style={styles.eyeButton}
-            onPress={() => setShowPassword(!showPassword)}
           >
-            {showPassword ? (
-              <Eye size={20} color="#999999" />
+            {hidden ? (
+              <Eye size={20} color={Palette.textMuted} />
             ) : (
-              <EyeOff size={20} color="#999999" />
+              <EyeOff size={20} color={Palette.textMuted} />
             )}
-          </TouchableOpacity>
-        )}
-      </View>
-      {error && <Text style={styles.error}>{error}</Text>}
+          </Pressable>
+        ) : null}
+      </Animated.View>
+      {error ? (
+        <Animated.Text
+          entering={FadeIn.duration(Duration.fast).reduceMotion(ReduceMotion.System)}
+          style={styles.error}
+        >
+          {error}
+        </Animated.Text>
+      ) : null}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
-    marginBottom: 16,
+    marginBottom: Spacing.lg,
   },
   label: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: '#1A2B3D',
-    marginBottom: 8,
+    fontFamily: Fonts.medium,
+    fontSize: FontSize.md,
+    color: Palette.ink,
+    marginBottom: Spacing.sm,
   },
   inputWrapper: {
-    position: 'relative',
+    flexDirection: 'row',
+    alignItems: 'center',
+    height: 56,
+    borderWidth: 1,
+    borderColor: Palette.border,
+    borderRadius: Radius.lg,
+    backgroundColor: Palette.surface,
+    paddingHorizontal: Spacing.lg,
   },
   input: {
-    height: 52,
-    borderWidth: 1,
-    borderColor: '#E5E5E5',
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    fontSize: 16,
-    color: '#1A2B3D',
-    backgroundColor: '#FFFFFF',
-  },
-  inputError: {
-    borderColor: '#EF4444',
+    flex: 1,
+    fontFamily: Fonts.regular,
+    fontSize: FontSize.lg,
+    color: Palette.ink,
+    // Kills Android's default input padding so both platforms measure the same.
+    padding: 0,
   },
   eyeButton: {
-    position: 'absolute',
-    right: 16,
-    top: 16,
+    paddingLeft: Spacing.sm,
   },
   error: {
-    color: '#EF4444',
-    fontSize: 12,
-    marginTop: 4,
+    fontFamily: Fonts.regular,
+    color: Palette.danger,
+    fontSize: FontSize.sm,
+    marginTop: Spacing.xs,
   },
 });

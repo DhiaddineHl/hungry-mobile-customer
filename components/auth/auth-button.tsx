@@ -1,6 +1,6 @@
 import { StyleSheet, ActivityIndicator, Text, ViewStyle } from 'react-native';
 import { PressableScale } from '@/components/ui/pressable-scale';
-import { FontSize, Palette, Radius } from '@/constants/theme';
+import { FontSize, Fonts, Palette, Radius } from '@/constants/theme';
 
 interface AuthButtonProps {
   title: string;
@@ -8,6 +8,10 @@ interface AuthButtonProps {
   loading?: boolean;
   disabled?: boolean;
   style?: ViewStyle;
+  /** Fill colour. Defaults to the brand primary. */
+  color?: string;
+  /** Corner treatment: fully rounded (default) or the softer auth-card radius. */
+  shape?: 'pill' | 'rounded';
 }
 
 export function AuthButton({
@@ -16,12 +20,19 @@ export function AuthButton({
   loading = false,
   disabled = false,
   style,
+  color = Palette.primary,
+  shape = 'pill',
 }: AuthButtonProps) {
   const isDisabled = disabled || loading;
 
   return (
     <PressableScale
-      style={[styles.button, isDisabled && styles.buttonDisabled, style]}
+      style={[
+        styles.button,
+        { backgroundColor: isDisabled ? Palette.disabled : color },
+        shape === 'rounded' ? styles.rounded : styles.pill,
+        style,
+      ]}
       onPress={isDisabled ? undefined : onPress}
       disabled={isDisabled}
       scaleTo={0.97}
@@ -41,17 +52,18 @@ export function AuthButton({
 const styles = StyleSheet.create({
   button: {
     height: 52,
-    borderRadius: Radius.xxl + 2,
-    backgroundColor: Palette.primary,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  buttonDisabled: {
-    backgroundColor: Palette.disabled,
+  pill: {
+    borderRadius: Radius.pill,
+  },
+  rounded: {
+    borderRadius: Radius.lg,
   },
   text: {
+    fontFamily: Fonts.bold,
     fontSize: FontSize.lg,
-    fontWeight: '700',
     color: Palette.textInverse,
     letterSpacing: 1,
   },

@@ -1,4 +1,5 @@
 import { AuthProvider, useAuth } from "@/contexts/auth-context";
+import { Palette } from "@/constants/theme";
 import { useFrameworkReady } from "@/hooks/useFrameworkReady";
 import { queryClient, wireAppFocus } from "@/services/api/query-client";
 import { QueryClientProvider } from "@tanstack/react-query";
@@ -69,9 +70,16 @@ function RootNavigator() {
         }}
       >
         <Stack.Screen name="(tabs)" />
-        {/* Auth screens cross-fade for a softer entrance. */}
-        <Stack.Screen name="login" options={{ animation: "fade" }} />
-        <Stack.Screen name="signup" options={{ animation: "fade" }} />
+        {/* Auth screens cross-fade for a softer entrance. Their container is
+            navy so the fade never flashes white behind the backdrop. */}
+        <Stack.Screen
+          name="login"
+          options={{ animation: "fade", contentStyle: { backgroundColor: Palette.navy } }}
+        />
+        <Stack.Screen
+          name="signup"
+          options={{ animation: "fade", contentStyle: { backgroundColor: Palette.navy } }}
+        />
         <Stack.Screen name="verification" options={{ animation: "fade" }} />
         <Stack.Screen name="account-settings" options={{ animation: "slide_from_right" }} />
         <Stack.Screen name="location" />

@@ -1,12 +1,15 @@
-import {
-  StyleSheet,
-  TextInput,
-  View,
-  Text,
-  TouchableOpacity,
-  Image,
-} from 'react-native';
+import { StyleSheet, Text, TextInput, View } from 'react-native';
+import Animated, {
+  FadeIn,
+  interpolateColor,
+  ReduceMotion,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from 'react-native-reanimated';
 import { ChevronDown } from 'lucide-react-native';
+import { TunisiaFlag } from './tunisia-flag';
+import { Duration, FontSize, Fonts, Palette, Radius, Spacing } from '@/constants/theme';
 
 interface PhoneInputProps {
   label: string;
@@ -17,6 +20,11 @@ interface PhoneInputProps {
   placeholder?: string;
 }
 
+/**
+ * Phone field: a static country pill beside the number input, both sharing the
+ * `AuthInput` shell (56pt, `Radius.lg`, `Palette.border`). Only the number is
+ * validated — the country code is fixed until multi-country support lands.
+ */
 export function PhoneInput({
   label,
   value,
@@ -25,88 +33,101 @@ export function PhoneInput({
   error,
   placeholder = '22 222 222',
 }: PhoneInputProps) {
+  const focus = useSharedValue(0);
+
+  const restColor = error ? Palette.danger : Palette.border;
+  const activeColor = error ? Palette.danger : Palette.primaryDeep;
+
+  const borderStyle = useAnimatedStyle(() => ({
+    borderColor: interpolateColor(focus.get(), [0, 1], [restColor, activeColor]),
+  }));
+
   return (
     <View style={styles.container}>
       <Text style={styles.label}>{label}</Text>
       <View style={styles.inputRow}>
-        <TouchableOpacity style={styles.countrySelector}>
-          <Image
-            source={{ uri: 'https://flagcdn.com/w40/tn.png' }}
-            style={styles.flag}
-          />
+        <View style={styles.countrySelector}>
+          <TunisiaFlag />
           <Text style={styles.countryCode}>{countryCode}</Text>
-          <ChevronDown size={16} color="#1A2B3D" />
-        </TouchableOpacity>
-        <View style={styles.phoneInputWrapper}>
+          <ChevronDown size={16} color={Palette.ink} />
+        </View>
+        <Animated.View style={[styles.phoneInputWrapper, borderStyle]}>
           <TextInput
-            style={[styles.phoneInput, error && styles.inputError]}
+            style={styles.phoneInput}
             value={value}
             onChangeText={onChangeText}
             placeholder={placeholder}
-            placeholderTextColor="#AAAAAA"
+            placeholderTextColor={Palette.textPlaceholder}
             keyboardType="phone-pad"
+            autoComplete="tel"
+            textContentType="telephoneNumber"
+            onFocus={() => focus.set(withTiming(1, { duration: Duration.fast }))}
+            onBlur={() => focus.set(withTiming(0, { duration: Duration.base }))}
           />
-        </View>
+        </Animated.View>
       </View>
-      {error && <Text style={styles.error}>{error}</Text>}
+      {error ? (
+        <Animated.Text
+          entering={FadeIn.duration(Duration.fast).reduceMotion(ReduceMotion.System)}
+          style={styles.error}
+        >
+          {error}
+        </Animated.Text>
+      ) : null}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
-    marginBottom: 16,
+    marginBottom: Spacing.lg,
   },
   label: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: '#1A2B3D',
-    marginBottom: 8,
+    fontFamily: Fonts.medium,
+    fontSize: FontSize.md,
+    color: Palette.ink,
+    marginBottom: Spacing.sm,
   },
   inputRow: {
     flexDirection: 'row',
-    gap: 12,
+    gap: Spacing.md,
   },
   countrySelector: {
     flexDirection: 'row',
     alignItems: 'center',
-    height: 52,
-    paddingHorizontal: 12,
+    height: 56,
+    paddingHorizontal: Spacing.md,
     borderWidth: 1,
-    borderColor: '#E5E5E5',
-    borderRadius: 12,
-    backgroundColor: '#FFFFFF',
-    gap: 8,
-  },
-  flag: {
-    width: 24,
-    height: 16,
-    borderRadius: 2,
+    borderColor: Palette.border,
+    borderRadius: Radius.lg,
+    backgroundColor: Palette.surface,
+    gap: Spacing.sm,
   },
   countryCode: {
-    fontSize: 14,
-    color: '#1A2B3D',
-    fontWeight: '500',
+    fontFamily: Fonts.medium,
+    fontSize: FontSize.md,
+    color: Palette.ink,
   },
   phoneInputWrapper: {
     flex: 1,
+    justifyContent: 'center',
+    height: 56,
+    borderWidth: 1,
+    borderColor: Palette.border,
+    borderRadius: Radius.lg,
+    backgroundColor: Palette.surface,
+    paddingHorizontal: Spacing.lg,
   },
   phoneInput: {
-    height: 52,
-    borderWidth: 1,
-    borderColor: '#E5E5E5',
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    fontSize: 16,
-    color: '#1A2B3D',
-    backgroundColor: '#FFFFFF',
-  },
-  inputError: {
-    borderColor: '#EF4444',
+    fontFamily: Fonts.regular,
+    fontSize: FontSize.lg,
+    color: Palette.ink,
+    padding: 0,
   },
   error: {
-    color: '#EF4444',
-    fontSize: 12,
-    marginTop: 4,
+    fontFamily: Fonts.regular,
+    color: Palette.danger,
+    fontSize: FontSize.sm,
+    marginTop: Spacing.xs,
   },
 });

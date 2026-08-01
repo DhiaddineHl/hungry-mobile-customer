@@ -1,25 +1,39 @@
-import AuthPageUpperSection from '@/assets/auth-page-upper-section.svg';
-import { AuthButton, AuthInput, GoogleButton, PhoneInput } from '@/components/auth';
-import { useAuth } from '@/contexts/auth-context';
-import { useRegisterCustomer } from '@/hooks/use-customer';
-import { SignupFormData, signupSchema } from '@/schemas/auth';
-import { zodResolver } from '@hookform/resolvers/zod';
-import { Link, useRouter } from 'expo-router';
 import { useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
 import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
   StyleSheet,
   Text,
-  TouchableOpacity,
   View,
 } from 'react-native';
+import { useRouter } from 'expo-router';
+import { StatusBar } from 'expo-status-bar';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import Animated, { FadeInDown, ReduceMotion } from 'react-native-reanimated';
+import {
+  AuthBackdrop,
+  AuthButton,
+  AuthHeading,
+  AuthInput,
+  AuthSwitchLink,
+  GoogleButton,
+  OrDivider,
+  PhoneInput,
+  TermsFooter,
+} from '@/components/auth';
+import { AnimatedEntrance } from '@/components/ui/animated-entrance';
+import { useAuth } from '@/contexts/auth-context';
+import { useRegisterCustomer } from '@/hooks/use-customer';
+import { SignupFormData, signupSchema } from '@/schemas/auth';
+import { Duration, FontSize, Fonts, Palette, Radius, Shadows, Spacing } from '@/constants/theme';
 
 export default function SignupScreen() {
   const router = useRouter();
   const { loginWithGoogle } = useAuth();
+  const insets = useSafeAreaInsets();
   const registerCustomer = useRegisterCustomer();
   const [countryCode] = useState('+216');
   const [authError, setAuthError] = useState<string | null>(null);
@@ -79,36 +93,40 @@ export default function SignupScreen() {
   };
 
   return (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-    >
-      <AuthPageUpperSection
-        width="100%"
-        style={styles.svgBackground}
-        preserveAspectRatio="xMidYMid slice"
-      />
-      <ScrollView
-          style={styles.scrollView}
-          contentContainerStyle={styles.scrollContent}
-          showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled"
+    <View style={styles.screen}>
+      <StatusBar style="light" />
+      {/* No intro here — the backdrop rests where login left it and the
+          navigator's transition provides the motion. */}
+      <AuthBackdrop />
+
+      <View style={styles.card}>
+        <KeyboardAvoidingView
+          style={styles.flex}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         >
-          <View style={styles.backgroundSpacer} />
+          <ScrollView
+            contentContainerStyle={[
+              styles.cardContent,
+              { paddingBottom: insets.bottom + Spacing.xxl },
+            ]}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+            bounces={false}
+          >
+            <AnimatedEntrance>
+              <AuthHeading title="Sign Up to Hungry" subtitle="Hungry? We got you !" />
+            </AnimatedEntrance>
 
-          <View style={styles.formContainer}>
-            <View style={styles.titleSection}>
-              <Text style={styles.title}>Sign Up to Hungry</Text>
-              <Text style={styles.subtitle}>Hungry? We got you !</Text>
-            </View>
+            {authError ? (
+              <Animated.View
+                entering={FadeInDown.duration(Duration.base).reduceMotion(ReduceMotion.System)}
+                style={styles.errorBanner}
+              >
+                <Text style={styles.errorBannerText}>{authError}</Text>
+              </Animated.View>
+            ) : null}
 
-            <View style={styles.form}>
-              {authError && (
-                <View style={styles.errorBanner}>
-                  <Text style={styles.errorBannerText}>{authError}</Text>
-                </View>
-              )}
-
+            <AnimatedEntrance index={1}>
               <View style={styles.nameRow}>
                 <View style={styles.nameField}>
                   <Controller
@@ -123,6 +141,8 @@ export default function SignupScreen() {
                         onBlur={onBlur}
                         error={errors.firstName?.message}
                         autoCapitalize="words"
+                        autoComplete="name-given"
+                        textContentType="givenName"
                       />
                     )}
                   />
@@ -140,12 +160,16 @@ export default function SignupScreen() {
                         onBlur={onBlur}
                         error={errors.lastName?.message}
                         autoCapitalize="words"
+                        autoComplete="name-family"
+                        textContentType="familyName"
                       />
                     )}
                   />
                 </View>
               </View>
+            </AnimatedEntrance>
 
+            <AnimatedEntrance index={2}>
               <Controller
                 control={control}
                 name="phoneNumber"
@@ -159,7 +183,9 @@ export default function SignupScreen() {
                   />
                 )}
               />
+            </AnimatedEntrance>
 
+            <AnimatedEntrance index={3}>
               <Controller
                 control={control}
                 name="email"
@@ -173,10 +199,14 @@ export default function SignupScreen() {
                     error={errors.email?.message}
                     keyboardType="email-address"
                     autoCapitalize="none"
+                    autoComplete="email"
+                    textContentType="emailAddress"
                   />
                 )}
               />
+            </AnimatedEntrance>
 
+            <AnimatedEntrance index={4}>
               <Controller
                 control={control}
                 name="password"
@@ -188,11 +218,15 @@ export default function SignupScreen() {
                     onChangeText={onChange}
                     onBlur={onBlur}
                     error={errors.password?.message}
+                    autoComplete="password-new"
+                    textContentType="newPassword"
                     isPassword
                   />
                 )}
               />
+            </AnimatedEntrance>
 
+            <AnimatedEntrance index={5}>
               <Controller
                 control={control}
                 name="confirmPassword"
@@ -204,6 +238,8 @@ export default function SignupScreen() {
                     onChangeText={onChange}
                     onBlur={onBlur}
                     error={errors.confirmPassword?.message}
+                    autoComplete="password-new"
+                    textContentType="newPassword"
                     isPassword
                   />
                 )}
@@ -214,140 +250,86 @@ export default function SignupScreen() {
                 onPress={handleSubmit(onSubmit)}
                 loading={isSubmitting}
                 disabled={isSubmitting || isGoogleLoading}
+                color={Palette.primaryDeep}
+                shape="rounded"
                 style={styles.submitButton}
               />
+            </AnimatedEntrance>
 
-              <View style={styles.loginRow}>
-                <Text style={styles.loginText}>Already have an account ? </Text>
-                <Link href="/login" asChild>
-                  <TouchableOpacity>
-                    <Text style={styles.loginLink}>LOGIN</Text>
-                  </TouchableOpacity>
-                </Link>
-              </View>
+            <AnimatedEntrance index={6}>
+              {/* back(), not push('/login'), so the stack doesn't grow when the
+                  user ping-pongs between the two screens. */}
+              <AuthSwitchLink
+                prompt="Already have an account ?"
+                action="LOGIN"
+                onPress={() => (router.canGoBack() ? router.back() : router.replace('/login'))}
+              />
 
-              <View style={styles.dividerRow}>
-                <Text style={styles.dividerText}>Or</Text>
-              </View>
+              <OrDivider />
 
-              <GoogleButton onPress={handleGoogleSignup} loading={isGoogleLoading} />
+              <GoogleButton
+                onPress={handleGoogleSignup}
+                loading={isGoogleLoading}
+                disabled={isSubmitting}
+              />
 
-              <Text style={styles.termsText}>
-                By continuing, you automatically accept our{' '}
-                <Text style={styles.termsLink}>Terms & Conditions</Text>,{' '}
-                <Text style={styles.termsLink}>Privacy Policy</Text> and{' '}
-                <Text style={styles.termsLink}>Cookies policy</Text>.
-              </Text>
-            </View>
-          </View>
-      </ScrollView>
-    </KeyboardAvoidingView>
+              <TermsFooter />
+            </AnimatedEntrance>
+          </ScrollView>
+        </KeyboardAvoidingView>
+      </View>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  screen: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: Palette.navy,
   },
-  svgBackground: {
+  flex: {
+    flex: 1,
+  },
+  card: {
     position: 'absolute',
-    top: 0,
     left: 0,
     right: 0,
+    bottom: 0,
+    // Taller than login (six fields, so the form scrolls inside the card) but
+    // still short enough to keep the logo in the artwork visible above it.
+    height: '76%',
+    backgroundColor: Palette.surface,
+    borderTopLeftRadius: Radius.xxl + Spacing.xl,
+    borderTopRightRadius: Radius.xxl + Spacing.xl,
+    ...Shadows.lg,
   },
-  scrollView: {
-    flex: 1,
-  },
-  scrollContent: {
-    flexGrow: 1,
-  },
-  backgroundSpacer: {
-    height: 200,
-  },
-  formContainer: {
-    flex: 1,
-    backgroundColor: '#FFFFFF',
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    paddingHorizontal: 24,
-    paddingTop: 32,
-    paddingBottom: 24,
-  },
-  titleSection: {
-    alignItems: 'center',
-    marginBottom: 24,
-  },
-  title: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: '#1A2B3D',
-    marginBottom: 8,
-  },
-  subtitle: {
-    fontSize: 16,
-    color: '#666666',
-  },
-  form: {
-    flex: 1,
+  cardContent: {
+    paddingHorizontal: Spacing.xxxxl,
+    paddingTop: Spacing.xxxl,
   },
   errorBanner: {
-    backgroundColor: '#FEF2F2',
-    borderRadius: 12,
-    padding: 14,
-    marginBottom: 16,
+    backgroundColor: Palette.dangerSoft,
+    borderRadius: Radius.lg,
+    padding: Spacing.md,
+    marginBottom: Spacing.lg,
     borderWidth: 1,
-    borderColor: '#FECACA',
+    borderColor: Palette.danger,
   },
   errorBannerText: {
-    color: '#DC2626',
-    fontSize: 14,
-    textAlign: 'center' as const,
-    fontWeight: '500' as const,
+    fontFamily: Fonts.medium,
+    color: Palette.danger,
+    fontSize: FontSize.md,
+    textAlign: 'center',
   },
   nameRow: {
     flexDirection: 'row',
-    gap: 12,
+    gap: Spacing.md,
   },
   nameField: {
     flex: 1,
   },
   submitButton: {
-    marginTop: 8,
-    marginBottom: 20,
-  },
-  loginRow: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  loginText: {
-    fontSize: 14,
-    color: '#666666',
-  },
-  loginLink: {
-    fontSize: 14,
-    color: '#F5A623',
-    fontWeight: '600',
-  },
-  dividerRow: {
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  dividerText: {
-    fontSize: 14,
-    color: '#999999',
-  },
-  termsText: {
-    fontSize: 12,
-    color: '#999999',
-    textAlign: 'center',
-    marginTop: 20,
-    lineHeight: 18,
-  },
-  termsLink: {
-    color: '#F5A623',
-    textDecorationLine: 'underline',
+    marginTop: Spacing.sm,
+    marginBottom: Spacing.xl,
   },
 });
