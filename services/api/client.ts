@@ -3,16 +3,24 @@ import { getTokens } from '@/services/keycloak/token-storage';
 import axios, { AxiosError } from 'axios';
 
 /**
- * Axios instance for the Hungry backend (Spring Boot).
+ * Axios instance for the Hungry backend, addressed through the **jfwk-gateway**
+ * edge (`EXPO_PUBLIC_API_URL`, port 8082) rather than hungry-app (8080) —
+ * since the gateway was introduced, hungry-app is bound to the backend's
+ * internal network and publishes no host port.
  *
  * - Attaches the Keycloak access token when a session exists, refreshing it
- *   first if expired. Requests made without a session (e.g. self-registration
- *   during onboarding) are simply sent unauthenticated.
+ *   first if expired. The gateway rejects unauthenticated requests at the edge
+ *   with 401 before they ever reach hungry-app; the only endpoint this app
+ *   calls without a token is `POST /customers` (self-registration), which the
+ *   gateway explicitly permits.
  * - Normalizes failures into {@link ApiError} with a user-presentable message
- *   extracted from Spring's ProblemDetail payload when available.
+ *   extracted from Spring's ProblemDetail payload when available. The gateway's
+ *   own circuit-breaker fallback answers 503 with a `message` field, which the
+ *   same extraction picks up.
  */
 export const apiClient = axios.create({
-  baseURL: process.env.EXPO_PUBLIC_API_URL ?? 'http://192.168.100.93:8080',
+  // Fallback is a placeholder LAN address; always set EXPO_PUBLIC_API_URL in .env.
+  baseURL: process.env.EXPO_PUBLIC_API_URL ?? 'http://192.168.100.93:8082',
   // Same rationale as the keycloak service's fetchWithTimeout: RN networking
   // has no default deadline and an unreachable LAN host would hang forever.
   timeout: 15000,
@@ -60,7 +68,7 @@ apiClient.interceptors.response.use(
     }
     if (error.code === 'ECONNABORTED') {
       throw new ApiError(
-        'Could not reach the server. Check that the backend URL is correct and reachable from this device.'
+        'Could not reach the server. Check that the API gateway URL is correct and reachable from this device.'
       );
     }
     throw new ApiError('Network error. Please check your connection.');

@@ -1,3 +1,7 @@
+// Keycloak is addressed DIRECTLY (:8081), not through the jfwk-gateway that fronts
+// the backend API (:8082, see services/api/client.ts). The gateway routes everything
+// to hungry-app and is itself a resource server — it has no /realms/** route, and
+// pointing this at it would 404 every token request.
 const KEYCLOAK_URL = process.env.EXPO_PUBLIC_KEYCLOAK_URL ?? 'http://192.168.242.25:8081';
 const REALM = process.env.EXPO_PUBLIC_KEYCLOAK_REALM ?? 'hungry';
 const CLIENT_ID = process.env.EXPO_PUBLIC_KEYCLOAK_CLIENT_ID ?? 'hungry-customer-app';

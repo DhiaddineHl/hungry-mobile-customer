@@ -47,6 +47,10 @@ const AuthContext = createContext<AuthContextValue | null>(null);
  * While `true`, the app boots straight into the tabs with a mock guest user and
  * the Keycloak token bootstrap is skipped. Set back to `false` (or delete this
  * flag and the `BYPASS_AUTH` branches below) to restore the real auth flow.
+ *
+ * Note: this no longer yields a working app against the real backend. Every
+ * request now goes through the jfwk-gateway, which answers 401 at the edge for
+ * anything but `POST /customers` — a bypassed session has no token to send.
  */
 const BYPASS_AUTH = false;
 

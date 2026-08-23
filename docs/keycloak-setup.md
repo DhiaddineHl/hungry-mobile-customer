@@ -259,13 +259,44 @@ You should land on Keycloak's hosted login/registration page.
 ## 9. App environment variables
 
 `.env` (note: `EXPO_PUBLIC_*` values are **embedded in the app bundle in plaintext** — only
-put non-secret config here):
+put non-secret config here). See `.env.example` for the committed template:
 
 ```dotenv
 EXPO_PUBLIC_KEYCLOAK_URL=https://auth.yourdomain.com   # https in prod
 EXPO_PUBLIC_KEYCLOAK_REALM=hungry
 EXPO_PUBLIC_KEYCLOAK_CLIENT_ID=hungry-customer-app
+
+EXPO_PUBLIC_API_URL=http://<dev-machine-lan-ip>:8082   # the gateway, not hungry-app
 ```
+
+### 9.1 The backend now sits behind the jfwk-gateway
+
+The backend added a Spring Cloud Gateway edge (`jfwk-platform/jfwk-gateway`). The topology
+the app must target is:
+
+```
+app ──► jfwk-gateway :8082 ──► hungry-app :8080 (internal network, no host port)
+ └────► Keycloak :8081 (direct — the gateway has no /realms/** route)
+```
+
+- **`EXPO_PUBLIC_API_URL` must be the gateway (`:8082`).** The backend's `compose.yaml`
+  deliberately publishes no host port for hungry-app, so `:8080` is simply unreachable
+  from the device; the gateway is the only published application port.
+- **`EXPO_PUBLIC_KEYCLOAK_URL` stays on `:8081`.** Login, refresh, userinfo and logout do
+  not go through the gateway.
+- **Every request now needs a token.** The gateway is an OAuth2 resource server and
+  answers `401` before the request reaches hungry-app. The only endpoint this app calls
+  unauthenticated is `POST /customers` (self-registration), which `GatewaySecurityConfig`
+  explicitly permits. hungry-app then re-validates the same token
+  (`hungry.security.enabled=true` in its dev profile too, since the gateway landed).
+- **Issuer.** Keycloak runs with `KC_HOSTNAME=http://localhost:8081`, so it stamps
+  `iss=http://localhost:8081/realms/hungry` into every token *regardless of the host the
+  device used to log in* — which is exactly what the gateway and hungry-app are configured
+  to trust. Reaching Keycloak over the LAN IP therefore works unchanged; do not "fix" the
+  issuer to the LAN IP without changing `KEYCLOAK_ISSUER_URI` on both services.
+- **503 with `"hungry-app is currently unavailable"`** comes from the gateway's
+  circuit-breaker fallback (4s time limiter), not from a bug in the app — it means
+  hungry-app is down or slow to start.
 
 **Delete** `EXPO_PUBLIC_KEYCLOAK_ADMIN_USERNAME` / `EXPO_PUBLIC_KEYCLOAK_ADMIN_PASSWORD` —
 they must never ship in a client. The client id, realm and URL are public by design and are
