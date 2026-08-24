@@ -14,8 +14,13 @@ interface CartItem {
 interface RestaurantCartCardProps {
   restaurantName: string;
   restaurantLogo?: ImageSource | number;
-  rating: string;
-  reviewCount: string;
+  /**
+   * Optional because NO backend field supplies either one — they are in
+   * `UNBACKED_FIELDS`. Call sites omit them rather than passing invented
+   * numbers, and the row below disappears instead of showing a made-up score.
+   */
+  rating?: string;
+  reviewCount?: string;
   items: CartItem[];
   totalItems: number;
   totalPrice: string;
@@ -43,11 +48,15 @@ export function RestaurantCartCard({
           <Image source={restaurantLogo} style={styles.logo} contentFit="cover" />
           <View>
             <Text style={styles.restaurantName}>{restaurantName}</Text>
-            <View style={styles.ratingRow}>
-              <ThumbsUp size={12} color="#F5A623" />
-              <Text style={styles.rating}>{rating}</Text>
-              <Text style={styles.reviewCount}>({reviewCount})</Text>
-            </View>
+            {rating ? (
+              <View style={styles.ratingRow}>
+                <ThumbsUp size={12} color="#F5A623" />
+                <Text style={styles.rating}>{rating}</Text>
+                {reviewCount ? (
+                  <Text style={styles.reviewCount}>({reviewCount})</Text>
+                ) : null}
+              </View>
+            ) : null}
           </View>
         </View>
         <TouchableOpacity style={styles.deleteButton} onPress={onDelete}>
