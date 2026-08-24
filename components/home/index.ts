@@ -4,3 +4,4 @@ export { CategoriesSlider } from './categories-slider';
 export { FiltersSlider } from './filters-slider';
 export { PopularRestaurants } from './popular-restaurants';
 export { OpenRestaurants } from './open-restaurants';
+export { RestaurantCardSkeleton, RestaurantListSkeleton } from './restaurant-card-skeleton';

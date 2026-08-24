@@ -5,13 +5,24 @@ import {
   RestaurantHeader,
 } from "@/components/restaurant";
 import { TimingsModal } from "@/components/restaurant/timings-modal";
-import { Fonts } from "@/constants/theme";
+import { QueryEmpty, QueryError } from "@/components/ui/query-state";
+import { Fonts, Palette } from "@/constants/theme";
+import { useRestaurantImageSource } from "@/hooks/use-restaurant-image";
+import { useRestaurant } from "@/hooks/use-restaurants";
+import { imageAuthHeaders } from "@/services/api/image-url";
+import { toTimingRows } from "@/services/api/restaurant-view-model";
 import { useFavoritesStore, useIsFavorite } from "@/store/favorites-store";
 import { Image } from "expo-image";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { ChevronLeft } from "lucide-react-native";
-import { useState } from "react";
-import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { useEffect, useMemo, useState } from "react";
+import {
+  ActivityIndicator,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from "react-native";
 import Animated, {
   Extrapolation,
   interpolate,
@@ -31,65 +42,6 @@ const LOGO_REST_SIZE = 68;
 const COMPACT_BAR_HEIGHT = 52;
 const COMPACT_LOGO_SIZE = 40;
 const COMPACT_LOGO_LEFT = 60;
-
-const RESTAURANT_DATA = {
-  id: "1",
-  name: "Tacoth",
-  distance: "4 km",
-  rating: "92%",
-  reviewCount: "1000+",
-  deliveryTime: "30-45 min",
-  deliveryFee: "2,5 DT",
-  isFreeDelivery: true,
-  minOrder: "8DT",
-  isOpen: true,
-  isNew: true,
-  isTopRated: true,
-  discount: "Up to -20% off",
-  bannerImage: require("@/assets/restaurants-images/restaurant-banner-1.jpg"),
-  logoImage: require("@/assets/restaurants-images/restaurant-2.jpg"),
-  isFavorite: true,
-};
-
-const TIMINGS = [
-  {
-    day: "Monday",
-    hours: "11:00 AM - 11:00 PM",
-    isToday: false,
-    isClosed: false,
-  },
-  {
-    day: "Tuesday",
-    hours: "00:00 AM - 6:00 AM && 11:00AM - 11:00 PM",
-    isToday: false,
-    isClosed: false,
-  },
-  {
-    day: "Wednesday",
-    hours: "11:00 AM - 11:00 PM",
-    isToday: false,
-    isClosed: false,
-  },
-  {
-    day: "Thursday",
-    hours: "00:00 AM - 6:00 AM && 11:00AM - 11:00 PM",
-    isToday: false,
-    isClosed: false,
-  },
-  {
-    day: "Friday (Today)",
-    hours: "00:00 AM - 6:00 AM && 11:00AM - 11:00 PM",
-    isToday: true,
-    isClosed: false,
-  },
-  {
-    day: "Saturday",
-    hours: "11:00 AM - 11:00 PM",
-    isToday: false,
-    isClosed: false,
-  },
-  { day: "Sunday", hours: "Closed", isToday: false, isClosed: true },
-];
 
 const PROMOTIONS_PRODUCTS = [
   {
@@ -232,6 +184,39 @@ export default function RestaurantDetailsScreen() {
   const [timingsVisible, setTimingsVisible] = useState(false);
   const [showCompact, setShowCompact] = useState(false);
 
+  const {
+    data: restaurant,
+    isPending,
+    error,
+    refetch,
+  } = useRestaurant(restaurantId);
+
+  const imageSource = useRestaurantImageSource();
+
+  // RestaurantHeader takes raw headers rather than a source object, because
+  // the banner needs the placeholder fallback applied inside the component.
+  // `null` until they resolve: handing the banner a `/files/...` URL before the
+  // bearer token is attached would fire one request that can only 401.
+  const [bannerHeaders, setBannerHeaders] = useState<Record<string, string> | null>(
+    null
+  );
+  useEffect(() => {
+    let active = true;
+    imageAuthHeaders().then((headers) => {
+      if (active) setBannerHeaders(headers);
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  // One "now" per render pass keeps the sheet's "(Today)" marker consistent
+  // with the open/closed badge above it.
+  const timings = useMemo(
+    () => (restaurant ? toTimingRows(restaurant.days, new Date()) : []),
+    [restaurant]
+  );
+
   // Distance the logo travels before it settles into the compact header.
   const compactLogoTop =
     insets.top + (COMPACT_BAR_HEIGHT - COMPACT_LOGO_SIZE) / 2;
@@ -287,24 +272,54 @@ export default function RestaurantDetailsScreen() {
   }));
 
   const toggleFavorite = useFavoritesStore((s) => s.toggle);
-  const isFavorite = useIsFavorite("restaurant", RESTAURANT_DATA.id);
+  const isFavorite = useIsFavorite("restaurant", restaurantId ?? "");
 
   const handleBackPress = () => router.back();
-  const handleFavoritePress = () =>
+  const handleFavoritePress = () => {
+    if (!restaurant) return;
     toggleFavorite({
-      id: RESTAURANT_DATA.id,
+      id: restaurant.id,
       type: "restaurant",
-      name: RESTAURANT_DATA.name,
-      image: RESTAURANT_DATA.bannerImage,
-      subtitle: RESTAURANT_DATA.distance,
-      rating: RESTAURANT_DATA.rating,
-      reviewCount: RESTAURANT_DATA.reviewCount,
+      // The RELATIVE path: resolved at render time so the stored favorite
+      // survives a change of EXPO_PUBLIC_API_URL.
+      image: restaurant.logoPath,
+      name: restaurant.name,
+      subtitle: restaurant.categories,
     });
+  };
   const handleMorePress = () => {};
   const handleProductPress = (productId: string) =>
     router.push(`/food/${productId}`);
   const handleOpenPress = () => setTimingsVisible(true);
   const handleNamePress = () => router.push(`/restaurant/${restaurantId}/info`);
+
+  // Every hook above has already run, so these early returns are safe.
+  if (isPending) {
+    return (
+      <View style={[styles.container, styles.centered]}>
+        <ActivityIndicator size="large" color={Palette.primary} />
+      </View>
+    );
+  }
+
+  if (error) {
+    return (
+      <View style={[styles.container, styles.centered]}>
+        <QueryError error={error} onRetry={refetch} />
+      </View>
+    );
+  }
+
+  if (!restaurant) {
+    return (
+      <View style={[styles.container, styles.centered]}>
+        <QueryEmpty
+          title="Restaurant not found"
+          body="This restaurant is no longer available."
+        />
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -316,7 +331,10 @@ export default function RestaurantDetailsScreen() {
         scrollEventThrottle={16}
       >
         <RestaurantHeader
-          {...RESTAURANT_DATA}
+          name={restaurant.name}
+          isOpen={restaurant.isOpen}
+          bannerImage={bannerHeaders ? restaurant.bannerImage : undefined}
+          imageHeaders={bannerHeaders ?? undefined}
           hideLogo
           isFavorite={isFavorite}
           onBackPress={handleBackPress}
@@ -377,7 +395,7 @@ export default function RestaurantDetailsScreen() {
           </TouchableOpacity>
           <View style={styles.compactLogoSlot} />
           <Text style={styles.compactName} numberOfLines={1}>
-            {RESTAURANT_DATA.name}
+            {restaurant.name}
           </Text>
         </View>
         <MenuFilterTabs
@@ -393,7 +411,7 @@ export default function RestaurantDetailsScreen() {
         pointerEvents="none"
       >
         <Image
-          source={RESTAURANT_DATA.logoImage}
+          source={imageSource(restaurant.logoUrl)}
           style={styles.floatingLogoImage}
           contentFit="cover"
         />
@@ -401,7 +419,7 @@ export default function RestaurantDetailsScreen() {
 
       <TimingsModal
         visible={timingsVisible}
-        timings={TIMINGS}
+        timings={timings}
         onClose={() => setTimingsVisible(false)}
       />
     </View>
@@ -412,6 +430,10 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#FFFFFF",
+  },
+  centered: {
+    alignItems: "center",
+    justifyContent: "center",
   },
   scrollView: {
     flex: 1,

@@ -73,3 +73,23 @@ export interface Customer {
   addresses?: CustomerAddress[] | null;
   keycloakUserId?: string | null;
 }
+
+// ---------------------------------------------------------------------------
+// Restaurants
+//
+// These types are INFERRED from the zod schemas in `schemas/restaurant.ts`,
+// which is the single source of truth for the restaurant contract — there is
+// deliberately no hand-written interface here that could drift from the parser
+// that validates the payload at runtime.
+// ---------------------------------------------------------------------------
+
+export type {
+  BusinessContact,
+  Page,
+  RestaurantAccessibility,
+  RestaurantAddress,
+  RestaurantGeoCoordinates,
+  RestaurantOutput,
+  RestaurantPolicy,
+  WorkingDay,
+} from '@/schemas/restaurant';

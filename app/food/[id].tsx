@@ -9,7 +9,6 @@ import {
 import { Fonts } from "@/constants/theme";
 import { type CartAddon, useCartStore } from "@/store/cart-store";
 import { useFavoritesStore, useIsFavorite } from "@/store/favorites-store";
-import type { ImageSource } from "expo-image";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { ChevronLeft, ShoppingBag } from "lucide-react-native";
 import { useCallback, useState } from "react";
@@ -44,7 +43,9 @@ const FOOD_DATA: Record<
     description?: string;
     rating?: string;
     reviewCount?: string;
-    image: ImageSource | number;
+    // Every entry here is a bundled `require(...)` module id, which is what
+    // FavoriteImage's numeric arm and expo-image both accept.
+    image: number;
     addonGroups: AddonGroupData[];
   }
 > = {
