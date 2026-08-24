@@ -1,5 +1,6 @@
-import { CartHeader, RestaurantCartCard, TrackOrdersSection } from '@/components/cart';
+import { CartHeader, RestaurantCartCard, SyncBadge, TrackOrdersSection } from '@/components/cart';
 import { Fonts, FontSize, Palette, Spacing } from '@/constants/theme';
+import { useCartSync, useHydrateCarts } from '@/hooks/use-cart-sync';
 import { useStoredImageSource } from '@/hooks/use-restaurant-image';
 import { formatDT, groupByRestaurant, useCartStore } from '@/store/cart-store';
 import { useRouter } from 'expo-router';
@@ -12,8 +13,15 @@ export default function CartScreen() {
   const router = useRouter();
 
   const items = useCartStore((s) => s.items);
+  const remote = useCartStore((s) => s.remote);
   const clearRestaurant = useCartStore((s) => s.clearRestaurant);
   const groups = groupByRestaurant(items);
+
+  // The cart tab is where the backend projection is kept in step: hydration
+  // restores server carts onto an empty device, and the sync engine pushes
+  // every later change back up. Both no-op when signed out.
+  useHydrateCarts();
+  const { retry } = useCartSync();
 
   // Stored artwork is a relative path or a bundled module id; it becomes a
   // renderable source only here, against the current API base.
@@ -46,24 +54,34 @@ export default function CartScreen() {
         ) : (
           <View style={styles.cartsSection}>
             {groups.map((group) => (
-              <RestaurantCartCard
-                key={group.restaurantId}
-                restaurantName={group.restaurantName}
-                restaurantLogo={toImageSource(group.restaurantLogo)}
-                rating="92%"
-                reviewCount="1000+"
-                items={group.items.map((line) => ({
-                  id: line.lineId,
-                  name: line.name,
-                  quantity: line.quantity,
-                  image: toImageSource(line.image),
-                }))}
-                totalItems={group.totalQuantity}
-                totalPrice={formatDT(group.totalPrice)}
-                onViewCart={() => router.push(`/cart/${group.restaurantId}`)}
-                onDelete={() => clearRestaurant(group.restaurantId)}
-                onAddMore={() => router.push(`/restaurant/${group.restaurantId}`)}
-              />
+              <View key={group.restaurantId} style={styles.cartGroup}>
+                {/*
+                  `rating` and `reviewCount` are deliberately not passed: no
+                  backend field supplies either (UNBACKED_FIELDS), and the
+                  "92% (1000+)" they used to show was invented.
+                */}
+                <RestaurantCartCard
+                  restaurantName={group.restaurantName}
+                  restaurantLogo={toImageSource(group.restaurantLogo)}
+                  items={group.items.map((line) => ({
+                    id: line.lineId,
+                    name: line.name,
+                    quantity: line.quantity,
+                    image: toImageSource(line.image),
+                  }))}
+                  totalItems={group.totalQuantity}
+                  totalPrice={formatDT(group.totalPrice)}
+                  onViewCart={() => router.push(`/cart/${group.restaurantId}`)}
+                  onDelete={() => clearRestaurant(group.restaurantId)}
+                  onAddMore={() => router.push(`/restaurant/${group.restaurantId}`)}
+                />
+                <View style={styles.groupBadge}>
+                  <SyncBadge
+                    status={remote[group.restaurantId]?.status ?? 'idle'}
+                    onRetry={() => retry(group.restaurantId)}
+                  />
+                </View>
+              </View>
             ))}
           </View>
         )}
@@ -94,6 +112,13 @@ const styles = StyleSheet.create({
   cartsSection: {
     marginBottom: 16,
     gap: 16,
+  },
+  cartGroup: {
+    gap: Spacing.sm,
+  },
+  // The card brings its own marginHorizontal; the badge has to match it.
+  groupBadge: {
+    paddingHorizontal: Spacing.xl,
   },
   empty: {
     alignItems: 'center',
