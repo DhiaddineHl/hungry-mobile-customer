@@ -225,3 +225,5 @@ than listing several dependencies.
 | --- | --- | --- |
 | `RESTO-01` | Fetch and display restaurants | — |
 | `MENU-01` | Fetch and display restaurant products (menu) | `RESTO-01` |
+| `CART-01` | Add products to a cart and persist it in the backend | `MENU-01` |
+| `ORDER-01` | Checkout — fee modals, payment method, order creation | `CART-01` |

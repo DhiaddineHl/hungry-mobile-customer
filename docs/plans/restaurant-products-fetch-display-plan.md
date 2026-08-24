@@ -25,7 +25,8 @@ independent ways, and it is the single fact that shapes this entire plan:
    chain is `product → catalog → tenant`.
 2. The `Restaurant` entity has no `catalog`, `catalogVersion`, `tenant`, `product` or `menu`
    field. Its full field list is legal/brand name, tax id, dates, cuisines, dishes,
-   capacities, accessibility, policy, address, contact, `logoUrl`, `days`, `keycloakUserId`.
+   capacities, accessibility, policy, address, contact, `logoUrl`, `coverImageUrl`, `days`,
+   `keycloakUserId`.
 3. Grepping the entire product and catalog module tree for "restaurant" returns **zero
    matches**, in either direction.
 
@@ -141,12 +142,15 @@ must avoid the retry storm that `query-client.ts` applies to 5xx.
 
 ### 3.5 Products have no image field
 
-`ProductOutputData` has no `imageUrl` and no `logoUrl` — restaurants got `logoUrl`, products
-got nothing. Two options, both documented rather than silently chosen:
+`ProductOutputData` has no `imageUrl` and no `logoUrl` — restaurants got `logoUrl` and, as
+of backend `1e167ed`, `coverImageUrl` as well; products got nothing. Two options, both documented rather than silently chosen:
 
 - **`GET /files/products/{productId}`** returns `FileMetadata[]`, each with a `url`. Verified
   live: an unknown id returns `200 []`, so it is safe to call speculatively. But it is
-  **one request per product**, an N+1 across a menu grid.
+  **one request per product**, an N+1 across a menu grid. Note that each `url` is a
+  **relative** `/files/…` path and that `/files/**` is authenticated — see §2.5 of the
+  restaurant catalog plan. RESTO-01 ships `services/api/image-url.ts` for exactly this;
+  reuse it rather than rebuilding the join and the auth header here.
 - **A placeholder asset**, with the real image wired when the backend adds an image field
   or a batch files endpoint.
 

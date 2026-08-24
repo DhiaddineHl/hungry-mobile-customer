@@ -19,7 +19,7 @@ behaviours there are counter-intuitive (a missing restaurant returns **500**, no
 Verify before writing code:
 
 - `.env` has `EXPO_PUBLIC_API_URL` pointing at the **gateway** (port `8082`).
-- The gateway is reachable, or accept that live verification in Phase 9 will be skipped
+- The gateway is reachable, or accept that live verification in Phase 10 will be skipped
   and say so explicitly in the final report.
 
 Do NOT start the backend, Keycloak, or Docker containers. If they are down, complete
@@ -45,7 +45,7 @@ address: { streetNumber, streetName, streetType, streetDirection, buildingName, 
            coordinates: { latitude, longitude, altitude },
            plusCode, geohash, formattedAddress },
 contact: { phones: string[], email },
-logoUrl, days: WorkingDay[], enabled
+logoUrl, coverImageUrl, days: WorkingDay[], enabled
 ```
 
 `WorkingDay` — `{ dayOfWeek (1=Mon…7=Sun), isBusinessDay, open "HH:mm", close "HH:mm" }`.
@@ -58,6 +58,9 @@ Known backend behaviours to code around (all verified live):
 - `filter={"cuisines":…}` or `{"dishes":…}` → **500**. Filter these client-side.
 - Unknown `sort` field → **500**. Use a whitelist only.
 - `enabled` is not filterable.
+- `logoUrl` and `coverImageUrl` are **relative paths** (`/files/restaurants/{id}/{file}`),
+  not absolute URLs, and `/files/**` is **authenticated**. Both facts are load-bearing —
+  read §2.5 of the plan before touching an image. Neither field is filterable or sortable.
 
 ## Phases
 
@@ -104,7 +107,52 @@ customer interfaces untouched.
 alone parses with collections defaulting to `[]`; `null` collections become `[]`; a
 payload missing `id` fails with `id` in the issue path.
 
-### Phase 3 — View model and opening hours
+### Phase 3 — Image URL resolution
+
+Create `services/api/image-url.ts`. Pure module — no React, no TanStack Query.
+
+The backend returns `logoUrl` and `coverImageUrl` as **relative** paths
+(`/files/restaurants/{id}/cover-banner.jpg`), and `/files/**` sits behind the same bearer
+auth as every other endpoint. Plan §2.5 has the evidence; the consequence is that a raw
+`<Image source={{ uri: restaurant.coverImageUrl }} />` fails twice over — unresolvable URI,
+then 401 — and both failures are silent.
+
+Export:
+
+```ts
+/** Joins a backend-relative `/files/...` path onto EXPO_PUBLIC_API_URL. */
+export function resolveImageUrl(path: string | null | undefined): string | undefined;
+
+/** Auth headers for an image request; images bypass apiClient's interceptor. */
+export async function imageAuthHeaders(): Promise<Record<string, string>>;
+```
+
+Rules for `resolveImageUrl`:
+
+- `null`, `undefined` or `""` → `undefined`. Never return the bare base URL; a caller that
+  gets one renders the API root as an image and shows a broken box.
+- A value already starting `http://` or `https://` → returned unchanged, so the module
+  keeps working if the backend later switches to absolute URLs.
+- Otherwise join onto `apiClient.defaults.baseURL` with **exactly one** slash, whether or
+  not the base has a trailing one and whether or not the path has a leading one.
+
+`imageAuthHeaders` reads `getTokens()` from `services/keycloak/token-storage.ts` and
+returns `{ Authorization: 'Bearer <accessToken>' }`, or `{}` when there is no session.
+Do NOT duplicate `apiClient`'s refresh logic here — the screens that render images have
+already called an authenticated endpoint to get the data, so the token is fresh.
+
+Add `constants/images.ts` (or extend the existing constants module if one fits) with a
+single `RESTAURANT_IMAGE_PLACEHOLDER` used everywhere a cover or logo is missing. Do NOT
+fall back to the bundled `assets/restaurants-images/restaurant-banner-*.jpg` files — those
+are another restaurant's photography.
+
+**Tests** (`services/api/__tests__/image-url.test.ts`): relative path joined with a base
+ending in `/` and one not ending in `/` — both produce exactly one slash; a path with no
+leading slash; an `https://` value passed through untouched; `null`, `undefined` and `""`
+each returning `undefined`; `imageAuthHeaders` returning `{}` with no stored token and a
+`Bearer` header with one.
+
+### Phase 4 — View model and opening hours
 
 Create `services/api/restaurant-view-model.ts`. Pure functions only — no React, no imports
 from `hooks/` or `components/`.
@@ -116,7 +164,8 @@ export interface RestaurantSummary {
   id: string;
   name: string;
   categories: string;        // cuisines joined with " - ", "" when none
-  logoUrl?: string;
+  logoUrl?: string;          // resolved absolute URL, or undefined
+  bannerImage?: string;      // resolved from coverImageUrl, or undefined
   isOpen: boolean | null;    // null = unknown (no days data)
   coordinates?: { latitude: number; longitude: number };
   // Unbacked by the API today — see UNBACKED_FIELDS below.
@@ -127,9 +176,13 @@ export interface RestaurantSummary {
   discount?: string;
   isNew?: boolean;
   isSponsored?: boolean;
-  bannerImage?: string;
 }
 ```
+
+Map `coverImageUrl` → `bannerImage` and `logoUrl` → `logoUrl` through Phase 3's
+`resolveImageUrl`, so no component ever sees a relative path. Both stay `undefined` when
+the backend omits them — do not substitute a placeholder here; that is the component's
+decision, and burying it in the view model hides which restaurants actually have artwork.
 
 Add a `RestaurantDetail` extending it with `address`, `phones`, `email`, `days`,
 `accessibility`, `policy`, plus optional `reviewCount`, `minOrder`, `isTopRated`.
@@ -143,7 +196,7 @@ Document the gap in one place:
  */
 export const UNBACKED_FIELDS = [
   'rating', 'reviewCount', 'deliveryTime', 'deliveryFee', 'isFreeDelivery',
-  'minOrder', 'discount', 'isNew', 'isSponsored', 'isTopRated', 'bannerImage',
+  'minOrder', 'discount', 'isNew', 'isSponsored', 'isTopRated',
 ] as const;
 ```
 
@@ -168,9 +221,10 @@ closed day; before opening; exactly at `open` (open); exactly at `close` (closed
 inside a shift; two shifts where only the second matches; a midnight-crossing shift tested
 at 23:30 and 02:00; `enabled: false` beating an open shift; empty `days` → `null`;
 **a Sunday case**; cuisines joined and sorted; missing `logoUrl` stays `undefined`;
-unbacked fields absent, not `""`.
+unbacked fields absent, not `""`; `coverImageUrl` mapped to a resolved `bannerImage`, and
+a missing `coverImageUrl` leaving `bannerImage` `undefined`.
 
-### Phase 4 — Service layer
+### Phase 5 — Service layer
 
 Create `services/api/restaurant-service.ts` using the existing `apiClient`.
 
@@ -202,7 +256,7 @@ invalid sort value is rejected at the type level (a `@ts-expect-error` line is e
 assert 500 on a valid UUID → `null`; assert 400 → `null`; assert a schema-invalid
 response throws `ApiError`.
 
-### Phase 5 — Query keys and hooks
+### Phase 6 — Query keys and hooks
 
 Extend `services/api/query-keys.ts` with a `restaurantKeys` factory mirroring
 `customerKeys` (`all` / `lists()` / `list(params)` / `details()` / `detail(id)`).
@@ -216,7 +270,7 @@ exported `queryOptions` functions plus thin `useRestaurants` / `useRestaurant` w
 - Map to view models with `select` so the mapping is memoized by TanStack Query rather
   than re-running on every render.
 
-### Phase 6 — Home screen
+### Phase 7 — Home screen
 
 Change `components/home/open-restaurants.tsx` and `popular-restaurants.tsx` to be
 **presentational**: delete the module-level arrays, accept
@@ -242,7 +296,7 @@ implies real popularity.
 Preserve `AnimatedEntrance` staggering and the existing `PressableScale` usage. Export new
 components from `components/home/index.ts`.
 
-### Phase 7 — Detail and info screens
+### Phase 8 — Detail and info screens
 
 `app/restaurant/[id]/index.tsx`: delete `RESTAURANT_DATA` and `TIMINGS`, fetch via
 `useRestaurant(id)`. Build the `TimingsModal` rows from `days` — group by `dayOfWeek`,
@@ -256,20 +310,33 @@ When coordinates are missing, render `MapPlaceholder` instead of a map at 0,0.
 Make the unbacked props on `components/restaurant/restaurant-header.tsx` optional and
 guard their render sites.
 
+`bannerImage` is now backed — change its type from `any` to `string | undefined` and pass
+the resolved cover through, with `RESTAURANT_IMAGE_PLACEHOLDER` when it is absent. Supply
+the auth headers from `imageAuthHeaders()`: `source={{ uri, headers }}`. The same applies
+to the card banners in `components/home/open-restaurants.tsx` and
+`components/home/popular-restaurants.tsx`, whose `bannerImage: any` currently receives a
+`require(...)` id.
+
 Keep the existing scroll-driven logo animation working — it depends on the geometry
 constants at the top of the file; do not change them.
 
-### Phase 8 — Favorites store
+### Phase 9 — Favorites store
 
 In `store/favorites-store.ts` replace `image: any` with
 `export type FavoriteImage = string | number` (`string` = remote URL, `number` = bundled
 `require` id) and update `FavoriteItem.image` to `FavoriteImage`.
 
-Pass `logoUrl` when adding a restaurant favorite. Fix every resulting type error in
-`components/favorites/*` and `app/(tabs)/favorites.tsx`; `expo-image` accepts both forms,
-so rendering needs no change.
+Pass the restaurant's **relative** `logoUrl` when adding a favorite — the raw backend
+value, not the resolved absolute URL — and call `resolveImageUrl` at render time. A stored
+absolute URL bakes in whatever `EXPO_PUBLIC_API_URL` was set to when the favorite was
+saved, so switching between a LAN address and a deployed host silently breaks the image on
+every previously favorited restaurant.
 
-### Phase 9 — Verification
+Fix every resulting type error in `components/favorites/*` and `app/(tabs)/favorites.tsx`.
+`expo-image` accepts both a URL string and a `require` id, so the render sites need only
+the resolve call and the auth headers.
+
+### Phase 10 — Verification
 
 Run all of these and report actual output:
 
@@ -295,24 +362,31 @@ If it is not reachable, say so plainly rather than claiming the check passed.
 ## Definition of done
 
 - [ ] `npx tsc --noEmit` → 0 errors
-- [ ] `npm test` → all pass, including every `isRestaurantOpen` case in Phase 3
+- [ ] `npm test` → all pass, including every `isRestaurantOpen` case in Phase 4
 - [ ] `npx eslint .` → no new errors
-- [ ] The Phase 9 grep returns no matches
+- [ ] The Phase 10 grep returns no matches
 - [ ] No `any` introduced anywhere; no hand-written type duplicating a zod schema
 - [ ] Loading, error and empty states all render on the home screen
 - [ ] Cards omit unbacked badges entirely rather than rendering empty ones
-- [ ] `UNBACKED_FIELDS` documents every UI field with no backend source
+- [ ] `UNBACKED_FIELDS` documents every UI field with no backend source, and no longer
+      lists `bannerImage`
+- [ ] Every rendered cover and logo goes through `resolveImageUrl` — no relative path
+      reaches `expo-image`, and no image request omits its auth header
+- [ ] A restaurant with no `coverImageUrl` renders the shared placeholder, not a
+      bundled `restaurant-banner-*.jpg`
 
 ## Constraints
 
 - **DO NOT** modify anything under `C:\projects\hungry-web\hungry-backend`. Backend bugs
   found here are documented in §8 of the plan, not fixed in this task.
 - **DO NOT** add a filter on `cuisines` or `dishes` — it returns 500.
-- **DO NOT** send a `sort` field outside the Phase 4 whitelist — it returns 500.
+- **DO NOT** send a `sort` field outside the Phase 5 whitelist — it returns 500.
 - **DO NOT** widen types with `any` or `as` to silence the compiler. If a type fights you,
   the schema is wrong; fix the schema.
 - **DO NOT** implement search, category filtering, infinite scroll, or menu/product
   fetching — all out of scope per §8 of the plan.
+- **DO NOT** call `POST /restaurants/{id}/logo` or `…/cover-image`. Uploading restaurant
+  media belongs to the restaurant-facing app; this app is read-only there.
 - **DO NOT** commit or push unless explicitly asked.
 - Match the surrounding code: double-quoted JSX imports in `components/`, `constants/theme`
   tokens over literal colours, `PressableScale` over `TouchableOpacity` in new code.
