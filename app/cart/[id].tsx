@@ -1,5 +1,6 @@
 import { CartItem, CheckoutButton, OrderSummary, SuggestedItems } from '@/components/cart';
 import { Fonts } from '@/constants/theme';
+import { useStoredImageSource } from '@/hooks/use-restaurant-image';
 import { formatDT, useCartStore } from '@/store/cart-store';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { ArrowLeft, Plus } from 'lucide-react-native';
@@ -41,6 +42,10 @@ export default function RestaurantCartScreen() {
   const increment = useCartStore((s) => s.increment);
   const decrement = useCartStore((s) => s.decrement);
   const removeItem = useCartStore((s) => s.removeItem);
+
+  // Stored artwork is a relative path or a bundled module id; it becomes a
+  // renderable source only here, against the current API base.
+  const toImageSource = useStoredImageSource();
 
   const items = allItems.filter((i) => i.restaurantId === id);
   const restaurantName = items[0]?.restaurantName ?? 'Cart';
@@ -97,7 +102,7 @@ export default function RestaurantCartScreen() {
                   description={description}
                   price={formatDT(line.unitPrice * line.quantity)}
                   quantity={line.quantity}
-                  image={line.image}
+                  image={toImageSource(line.image)}
                   onIncrement={() => increment(line.lineId)}
                   onDecrement={() => decrement(line.lineId)}
                   onDelete={() => removeItem(line.lineId)}

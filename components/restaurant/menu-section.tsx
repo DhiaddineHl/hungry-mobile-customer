@@ -1,24 +1,20 @@
 import { View, Text, StyleSheet, ScrollView } from 'react-native';
 import { ProductCard } from './product-card';
-import { Fonts } from '@/constants/theme';
-
-interface Product {
-  id: string;
-  name: string;
-  price: string;
-  originalPrice?: string;
-  discount?: string;
-  rating?: string;
-  reviewCount?: string;
-  image: any;
-}
+import { Fonts, FontSize, Palette, Spacing } from '@/constants/theme';
+import type { MenuProduct } from '@/services/api/product-view-model';
 
 interface MenuSectionProps {
+  /** "" for the trailing group of uncategorised products — no heading is drawn. */
   title: string;
-  products: Product[];
+  products: MenuProduct[];
   onProductPress?: (productId: string) => void;
 }
 
+/**
+ * One menu section, taking the view model directly rather than a hand-shaped
+ * product object: `price` arrives as an `AppliedPrice | null`, and unpacking
+ * it here keeps every screen from repeating the null handling.
+ */
 export function MenuSection({ title, products, onProductPress }: MenuSectionProps) {
   return (
     <View style={styles.container}>
@@ -31,7 +27,13 @@ export function MenuSection({ title, products, onProductPress }: MenuSectionProp
         {products.map((product) => (
           <ProductCard
             key={product.id}
-            {...product}
+            id={product.id}
+            name={product.name}
+            // A null price leaves these undefined, which is what makes the
+            // card render as unorderable.
+            price={product.price?.formatted}
+            originalPrice={product.price?.original}
+            discount={product.price?.discountLabel}
             onPress={() => onProductPress?.(product.id)}
           />
         ))}
@@ -42,17 +44,17 @@ export function MenuSection({ title, products, onProductPress }: MenuSectionProp
 
 const styles = StyleSheet.create({
   container: {
-    marginBottom: 20,
+    marginBottom: Spacing.xl,
   },
   title: {
-    fontSize: 18,
+    fontSize: FontSize.xl,
     fontFamily: Fonts.bold,
-    color: '#1A2B3D',
+    color: Palette.textPrimary,
     marginBottom: 14,
-    paddingHorizontal: 20,
+    paddingHorizontal: Spacing.xl,
   },
   row: {
-    paddingHorizontal: 20,
+    paddingHorizontal: Spacing.xl,
     gap: 14,
   },
 });

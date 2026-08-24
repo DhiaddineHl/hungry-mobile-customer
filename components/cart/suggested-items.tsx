@@ -1,5 +1,5 @@
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
-import { Image } from 'expo-image';
+import { Image, type ImageSource } from 'expo-image';
 import { Plus } from 'lucide-react-native';
 import { Fonts } from '@/constants/theme';
 
@@ -8,7 +8,7 @@ interface SuggestedItem {
   name: string;
   description?: string;
   price: string;
-  image: any;
+  image?: ImageSource | number;
   isPopular?: boolean;
 }
 

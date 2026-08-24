@@ -45,6 +45,9 @@ export interface RestaurantSummary {
 }
 
 export interface RestaurantDetail extends RestaurantSummary {
+  /** The catalog this restaurant's menu lives in — see {@link menuScopeOf}. */
+  catalogId?: string | null;
+  catalogVersionId?: string | null;
   address?: RestaurantAddress | null;
   phones: string[];
   email?: string | null;
@@ -178,6 +181,8 @@ export function toRestaurantDetail(
 ): RestaurantDetail {
   return {
     ...toRestaurantSummary(restaurant, now),
+    catalogId: restaurant.catalogId,
+    catalogVersionId: restaurant.catalogVersionId,
     address: restaurant.address,
     phones: restaurant.contact?.phones ?? [],
     email: restaurant.contact?.email,
@@ -185,6 +190,41 @@ export function toRestaurantDetail(
     accessibility: restaurant.accessibility,
     policy: restaurant.policy,
   };
+}
+
+/**
+ * Which catalog a menu query is scoped to. A version is preferred over a bare
+ * catalog because a catalog holds several versions (Staged, Online) and only
+ * one of them is what a customer should see.
+ */
+export type MenuScope = { catalogVersionId: string } | { catalogId: string };
+
+/**
+ * The catalog scope to fetch this restaurant's menu with, or `null` when the
+ * restaurant carries no catalog link.
+ *
+ * **`null` is the expected answer today.** The backend has no relation at all
+ * between a restaurant and its products: `Restaurant` has no catalog field and
+ * `ProductOutputData` has no restaurant field (see
+ * docs/plans/restaurant-products-fetch-display-plan.md §2). `ProductFilter`
+ * already implements `catalogId` and `catalogVersionId` as real JPA
+ * predicates, so the whole feature switches on as soon as the backend exposes
+ * `catalogVersionId` on `RestaurantOutputData` (§2.1) — one field, no change
+ * here beyond the data arriving.
+ *
+ * Until then `useRestaurantMenu` resolves to an explicit unavailable state and
+ * the screens say so. Guessing ownership by name, keyword or category would
+ * produce a menu that is silently wrong, which is worse than one that is
+ * honestly absent.
+ */
+export function menuScopeOf(restaurant: RestaurantDetail): MenuScope | null {
+  const catalogVersionId = restaurant.catalogVersionId?.trim();
+  if (catalogVersionId) return { catalogVersionId };
+
+  const catalogId = restaurant.catalogId?.trim();
+  if (catalogId) return { catalogId };
+
+  return null;
 }
 
 const DAY_NAMES = [

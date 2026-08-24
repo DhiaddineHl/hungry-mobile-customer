@@ -11,7 +11,8 @@ import {
   type RestaurantDetail,
   type RestaurantSummary,
 } from '@/services/api/restaurant-view-model';
-import type { Page, RestaurantOutput } from '@/schemas/restaurant';
+import type { Page } from '@/schemas/page';
+import type { RestaurantOutput } from '@/schemas/restaurant';
 import { useQuery } from '@tanstack/react-query';
 
 /**

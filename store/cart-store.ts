@@ -1,6 +1,16 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
+import type { FavoriteImage } from "./favorites-store";
+
+/**
+ * A cart line's artwork: the SAME union the favorites store persists — a
+ * relative backend path, or a bundled `require(...)` module id. Aliased rather
+ * than re-declared so the two stores cannot drift apart, and resolved at
+ * render time through `useStoredImageSource` so a stored line survives a
+ * change of `EXPO_PUBLIC_API_URL`.
+ */
+export type CartImage = FavoriteImage;
 
 export interface CartAddon {
   id: string;
@@ -13,7 +23,7 @@ export interface CartLine {
   lineId: string;
   foodId: string;
   name: string;
-  image: any;
+  image?: CartImage;
   /** Per-unit price including selected addons. */
   unitPrice: number;
   basePrice: number;
@@ -22,7 +32,7 @@ export interface CartLine {
   note?: string;
   restaurantId: string;
   restaurantName: string;
-  restaurantLogo?: any;
+  restaurantLogo?: CartImage;
 }
 
 export type NewCartLine = Omit<CartLine, "lineId">;
@@ -117,7 +127,7 @@ export const useCartStore = create<CartState>()(
 export interface RestaurantCartGroup {
   restaurantId: string;
   restaurantName: string;
-  restaurantLogo?: any;
+  restaurantLogo?: CartImage;
   items: CartLine[];
   totalQuantity: number;
   totalPrice: number;

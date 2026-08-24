@@ -46,3 +46,21 @@ export function useRestaurantImageSourceFromPath() {
     [toSource]
   );
 }
+
+/**
+ * A source for artwork that came out of a persisted store, where the value is
+ * either a backend path (`string`) or a bundled `require(...)` module id
+ * (`number`) — see `FavoriteImage` / `CartImage`.
+ *
+ * A module id is already an `expo-image` source and must NOT be run through
+ * the URL join; a path must be. Doing that discrimination once here keeps
+ * every render site from re-deriving it.
+ */
+export function useStoredImageSource() {
+  const fromPath = useRestaurantImageSourceFromPath();
+  return useCallback(
+    (image: string | number | null | undefined): ImageSource | number =>
+      typeof image === 'number' ? image : fromPath(image),
+    [fromPath]
+  );
+}

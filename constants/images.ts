@@ -16,3 +16,13 @@
  */
 export const RESTAURANT_IMAGE_PLACEHOLDER =
   'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAAEUlEQVR42mP49PkrVsQwtCQATjG2gdYWgx4AAAAASUVORK5CYII=';
+
+/**
+ * The same neutral fill, named for product artwork.
+ *
+ * Products have no image field on the backend at all — artwork costs a
+ * separate `GET /files/products/{id}` per product, which a menu grid cannot
+ * afford (plan §3.5) — so every card in a list falls through to this until a
+ * batch files endpoint or a product image field exists.
+ */
+export const PRODUCT_IMAGE_PLACEHOLDER = RESTAURANT_IMAGE_PLACEHOLDER;
