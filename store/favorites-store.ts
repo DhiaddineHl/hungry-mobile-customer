@@ -4,11 +4,28 @@ import { createJSONStorage, persist } from "zustand/middleware";
 
 export type FavoriteType = "restaurant" | "food";
 
+/**
+ * A favorite's artwork: either a backend path (`string`) or a bundled
+ * `require(...)` module id (`number`, still used by the food fixtures).
+ *
+ * For restaurants the string is the **relative** `/files/...` path the backend
+ * returned, resolved against the current API base at render time. Persisting a
+ * resolved absolute URL would bake in whatever `EXPO_PUBLIC_API_URL` was set to
+ * when the favorite was saved, so moving between a LAN address and a deployed
+ * host would silently break the image on every previously favorited
+ * restaurant. `undefined` means the restaurant has no logo — render sites fall
+ * through to RESTAURANT_IMAGE_PLACEHOLDER.
+ *
+ * Note that a persisted module id is not stable across builds; that is a known
+ * wart of the bundled food fixtures, not something this type endorses.
+ */
+export type FavoriteImage = string | number;
+
 export interface FavoriteItem {
   id: string;
   type: FavoriteType;
   name: string;
-  image: any;
+  image?: FavoriteImage;
   /** Categories (restaurant) or short description (food). */
   subtitle?: string;
   price?: string;

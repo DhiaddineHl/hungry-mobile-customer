@@ -1,5 +1,9 @@
+import { RestaurantListSkeleton } from "@/components/home/restaurant-card-skeleton";
 import { AnimatedEntrance } from "@/components/ui/animated-entrance";
+import { QueryState } from "@/components/ui/query-state";
 import { Fonts, FontSize, Palette, Radius, Spacing } from "@/constants/theme";
+import { useRestaurantImageSource } from "@/hooks/use-restaurant-image";
+import type { RestaurantSummary } from "@/services/api/restaurant-view-model";
 import { useFavoritesStore, useIsFavorite } from "@/store/favorites-store";
 import { Image } from "expo-image";
 import {
@@ -20,91 +24,33 @@ const BadgeColor = {
   discount: "#003049", // dark teal
 } as const;
 
-interface Restaurant {
-  id: string;
-  name: string;
-  categories: string;
-  rating: string;
-  deliveryTime: string;
-  deliveryFee: string;
-  isFreeDelivery: boolean;
-  discount?: string;
-  isNew?: boolean;
-  isSponsored?: boolean;
-  bannerImage: any;
-  isFavorite?: boolean;
-}
-
-const RESTAURANTS: Restaurant[] = [
-  {
-    id: "1",
-    name: "Tacoth",
-    categories: "French Tacos",
-    rating: "92%",
-    deliveryTime: "30-45 min",
-    deliveryFee: "Free",
-    isFreeDelivery: true,
-    discount: "Up to -20% off",
-    isNew: true,
-    bannerImage: require("@/assets/restaurants-images/restaurant-banner-1.jpg"),
-    isFavorite: true,
-  },
-  {
-    id: "2",
-    name: "Crepe Factory",
-    categories: "Sweets - Breakfast - Dessert",
-    rating: "75%",
-    deliveryTime: "15-30 min",
-    deliveryFee: "Free",
-    isFreeDelivery: true,
-    discount: "Up to -32% off",
-    bannerImage: require("@/assets/restaurants-images/restaurant-banner-2.jpg"),
-    isFavorite: true,
-  },
-  {
-    id: "3",
-    name: "Baguette",
-    categories: "Sandwiches - Burgers",
-    rating: "96%",
-    deliveryTime: "30-45 min",
-    deliveryFee: "2,5DT",
-    isFreeDelivery: false,
-    isSponsored: true,
-    bannerImage: require("@/assets/restaurants-images/restaurant-banner-3.jpg"),
-    isFavorite: true,
-  },
-  {
-    id: "4",
-    name: "Papa John's",
-    categories: "Pizza - Burgers - Sandwiches",
-    rating: "96%",
-    deliveryTime: "30-45 min",
-    deliveryFee: "2,5DT",
-    isFreeDelivery: false,
-    isSponsored: true,
-    bannerImage: require("@/assets/restaurants-images/restaurant-banner-3.jpg"),
-    isFavorite: true,
-  },
-];
-
 interface RestaurantCardProps {
-  restaurant: Restaurant;
+  restaurant: RestaurantSummary;
   onPress?: () => void;
 }
 
 function RestaurantCard({ restaurant, onPress }: RestaurantCardProps) {
   const isFavorite = useIsFavorite("restaurant", restaurant.id);
   const toggleFavorite = useFavoritesStore((s) => s.toggle);
+  const imageSource = useRestaurantImageSource();
 
   const handleFavorite = () =>
     toggleFavorite({
       id: restaurant.id,
       type: "restaurant",
       name: restaurant.name,
-      image: restaurant.bannerImage,
+      // The RELATIVE path, not the resolved URL: an absolute one would bake in
+      // whatever API host was configured when the favorite was saved.
+      image: restaurant.logoPath,
       subtitle: restaurant.categories,
       rating: restaurant.rating,
     });
+
+  // Rating, delivery time and delivery fee have no backend source yet
+  // (see UNBACKED_FIELDS). The row is omitted entirely rather than rendered
+  // with empty pills.
+  const hasInfoRow =
+    !!restaurant.rating || !!restaurant.deliveryTime || !!restaurant.deliveryFee;
 
   return (
     <Pressable
@@ -115,7 +61,7 @@ function RestaurantCard({ restaurant, onPress }: RestaurantCardProps) {
     >
       <View style={styles.bannerContainer}>
         <Image
-          source={restaurant.bannerImage}
+          source={imageSource(restaurant.bannerImage)}
           style={styles.bannerImage}
           contentFit="cover"
         />
@@ -151,61 +97,94 @@ function RestaurantCard({ restaurant, onPress }: RestaurantCardProps) {
 
       <View style={styles.cardContent}>
         <View style={styles.logo}>
-          <Store size={18} color={Palette.ink} />
+          {restaurant.logoUrl ? (
+            <Image
+              source={imageSource(restaurant.logoUrl)}
+              style={styles.logoImage}
+              contentFit="cover"
+            />
+          ) : (
+            <Store size={18} color={Palette.ink} />
+          )}
         </View>
 
         <View style={styles.titleColumn}>
           <Text style={styles.restaurantName} numberOfLines={1}>
             {restaurant.name}
           </Text>
-          <Text style={styles.categories} numberOfLines={1}>
-            {restaurant.categories}
-          </Text>
+          {restaurant.categories ? (
+            <Text style={styles.categories} numberOfLines={1}>
+              {restaurant.categories}
+            </Text>
+          ) : null}
         </View>
 
-        <View style={styles.infoRow}>
-          <View style={styles.infoItem}>
-            <View style={[styles.infoBadge, { backgroundColor: BadgeColor.rating }]}>
-              <ThumbsUp size={18} color={Palette.ink} />
-            </View>
-            <Text style={styles.infoText}>{restaurant.rating}</Text>
-          </View>
-
-          <View style={styles.infoItem}>
-            <View style={[styles.infoBadge, { backgroundColor: BadgeColor.time }]}>
-              <Timer size={18} color={Palette.ink} />
-            </View>
-            <Text style={styles.infoText}>{restaurant.deliveryTime}</Text>
-          </View>
-
-          <View style={styles.infoItem}>
-            <View
-              style={[styles.infoBadge, { backgroundColor: BadgeColor.delivery }]}
-            >
-              <Motorbike size={18} color={Palette.white} />
-            </View>
-            {restaurant.isFreeDelivery ? (
-              <View style={styles.freeDeliveryPill}>
-                <Text style={styles.freeDeliveryText}>
-                  {restaurant.deliveryFee}
-                </Text>
+        {hasInfoRow && (
+          <View style={styles.infoRow}>
+            {restaurant.rating && (
+              <View style={styles.infoItem}>
+                <View
+                  style={[styles.infoBadge, { backgroundColor: BadgeColor.rating }]}
+                >
+                  <ThumbsUp size={18} color={Palette.ink} />
+                </View>
+                <Text style={styles.infoText}>{restaurant.rating}</Text>
               </View>
-            ) : (
-              <Text style={styles.infoText}>{restaurant.deliveryFee}</Text>
+            )}
+
+            {restaurant.deliveryTime && (
+              <View style={styles.infoItem}>
+                <View
+                  style={[styles.infoBadge, { backgroundColor: BadgeColor.time }]}
+                >
+                  <Timer size={18} color={Palette.ink} />
+                </View>
+                <Text style={styles.infoText}>{restaurant.deliveryTime}</Text>
+              </View>
+            )}
+
+            {restaurant.deliveryFee && (
+              <View style={styles.infoItem}>
+                <View
+                  style={[
+                    styles.infoBadge,
+                    { backgroundColor: BadgeColor.delivery },
+                  ]}
+                >
+                  <Motorbike size={18} color={Palette.white} />
+                </View>
+                {restaurant.isFreeDelivery ? (
+                  <View style={styles.freeDeliveryPill}>
+                    <Text style={styles.freeDeliveryText}>
+                      {restaurant.deliveryFee}
+                    </Text>
+                  </View>
+                ) : (
+                  <Text style={styles.infoText}>{restaurant.deliveryFee}</Text>
+                )}
+              </View>
             )}
           </View>
-        </View>
+        )}
       </View>
     </Pressable>
   );
 }
 
 interface OpenRestaurantsProps {
+  restaurants: RestaurantSummary[];
+  isLoading?: boolean;
+  error?: unknown;
+  onRetry?: () => void;
   onRestaurantPress?: (restaurantId: string) => void;
   onSeeAllPress?: () => void;
 }
 
 export function OpenRestaurants({
+  restaurants,
+  isLoading = false,
+  error,
+  onRetry,
   onRestaurantPress,
   onSeeAllPress,
 }: OpenRestaurantsProps) {
@@ -228,16 +207,26 @@ export function OpenRestaurants({
         </Pressable>
       </View>
 
-      <View style={styles.restaurantsList}>
-        {RESTAURANTS.map((restaurant, index) => (
-          <AnimatedEntrance key={restaurant.id} index={index} delay={120}>
-            <RestaurantCard
-              restaurant={restaurant}
-              onPress={() => onRestaurantPress?.(restaurant.id)}
-            />
-          </AnimatedEntrance>
-        ))}
-      </View>
+      <QueryState
+        isLoading={isLoading}
+        error={error}
+        isEmpty={restaurants.length === 0}
+        loading={<RestaurantListSkeleton />}
+        emptyTitle="No restaurants yet"
+        emptyBody="There are no restaurants to show right now. Check back soon."
+        onRetry={onRetry}
+      >
+        <View style={styles.restaurantsList}>
+          {restaurants.map((restaurant, index) => (
+            <AnimatedEntrance key={restaurant.id} index={index} delay={120}>
+              <RestaurantCard
+                restaurant={restaurant}
+                onPress={() => onRestaurantPress?.(restaurant.id)}
+              />
+            </AnimatedEntrance>
+          ))}
+        </View>
+      </QueryState>
     </View>
   );
 }
@@ -348,6 +337,11 @@ const styles = StyleSheet.create({
     backgroundColor: BadgeColor.rating,
     alignItems: "center",
     justifyContent: "center",
+    overflow: "hidden",
+  },
+  logoImage: {
+    width: "100%",
+    height: "100%",
   },
   titleColumn: {
     flex: 1,
