@@ -25,3 +25,24 @@ export const restaurantKeys = {
   /** Keyed by the restaurant's UUID — the backend resolves by id only, never by code. */
   detail: (id: string) => [...restaurantKeys.details(), id] as const,
 };
+
+/**
+ * Product (menu) cache entries, in the same shape as the two factories above.
+ *
+ * `list` takes the catalog **scope** as well as the params: products are not
+ * addressed by restaurant anywhere in the backend, so the scope is the only
+ * thing separating one restaurant's menu from another's. Leaving it out of the
+ * key would let two restaurants read each other's cached menu.
+ */
+export const productKeys = {
+  all: ['products'] as const,
+  lists: () => [...productKeys.all, 'list'] as const,
+  list: (scope: object | null, params: object) =>
+    [...productKeys.lists(), scope, params] as const,
+  details: () => [...productKeys.all, 'detail'] as const,
+  /** Keyed by the product's UUID — the backend resolves by id only, never by code. */
+  detail: (id: string) => [...productKeys.details(), id] as const,
+  images: () => [...productKeys.all, 'image'] as const,
+  /** Artwork is a separate request per product — see `fetchProductImageUrl`. */
+  image: (id: string) => [...productKeys.images(), id] as const,
+};

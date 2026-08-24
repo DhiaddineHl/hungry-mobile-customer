@@ -1,4 +1,5 @@
-import { pageSchema, restaurantOutputSchema } from '@/schemas/restaurant';
+import { pageSchema } from '@/schemas/page';
+import { restaurantOutputSchema } from '@/schemas/restaurant';
 import { z } from 'zod';
 
 const FULL_PAYLOAD = {

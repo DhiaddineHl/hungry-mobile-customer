@@ -2,11 +2,15 @@ import { SearchBar } from "@/components/home";
 import {
   MenuFilterTabs,
   MenuSection,
+  MenuSectionSkeleton,
+  MenuUnavailable,
   RestaurantHeader,
+  type MenuTab,
 } from "@/components/restaurant";
 import { TimingsModal } from "@/components/restaurant/timings-modal";
 import { QueryEmpty, QueryError } from "@/components/ui/query-state";
 import { Fonts, Palette } from "@/constants/theme";
+import { useRestaurantMenu } from "@/hooks/use-products";
 import { useRestaurantImageSource } from "@/hooks/use-restaurant-image";
 import { useRestaurant } from "@/hooks/use-restaurants";
 import { imageAuthHeaders } from "@/services/api/image-url";
@@ -43,143 +47,12 @@ const COMPACT_BAR_HEIGHT = 52;
 const COMPACT_LOGO_SIZE = 40;
 const COMPACT_LOGO_LEFT = 60;
 
-const PROMOTIONS_PRODUCTS = [
-  {
-    id: "p1",
-    name: "Double Crispy Deal",
-    price: "24 DT",
-    originalPrice: "30,9 DT",
-    discount: "-10%",
-    image: require("@/assets/products/product-1.png"),
-  },
-  {
-    id: "p2",
-    name: "Crispy Chicken",
-    price: "9,68 DT",
-    originalPrice: "12,9 DT",
-    discount: "-25%",
-    image: require("@/assets/products/product-2.png"),
-  },
-  {
-    id: "p3",
-    name: "Melty Crispy Chicken",
-    price: "16,9 DT",
-    image: require("@/assets/products/prodcut-3.png"),
-  },
-];
-
-const PICKED_FOR_YOU = [
-  {
-    id: "pfy1",
-    name: "Crispy Chicken Taco Bowl",
-    price: "13,9 DT",
-    rating: "66%",
-    reviewCount: "12",
-    image: require("@/assets/products/product-4.png"),
-  },
-  {
-    id: "pfy2",
-    name: "Melty Crispy Chicken",
-    price: "16,9 DT",
-    image: require("@/assets/products/prodcut-3.png"),
-  },
-  {
-    id: "pfy3",
-    name: "Double Crispy Deal",
-    price: "24 DT",
-    originalPrice: "30,9 DT",
-    discount: "-10%",
-    rating: "70%",
-    reviewCount: "20",
-    image: require("@/assets/products/product-1.png"),
-  },
-];
-
-const CLASSIQUES = [
-  {
-    id: "c1",
-    name: "Crispy Chicken",
-    price: "9,68 DT",
-    originalPrice: "12,9 DT",
-    discount: "-25%",
-    rating: "76%",
-    reviewCount: "22",
-    image: require("@/assets/products/product-2.png"),
-  },
-  {
-    id: "c2",
-    name: "Cordon Bleu",
-    price: "12,9 DT",
-    image: require("@/assets/products/product-5.png"),
-  },
-  {
-    id: "c3",
-    name: "Spicy Chicken",
-    price: "12,9 DT",
-    image: require("@/assets/products/product-1.png"),
-  },
-  {
-    id: "c4",
-    name: "Beef Tacoth",
-    price: "12,9 DT",
-    image: require("@/assets/products/product-4.png"),
-  },
-];
-
-const SIGNATURES = [
-  {
-    id: "s1",
-    name: "Epic Spicy Chicken",
-    price: "17,5 DT",
-    image: require("@/assets/products/product-2.png"),
-  },
-  {
-    id: "s2",
-    name: "Ultimate Beef",
-    price: "17,5 DT",
-    image: require("@/assets/products/product-5.png"),
-  },
-  {
-    id: "s3",
-    name: "Melty Crispy Chicken",
-    price: "16,9 DT",
-    image: require("@/assets/products/prodcut-3.png"),
-  },
-  {
-    id: "s4",
-    name: "Gourmand Cordon Bleu",
-    price: "15,9 DT",
-    image: require("@/assets/products/product-1.png"),
-  },
-];
-
-const BOWLS = [
-  {
-    id: "b1",
-    name: "Fajitas Taco Bowl",
-    price: "14,9 DT",
-    image: require("@/assets/products/product-4.png"),
-  },
-  {
-    id: "b2",
-    name: "Spicy Chicken Taco Bowl",
-    price: "13,9 DT",
-    image: require("@/assets/products/product-5.png"),
-  },
-  {
-    id: "b3",
-    name: "Crispy Chicken Taco Bown",
-    price: "16,9 DT",
-    image: require("@/assets/products/prodcut-3.png"),
-  },
-];
-
 export default function RestaurantDetailsScreen() {
   const { id: restaurantId } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const insets = useSafeAreaInsets();
 
-  const [selectedTab, setSelectedTab] = useState("promotions");
+  const [selectedTab, setSelectedTab] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [timingsVisible, setTimingsVisible] = useState(false);
   const [showCompact, setShowCompact] = useState(false);
@@ -190,6 +63,34 @@ export default function RestaurantDetailsScreen() {
     error,
     refetch,
   } = useRestaurant(restaurantId);
+
+  // The menu is scoped to the restaurant's catalog, which no restaurant
+  // carries yet — `unavailable` is the expected answer today, and no request
+  // is fired for it. See menuScopeOf and plan §2.
+  const {
+    data: sections,
+    isPending: menuPending,
+    error: menuError,
+    refetch: refetchMenu,
+    unavailable: menuUnavailable,
+  } = useRestaurantMenu(restaurant);
+
+  const tabs: MenuTab[] = useMemo(
+    () =>
+      (sections ?? [])
+        .filter((section) => section.title)
+        .map((section) => ({ id: section.title, label: section.title })),
+    [sections]
+  );
+
+  // A selected tab narrows to that one section; null shows the whole menu.
+  const visibleSections = useMemo(
+    () =>
+      selectedTab === null
+        ? (sections ?? [])
+        : (sections ?? []).filter((section) => section.title === selectedTab),
+    [sections, selectedTab]
+  );
 
   const imageSource = useRestaurantImageSource();
 
@@ -288,8 +189,11 @@ export default function RestaurantDetailsScreen() {
     });
   };
   const handleMorePress = () => {};
+  // The restaurant travels with the route: a product carries no restaurant
+  // field on the backend, so the food screen cannot work out which restaurant
+  // serves it any other way (plan §2).
   const handleProductPress = (productId: string) =>
-    router.push(`/food/${productId}`);
+    router.push(`/food/${productId}?restaurantId=${restaurantId}`);
   const handleOpenPress = () => setTimingsVisible(true);
   const handleNamePress = () => router.push(`/restaurant/${restaurantId}/info`);
 
@@ -321,6 +225,35 @@ export default function RestaurantDetailsScreen() {
     );
   }
 
+  /**
+   * Loading / error / unavailable / empty / content for the menu, in that
+   * order. `unavailable` is checked before `empty` because "no menu connected"
+   * and "this menu has no dishes" are different things to tell a customer, and
+   * before `error` because no request was made to fail.
+   */
+  const renderMenu = () => {
+    if (menuUnavailable) return <MenuUnavailable />;
+    if (menuPending) return <MenuSectionSkeleton />;
+    if (menuError) return <QueryError error={menuError} onRetry={refetchMenu} />;
+    if (visibleSections.length === 0) {
+      return (
+        <QueryEmpty
+          title="Nothing on the menu yet"
+          body="This restaurant hasn't published any dishes."
+        />
+      );
+    }
+
+    return visibleSections.map((section, index) => (
+      <MenuSection
+        key={section.title || `uncategorised-${index}`}
+        title={section.title}
+        products={section.products}
+        onProductPress={handleProductPress}
+      />
+    ));
+  };
+
   return (
     <View style={styles.container}>
       <Animated.ScrollView
@@ -350,34 +283,14 @@ export default function RestaurantDetailsScreen() {
             placeholder="Search the menu"
             onChangeText={setSearchQuery}
           />
-          <MenuFilterTabs selectedTab={selectedTab} onTabPress={setSelectedTab} />
+          <MenuFilterTabs
+            tabs={tabs}
+            selectedTab={selectedTab}
+            onTabPress={setSelectedTab}
+          />
         </View>
 
-        <MenuSection
-          title=""
-          products={PROMOTIONS_PRODUCTS}
-          onProductPress={handleProductPress}
-        />
-        <MenuSection
-          title="Picked For You"
-          products={PICKED_FOR_YOU}
-          onProductPress={handleProductPress}
-        />
-        <MenuSection
-          title="Les Tacoths Classiques"
-          products={CLASSIQUES}
-          onProductPress={handleProductPress}
-        />
-        <MenuSection
-          title="Les Tacoths Signatures"
-          products={SIGNATURES}
-          onProductPress={handleProductPress}
-        />
-        <MenuSection
-          title="Tacoth Bowls"
-          products={BOWLS}
-          onProductPress={handleProductPress}
-        />
+        {renderMenu()}
       </Animated.ScrollView>
 
       {/* Compact sticky header — fades in as the banner scrolls away. */}
@@ -400,6 +313,7 @@ export default function RestaurantDetailsScreen() {
         </View>
         <MenuFilterTabs
           compact
+          tabs={tabs}
           selectedTab={selectedTab}
           onTabPress={setSelectedTab}
         />

@@ -92,26 +92,16 @@ export const restaurantOutputSchema = z.object({
   coverImageUrl: z.string().nullish(),
   days: z.array(workingDaySchema).catch([]),
   enabled: z.boolean().nullish(),
+  /**
+   * The catalog a restaurant's menu lives in. NEITHER field is served today —
+   * the backend has no link at all between a restaurant and its products (see
+   * docs/plans/restaurant-products-fetch-display-plan.md §2). They are modelled
+   * ahead of the §2.1 backend change so `menuScopeOf` starts returning a real
+   * scope the moment the field appears, with no schema edit.
+   */
+  catalogId: z.string().nullish(),
+  catalogVersionId: z.string().nullish(),
 });
-
-/**
- * The five fields of Spring's flat `PageImpl` serialization this app uses.
- * `size`, `first`, `numberOfElements`, `empty`, `sort` and `pageable` are
- * deliberately unmodelled so a future Boot upgrade that reshapes the envelope
- * breaks here rather than everywhere.
- *
- * `content` is NOT `.catch([])`: an item that fails to parse must surface as an
- * error, not vanish into an empty list.
- */
-export function pageSchema<T extends z.ZodType>(itemSchema: T) {
-  return z.object({
-    content: z.array(itemSchema),
-    number: z.number().nullish(),
-    totalPages: z.number().nullish(),
-    totalElements: z.number().nullish(),
-    last: z.boolean().nullish(),
-  });
-}
 
 export type RestaurantGeoCoordinates = z.infer<typeof geoCoordinatesSchema>;
 export type RestaurantAddress = z.infer<typeof backendAddressSchema>;
@@ -120,10 +110,3 @@ export type WorkingDay = z.infer<typeof workingDaySchema>;
 export type RestaurantAccessibility = z.infer<typeof accessibilitySchema>;
 export type RestaurantPolicy = z.infer<typeof policySchema>;
 export type RestaurantOutput = z.infer<typeof restaurantOutputSchema>;
-
-/** The page envelope with a concrete item type; shape derived from `pageSchema`. */
-type PageEnvelope = z.infer<ReturnType<typeof pageSchema<z.ZodUnknown>>>;
-
-export type Page<T> = Omit<PageEnvelope, 'content'> & {
-  content: T[];
-};

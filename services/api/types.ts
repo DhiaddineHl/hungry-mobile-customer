@@ -83,9 +83,11 @@ export interface Customer {
 // that validates the payload at runtime.
 // ---------------------------------------------------------------------------
 
+/** The paged envelope is shared with products, so it lives in its own module. */
+export type { Page } from '@/schemas/page';
+
 export type {
   BusinessContact,
-  Page,
   RestaurantAccessibility,
   RestaurantAddress,
   RestaurantGeoCoordinates,

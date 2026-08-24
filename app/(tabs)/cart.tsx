@@ -1,5 +1,6 @@
 import { CartHeader, RestaurantCartCard, TrackOrdersSection } from '@/components/cart';
 import { Fonts, FontSize, Palette, Spacing } from '@/constants/theme';
+import { useStoredImageSource } from '@/hooks/use-restaurant-image';
 import { formatDT, groupByRestaurant, useCartStore } from '@/store/cart-store';
 import { useRouter } from 'expo-router';
 import { ShoppingCart } from 'lucide-react-native';
@@ -13,6 +14,10 @@ export default function CartScreen() {
   const items = useCartStore((s) => s.items);
   const clearRestaurant = useCartStore((s) => s.clearRestaurant);
   const groups = groupByRestaurant(items);
+
+  // Stored artwork is a relative path or a bundled module id; it becomes a
+  // renderable source only here, against the current API base.
+  const toImageSource = useStoredImageSource();
 
   const handleOrdersPress = () => {
     console.log('Orders pressed');
@@ -44,14 +49,14 @@ export default function CartScreen() {
               <RestaurantCartCard
                 key={group.restaurantId}
                 restaurantName={group.restaurantName}
-                restaurantLogo={group.restaurantLogo}
+                restaurantLogo={toImageSource(group.restaurantLogo)}
                 rating="92%"
                 reviewCount="1000+"
                 items={group.items.map((line) => ({
                   id: line.lineId,
                   name: line.name,
                   quantity: line.quantity,
-                  image: line.image,
+                  image: toImageSource(line.image),
                 }))}
                 totalItems={group.totalQuantity}
                 totalPrice={formatDT(group.totalPrice)}

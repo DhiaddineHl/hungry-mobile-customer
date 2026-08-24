@@ -1,9 +1,5 @@
-import {
-  pageSchema,
-  restaurantOutputSchema,
-  type Page,
-  type RestaurantOutput,
-} from '@/schemas/restaurant';
+import { pageSchema, type Page } from '@/schemas/page';
+import { restaurantOutputSchema, type RestaurantOutput } from '@/schemas/restaurant';
 import { z } from 'zod';
 import { ApiError, apiClient, isApiError } from './client';
 

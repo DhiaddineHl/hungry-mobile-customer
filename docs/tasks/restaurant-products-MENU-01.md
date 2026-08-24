@@ -1,7 +1,7 @@
 ---
 suffix: MENU-01
 title: Fetch and display restaurant products (menu)
-status: todo
+status: done
 plan: docs/plans/restaurant-products-fetch-display-plan.md
 depends_on: RESTO-01
 ---
