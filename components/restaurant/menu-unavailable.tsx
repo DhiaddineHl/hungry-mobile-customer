@@ -3,8 +3,9 @@ import { UtensilsCrossed } from "lucide-react-native";
 import { StyleSheet, Text, View } from "react-native";
 
 /**
- * Shown when a restaurant carries no catalog link, so there is no menu to
- * fetch — see `menuScopeOf` and plan §2.
+ * Shown when no catalog can be found for a restaurant, so there is no menu to
+ * fetch — the restaurant's menu was never created in the back-office. See
+ * `fetchMenuScope` and plan §2.3.
  *
  * Deliberately NOT styled as an error: nothing failed, no retry would help,
  * and the restaurant itself is fine. It uses the muted surface and the primary

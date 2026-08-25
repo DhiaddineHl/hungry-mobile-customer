@@ -10,7 +10,10 @@ import {
 import { TimingsModal } from "@/components/restaurant/timings-modal";
 import { QueryEmpty, QueryError } from "@/components/ui/query-state";
 import { Fonts, Palette } from "@/constants/theme";
-import { useRestaurantMenu } from "@/hooks/use-products";
+import {
+  useProductImageSources,
+  useRestaurantMenu,
+} from "@/hooks/use-products";
 import { useRestaurantImageSource } from "@/hooks/use-restaurant-image";
 import { useRestaurant } from "@/hooks/use-restaurants";
 import { imageAuthHeaders } from "@/services/api/image-url";
@@ -64,9 +67,10 @@ export default function RestaurantDetailsScreen() {
     refetch,
   } = useRestaurant(restaurantId);
 
-  // The menu is scoped to the restaurant's catalog, which no restaurant
-  // carries yet — `unavailable` is the expected answer today, and no request
-  // is fired for it. See menuScopeOf and plan §2.
+  // The menu is scoped to the restaurant's catalog. No restaurant payload
+  // carries that link yet, so the hook resolves it from the catalog code the
+  // back-office files the menu under; `unavailable` now means the menu was
+  // never created. See menuScopeOf / fetchMenuScope.
   const {
     data: sections,
     isPending: menuPending,
@@ -74,9 +78,6 @@ export default function RestaurantDetailsScreen() {
     refetch: refetchMenu,
     unavailable: menuUnavailable,
   } = useRestaurantMenu(restaurant);
-
-  console.log("resto menu", sections);
-  console.log("resto data", restaurant);
 
   const tabs: MenuTab[] = useMemo(
     () =>
@@ -94,6 +95,16 @@ export default function RestaurantDetailsScreen() {
         : (sections ?? []).filter((section) => section.title === selectedTab),
     [sections, selectedTab],
   );
+
+  // Artwork is a separate request per dish — products carry no image field —
+  // so only the sections actually on screen are resolved: picking a tab
+  // narrows this list, and every id is de-duplicated and cached inside the
+  // hook. See `useProductImageSources`.
+  const visibleProductIds = useMemo(
+    () => visibleSections.flatMap((section) => section.products.map((p) => p.id)),
+    [visibleSections],
+  );
+  const productImage = useProductImageSources(visibleProductIds);
 
   const imageSource = useRestaurantImageSource();
 
@@ -259,6 +270,7 @@ export default function RestaurantDetailsScreen() {
         key={section.title || `uncategorised-${index}`}
         title={section.title}
         products={section.products}
+        imageFor={productImage}
         onProductPress={handleProductPress}
       />
     ));

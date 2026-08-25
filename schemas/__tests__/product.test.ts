@@ -19,8 +19,10 @@ const FULL_PAYLOAD = {
   code: 'CRISPY',
   name: 'Crispy Chicken',
   description: 'Breaded chicken escalope, bell peppers, fries',
-  catalog: 'hungry',
-  catalogVersion: 'Online',
+  // Objects, not strings: `ProductBaseInversePopulator` builds a
+  // CatalogOutputData / CatalogVersionOutputData carrying id, code and name.
+  catalog: { id: 'cat-a', code: 'RESTAURANT-MENU-r1', name: 'Hungry' },
+  catalogVersion: { id: 'ver-a', code: 'RESTAURANT-MENU-r1-V1', name: 'V1' },
   subcategories: [
     {
       id: 'cat-1',
@@ -149,9 +151,44 @@ describe('configurableProductOutputSchema', () => {
 });
 
 describe('productOutputSchema', () => {
+  it('reads catalog and catalogVersion as objects — the wire form, not strings', () => {
+    const parsed = productOutputSchema.parse(FULL_PAYLOAD);
+
+    expect(parsed.catalogVersion?.id).toBe('ver-a');
+    expect(parsed.catalogVersion?.code).toBe('RESTAURANT-MENU-r1-V1');
+  });
+
+  it('rejects the string form, which would have failed the whole menu page', () => {
+    expect(() =>
+      productOutputSchema.parse({ ...FULL_PAYLOAD, catalog: 'hungry' })
+    ).toThrow();
+  });
+
   it('does not model configuration — the base endpoint never returns addons', () => {
     const parsed = productOutputSchema.parse(FULL_PAYLOAD);
 
     expect(parsed).not.toHaveProperty('configuration');
+  });
+});
+
+describe('productType — the product_type discriminator', () => {
+  it('parses the discriminator the backend now sends', () => {
+    const standard = productOutputSchema.parse({ ...FULL_PAYLOAD, productType: 1 });
+    const configurable = productOutputSchema.parse({ ...FULL_PAYLOAD, productType: 2 });
+
+    expect(standard.productType).toBe(1);
+    expect(configurable.productType).toBe(2);
+  });
+
+  it('accepts a payload without it — `resolveProductType` answers null for an unknown subtype', () => {
+    const parsed = productOutputSchema.parse({ ...FULL_PAYLOAD, productType: null });
+
+    expect(parsed.productType).toBeNull();
+  });
+
+  it('carries an unrecognised value through instead of failing the parse', () => {
+    // A new subtype appearing server-side must not blank the whole menu; the
+    // client decides what an unknown number means, it does not reject it.
+    expect(productOutputSchema.parse({ ...FULL_PAYLOAD, productType: 7 }).productType).toBe(7);
   });
 });

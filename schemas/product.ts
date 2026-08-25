@@ -80,6 +80,16 @@ export const attributeSchema = z.object({
  * `required` is the ONLY selection rule the backend carries: there is no field
  * saying whether the group is single- or multi-select, and none capping the
  * number of choices — see `UNBACKED_ADDON_FIELDS`.
+ *
+ * `attributes` is populated by ONE route only: `/attribute-groups`, which
+ * projects each group's options inline with their prices. Everywhere else the
+ * field arrives null — `/product-configurations/{id}` stops at each group's own
+ * fields, and no product payload carries groups at all — so `.catch([])` is
+ * what keeps those shapes parseable rather than merely convenient.
+ *
+ * Each option also carries a flat back-reference to its own group. It is
+ * ignored here: the reference has no `attributes` of its own, so reading it
+ * would add nothing the parent object does not already say.
  */
 export const attributeGroupSchema = z.object({
   id: z.string().nullish(),
@@ -112,6 +122,20 @@ export const categorySchema = z.object({
   visible: z.boolean().nullish(),
 });
 
+/**
+ * How a product names its catalog and catalog version.
+ *
+ * These are OBJECTS on the wire, not strings: `ProductBaseInversePopulator`
+ * builds a `CatalogOutputData` / `CatalogVersionOutputData` carrying exactly
+ * `id`, `code` and `name`. Declaring them as strings made the whole menu page
+ * fail to parse.
+ */
+export const catalogRefSchema = z.object({
+  id: z.string().nullish(),
+  code: z.string().nullish(),
+  name: z.string().nullish(),
+});
+
 /** delivery.hungry.product.application.model.ClassificationOutputData */
 export const classificationSchema = z.object({
   id: z.string().nullish(),
@@ -121,27 +145,57 @@ export const classificationSchema = z.object({
 });
 
 /**
+ * The `product_type` discriminator, as `ProductBasePopulator` derives it from
+ * the runtime subtype: `1` = `StandardProduct`, `2` = `ConfigurableProduct`.
+ *
+ * A NUMBER rather than an enum on purpose. The backend's `resolveProductType`
+ * answers `null` for a `Product` that is neither, and an unrecognised value
+ * has to reach the client as data instead of failing the parse — a new subtype
+ * appearing server-side must not blank the whole menu. `isConfigurableType` in
+ * `services/api/product-service.ts` is the only place that reads the numbers.
+ */
+export const productTypeSchema = z.number();
+
+/**
  * The base projection returned by `/products/all`.
  *
- * Note what is NOT here: `configuration` (addons live only on the
- * configurable-products endpoint — `Product` uses SINGLE_TABLE inheritance and
- * the base endpoint silently omits it) and any image field at all. Product
- * artwork comes from `GET /files/products/{id}`, one request per product.
+ * This endpoint is POLYMORPHIC — `Product` uses SINGLE_TABLE inheritance and
+ * the base query returns standard AND configurable dishes alike. Since
+ * `productType` was added to `ProductOutputData` it also says WHICH subtype
+ * each row is, so one request now yields a fully labelled menu (see
+ * `fetchMenu`).
+ *
+ * What it still omits is `configuration`: addons are projected only by
+ * `/configurable-products`, and even there only the configuration's own
+ * id/code/name — see `configurableProductOutputSchema`.
+ *
+ * There is also no image field at all. Product artwork comes from
+ * `GET /files/products/{id}`, one request per product.
  */
 export const productOutputSchema = z.object({
   id: z.string(),
   code: z.string().nullish(),
   name: z.string().nullish(),
   description: z.string().nullish(),
-  catalog: z.string().nullish(),
-  catalogVersion: z.string().nullish(),
+  productType: productTypeSchema.nullish(),
+  catalog: catalogRefSchema.nullish(),
+  catalogVersion: catalogRefSchema.nullish(),
   subcategories: z.array(categorySchema).catch([]),
   subclassifications: z.array(classificationSchema).catch([]),
   keywords: z.array(z.string()).catch([]),
   prices: z.array(priceSchema).catch([]),
 });
 
-/** `/configurable-products/all` — the base projection plus its addon groups. */
+/**
+ * `/configurable-products/all` — the base projection plus its configuration.
+ *
+ * **`configuration.attributes` is always empty here.**
+ * `ConfigurableProductBaseInversePopulator` builds a fresh
+ * `ProductConfigurationOutputData` carrying only id/code/name/description and
+ * never copies the groups across. The configuration's `id` is therefore the
+ * only thing this projection adds that matters — it is the handle
+ * `fetchProductConfiguration` reads the actual groups and options from.
+ */
 export const configurableProductOutputSchema = productOutputSchema.extend({
   configuration: productConfigurationSchema.nullish(),
 });
@@ -156,6 +210,7 @@ export const fileMetadataSchema = z.object({
 });
 
 export type DisplayFormat = z.infer<typeof displayFormatSchema>;
+export type ProductType = z.infer<typeof productTypeSchema>;
 export type Currency = z.infer<typeof currencySchema>;
 export type TimeRestriction = z.infer<typeof timeRestrictionSchema>;
 export type PriceCategory = z.infer<typeof priceCategorySchema>;
@@ -163,6 +218,7 @@ export type Price = z.infer<typeof priceSchema>;
 export type Attribute = z.infer<typeof attributeSchema>;
 export type AttributeGroup = z.infer<typeof attributeGroupSchema>;
 export type ProductConfiguration = z.infer<typeof productConfigurationSchema>;
+export type CatalogRef = z.infer<typeof catalogRefSchema>;
 export type Category = z.infer<typeof categorySchema>;
 export type Classification = z.infer<typeof classificationSchema>;
 export type ProductOutput = z.infer<typeof productOutputSchema>;

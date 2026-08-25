@@ -59,12 +59,117 @@ is real, tested and type-safe today and switches on with a one-line change:
 function menuScopeOf(restaurant: RestaurantDetail): MenuScope | null
 ```
 
-When the scope is `null`, `useRestaurantMenu` resolves to an explicit
-`{ status: 'unavailable', reason: 'no-catalog-link' }` and the screens render a clear
-"menu coming soon" state. That is honest, it is testable, and it does not fake data.
-
 **Do not** work around the gap by fetching all products and guessing ownership by name,
 keyword or category. That produces a menu that is silently wrong.
+
+### 2.3 UPDATE — the scope is resolvable today, without the backend change
+
+§2.1 remains the right fix, but it is no longer what the feature waits on. The back-office
+dashboard has the same missing relation and works around it with a **deterministic code
+convention**, which the mobile client can simply read back:
+
+```
+catalog          RESTAURANT-MENU-<restaurantId>
+catalog version  RESTAURANT-MENU-<restaurantId>-V1
+```
+
+(`hungry-frontend/src/hooks/useRestaurantMenu.ts` — `menuCatalogCode` / `menuVersionCode`.)
+This is not the guessing §2.2 forbids. The dashboard's `createMenuProduct` **creates** the
+catalog, version and category under exactly these codes the first time a restaurant is given
+a dish, so every menu that exists was filed under them. The codes resolve through the list
+endpoint's `codes` filter, because `read(identifier)` parses its argument as a UUID and
+cannot look anything up by code.
+
+`services/api/catalog-service.ts` implements this. `menuScopeOf` is kept as the fast path:
+the day §2.1 lands, the fallback request stops being issued and nothing else changes.
+
+`{ status: 'unavailable', reason: 'no-catalog' }` therefore now means what it says — the
+menu was never created — rather than "the backend cannot tell us yet".
+
+### 2.4 Both product subtypes must be fetched
+
+`Product` is SINGLE_TABLE with `@DiscriminatorColumn(product_type)`: `StandardProduct` is 1,
+`ConfigurableProduct` is 2. A menu holds both, and the difference is an ordering one —
+a standard dish is added to the cart directly, a configurable one asks for choices first.
+
+Reading only `/configurable-products/all` therefore drops every standard dish. But
+`/products/all`, which is polymorphic and returns both, exposes neither `configuration` nor
+the discriminator itself — `ProductOutputData` carries no `productType` field. Neither
+endpoint alone is enough, so `fetchMenu` issues both over the same filter and matches on
+id: the base call is the menu, the configurable call is the lookup that labels it and
+supplies the addons.
+
+Adding `productType` to `ProductOutputData` would collapse this into one request. The
+back-office frontend already declares the field and renders a "Configurable" badge on it,
+which is dead code until the backend sends it.
+
+#### RESOLVED — `productType` now ships
+
+`ProductOutputData` carries `private Integer productType`, and
+`ProductBaseInversePopulator.resolveProductType` derives it from the runtime subtype
+(`ConfigurableProduct` → 2, `StandardProduct` → 1, anything else → `null`). Because the
+base populator is what the configurable populator delegates to, the field is present on
+`/products/**` and `/configurable-products/**` alike.
+
+Two things follow, both implemented:
+
+- **`fetchMenu` is one request.** `/products/all` returns every dish already labelled.
+  The parallel `/configurable-products/all` lookup existed only to recover the subtype by
+  id membership and is gone. Nothing was lost with it — see §2.5, a list endpoint never
+  carried usable addons in the first place.
+- **`fetchProductById` asks the discriminator instead of guessing.** It reads
+  `/products/{id}` first (polymorphic, so it answers for every dish) and only then, for
+  discriminator 2, `/configurable-products/{id}` — whose sole remaining value is the
+  configuration id. The previous order tried the configurable route first and read its
+  **500** as "then it must be standard", which cost two requests for every standard dish
+  and, worse, could not tell a real fault on a configurable dish from a standard one: the
+  dish would silently render without the choices it requires.
+
+`isConfigurableType` in `services/api/product-service.ts` is the single place the numbers
+are read. Anything that is not exactly 2 — `null` included — is standard, which is the
+safe direction: a dish mislabelled standard is still orderable at its base price, whereas
+one mislabelled configurable opens a sheet with nothing in it.
+
+### 2.5 Addon groups — RESOLVED, one request
+
+Displaying a configurable dish's choices needs the groups and their options.
+`AttributeGroupController` on `/attribute-groups` now serves both, and the mobile client
+reads a whole dish's configuration in ONE request:
+
+```
+GET /attribute-groups/all
+    ?filter={"productConfigurationId":"<uuid>"}
+    &sort=[{"field":"createdAt","direction":"ASC"}]
+```
+
+Each group comes back with `required` set and its options nested, every option carrying
+its own prices. `services/api/configuration-service.ts` is the whole client side of it.
+
+The routes nearby are dead ends for this, worth recording so nobody tries to save the
+round-trip through them:
+
+| Read | Returns | Missing |
+| --- | --- | --- |
+| `/configurable-products/{id}` | `configuration` with id/code/name/description | its `attributes` — `ConfigurableProductBaseInversePopulator` builds a fresh output object and never copies the groups across. Its one use is supplying the configuration id |
+| `/product-configurations/{id}` | the groups, `required` included | each group's `attributes` — `ProductConfigurationBaseInversePopulator` stops at the group's own fields |
+| `/attributes/all` | the options, with prices | nothing, but `AttributeFilter` narrows by `attributeGroupId` only — one group at a time |
+
+Before the controller existed the client walked the last two: a configuration read plus a
+request per group. It was also moot — the back-office POSTs to `/attribute-groups` to
+create a group, so with no controller its `tryPersistAttributeGroups` failed on every save
+and no configurable dish had any groups at all.
+
+Two details of the backend work that the client depends on:
+
+- **Options are ordered server-side.** `AttributeGroup.attribute` carries
+  `@OrderBy("createdAt ASC")`. A `List` with no `@OrderBy` comes back in whatever order the
+  database returns, so a customer could watch a dish's options reshuffle between loads.
+  The client orders the GROUPS itself, via the `sort` above.
+- **There is no PUT on `/attribute-groups`.** `DefaultCrudService.update` returns `null`
+  without touching the repository — only `CustomerCrudService` and `DriverCrudService`
+  implement it — so a mapped PUT would answer 200, an empty body, and no write. The
+  mapping is omitted so callers get a 405 instead. This is framework-wide: every other
+  controller's PUT has the same no-op behaviour, they just expose it.
 
 ## 3. Ground truth — verified against the running backend
 
@@ -154,9 +259,19 @@ of backend `1e167ed`, `coverImageUrl` as well; products got nothing. Two options
 - **A placeholder asset**, with the real image wired when the backend adds an image field
   or a batch files endpoint.
 
-**Recommendation: placeholder for list views, and the files call only on the food-detail
-screen**, where it is a single request for a single product. Do not fan out `/files/` calls
-across a menu grid.
+**Original recommendation: placeholder for list views, and the files call only on the
+food-detail screen.**
+
+**Revised (menu artwork).** A menu of neutral grey squares is not a menu, and neither of
+the two cheaper shapes exists yet — `ProductOutputData` still has no image field, and
+`/files` still offers no batch read. So the fan-out is paid, deliberately, and confined to
+one hook: `useProductImageSources` in `hooks/use-products.ts`. What keeps it bounded is
+that the screen passes only the ids it is rendering (a tab filter narrows them), the hook
+de-duplicates a dish that appears in two sections, and every answer shares the cache entry
+the food-detail screen reads — so opening a dish costs no image request, and returning to
+the menu costs none for 30 minutes. The placeholder still fills the gap while a request is
+in flight and permanently for a dish with no photo. **When the backend grows a product
+image field or a batch files endpoint, that hook is the only place that changes.**
 
 ### 3.6 Price selection — the core logic of this task
 
@@ -181,6 +296,9 @@ unit tests earn their keep.
 Take `now` as an injected parameter so tests are deterministic.
 
 ### 3.7 Addon mapping and what is missing
+
+The groups do NOT arrive with the product — see §2.5 for where each piece is read from.
+`toAddonGroups` therefore takes the resolved groups, not a product.
 
 `AttributeGroup` → the UI's `AddonGroupData`, `Attribute` → `AddonOption`:
 

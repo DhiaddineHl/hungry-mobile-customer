@@ -1,16 +1,16 @@
 import type {
   AttributeGroup,
   Category,
-  ConfigurableProductOutput,
   Currency,
   Price,
-  ProductOutput,
 } from '@/schemas/product';
+import type { MenuProductOutput } from '@/services/api/product-service';
 import {
   formatAmount,
   groupBySection,
   selectPrice,
   toAddonGroups,
+  toMenuProduct,
   UNBACKED_ADDON_FIELDS,
 } from '@/services/api/product-view-model';
 
@@ -254,18 +254,13 @@ describe('selectPrice', () => {
 
 // --- Addons ----------------------------------------------------------------
 
-function configurable(groups: AttributeGroup[]): ConfigurableProductOutput {
-  return {
-    id: 'prod-1',
-    subcategories: [],
-    subclassifications: [],
-    keywords: [],
-    prices: [],
-    configuration: {
-      id: 'conf-1',
-      attributes: groups,
-    },
-  };
+/**
+ * The addon mappers take the resolved groups, not a product: no product
+ * payload ever carries them (see `fetchProductConfiguration`). This is just an
+ * alias so the cases below read as what they are.
+ */
+function configurable(groups: AttributeGroup[]): AttributeGroup[] {
+  return groups;
 }
 
 describe('toAddonGroups', () => {
@@ -375,10 +370,8 @@ describe('toAddonGroups', () => {
     expect(groups[0].options).toEqual([]);
   });
 
-  it('returns an empty list for a product with no configuration', () => {
-    const product = { ...configurable([]), configuration: null };
-
-    expect(toAddonGroups(product, NOW)).toEqual([]);
+  it('returns an empty list for a dish with no groups at all', () => {
+    expect(toAddonGroups([], NOW)).toEqual([]);
   });
 
   it('documents exactly the three fields the backend does not carry', () => {
@@ -397,7 +390,7 @@ function product(
   name: string,
   subcategories: Category[] = [],
   prices: Price[] = []
-): ProductOutput {
+): MenuProductOutput {
   return {
     id,
     name,
@@ -405,6 +398,22 @@ function product(
     subclassifications: [],
     keywords: [],
     prices,
+    productType: 1,
+    isConfigurable: false,
+  };
+}
+
+/**
+ * A configurable dish as the wire actually presents one: discriminator 2, and
+ * a configuration that names itself but carries NO groups — no endpoint nests
+ * them (see `fetchProductConfiguration`).
+ */
+function configurableProduct(id: string, name: string): MenuProductOutput {
+  return {
+    ...product(id, name),
+    productType: 2,
+    isConfigurable: true,
+    configuration: { id: 'conf-1', attributes: [] },
   };
 }
 
@@ -514,5 +523,47 @@ describe('groupBySection', () => {
 
   it('returns an empty list for no products at all', () => {
     expect(groupBySection([], NOW)).toEqual([]);
+  });
+
+  it('carries both subtypes into the same section', () => {
+    const classiques = category({ id: 'c1', name: 'Classiques' });
+    const sections = groupBySection(
+      [
+        product('p1', 'Standard', [classiques]),
+        { ...configurableProduct('p2', 'Configurable'), subcategories: [classiques] },
+      ],
+      NOW
+    );
+
+    expect(sections).toHaveLength(1);
+    expect(sections[0].products.map((p) => p.name)).toEqual(['Configurable', 'Standard']);
+  });
+});
+
+describe('toMenuProduct — requiresConfiguration', () => {
+  it('is false for a standard dish', () => {
+    expect(toMenuProduct(product('p1', 'Standard'), NOW).requiresConfiguration).toBe(false);
+  });
+
+  it('is true for a configurable dish', () => {
+    expect(
+      toMenuProduct(configurableProduct('p1', 'Burger'), NOW).requiresConfiguration
+    ).toBe(true);
+  });
+
+  it('stays true for a configurable dish with no groups entered yet', () => {
+    // A menu payload never carries groups, so "has something to ask" is not
+    // answerable here. A dish whose options have not been entered must not
+    // become one-tap orderable — it is still a dish that owes a choice.
+    const dish = configurableProduct('p1', 'Burger');
+    expect(dish.configuration?.attributes).toEqual([]);
+
+    expect(toMenuProduct(dish, NOW).requiresConfiguration).toBe(true);
+  });
+
+  it('follows the discriminator, not the presence of a configuration object', () => {
+    const mislabelled = { ...configurableProduct('p1', 'Burger'), isConfigurable: false };
+
+    expect(toMenuProduct(mislabelled, NOW).requiresConfiguration).toBe(false);
   });
 });

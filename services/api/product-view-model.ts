@@ -1,11 +1,6 @@
 import type { AddonGroupData, AddonOption } from '@/components/food';
-import type {
-  Category,
-  ConfigurableProductOutput,
-  Currency,
-  Price,
-  ProductOutput,
-} from '@/schemas/product';
+import type { AttributeGroup, Category, Currency, Price } from '@/schemas/product';
+import type { MenuProductOutput } from './product-service';
 
 /**
  * Adapts the product DTOs to what the menu and food-detail screens render.
@@ -174,18 +169,19 @@ export function selectPrice(prices: Price[], now: Date): AppliedPrice | null {
 export const UNBACKED_ADDON_FIELDS = ['type', 'maxSelect', 'isPopular'] as const;
 
 /**
- * `ProductConfiguration.attributes` becomes the addon groups the food screen
- * renders.
+ * A configurable product's attribute groups become the addon groups the food
+ * screen renders.
+ *
+ * Takes the GROUPS rather than the product: no product payload carries them
+ * (see `attributeGroupSchema`), so they are assembled by
+ * `fetchProductConfiguration` and arrive on their own. Passing the product
+ * here would mean passing one whose `configuration.attributes` is always
+ * empty.
  *
  * A group or option with no id is dropped: the screen keys selections by id,
  * and an option that cannot be identified cannot be selected or priced.
  */
-export function toAddonGroups(
-  product: ConfigurableProductOutput,
-  now: Date
-): AddonGroupData[] {
-  const groups = product.configuration?.attributes ?? [];
-
+export function toAddonGroups(groups: AttributeGroup[], now: Date): AddonGroupData[] {
   return groups
     .filter((group) => !!group.id)
     .map((group) => {
@@ -226,13 +222,10 @@ export function toAddonGroups(
  * absent from the map, not zero — the caller reads a missing key as "no
  * surcharge", which is what an unpriced addon means.
  */
-export function addonAmounts(
-  product: ConfigurableProductOutput,
-  now: Date
-): Map<string, number> {
+export function addonAmounts(groups: AttributeGroup[], now: Date): Map<string, number> {
   const amounts = new Map<string, number>();
 
-  for (const group of product.configuration?.attributes ?? []) {
+  for (const group of groups) {
     for (const attribute of group.attributes) {
       if (!attribute.id) continue;
       const price = selectPrice(attribute.prices, now);
@@ -255,6 +248,21 @@ export interface MenuProduct {
    * no add-to-cart affordance. See {@link selectPrice}.
    */
   price: AppliedPrice | null;
+  /**
+   * Whether ordering this dish means answering something first, i.e. whether
+   * the customer must go through the food screen rather than adding it
+   * straight to the cart.
+   *
+   * This is the SUBTYPE (`product_type` 2) and nothing more. Whether the dish
+   * actually has groups to show cannot be answered from a menu payload — no
+   * list endpoint projects them, and finding out costs a request per dish,
+   * which is exactly the N+1 a menu grid must not do. Reading the
+   * discriminator is also the answer that stays right: a configurable dish
+   * with no groups yet is a dish whose groups have not been ENTERED, not a
+   * dish that is really standard, and it must not become one-tap orderable the
+   * moment its configuration is incomplete.
+   */
+  requiresConfiguration: boolean;
 }
 
 export interface MenuSectionData {
@@ -263,12 +271,13 @@ export interface MenuSectionData {
   products: MenuProduct[];
 }
 
-export function toMenuProduct(product: ProductOutput, now: Date): MenuProduct {
+export function toMenuProduct(product: MenuProductOutput, now: Date): MenuProduct {
   return {
     id: product.id,
     name: product.name ?? '',
     description: product.description ?? undefined,
     price: selectPrice(product.prices, now),
+    requiresConfiguration: product.isConfigurable,
   };
 }
 
@@ -290,12 +299,13 @@ function isDisplayable(category: Category): boolean {
  *
  * Products with no displayable category collect into a single untitled group
  * placed last, so a miscategorised dish is still orderable rather than
- * invisible.
+ * invisible. Standard and configurable dishes sit side by side in a section —
+ * the subtype changes how a dish is ordered, not where it belongs on the menu.
  *
  * `now` is threaded through for price selection, for the same testability
  * reason as {@link selectPrice}.
  */
-export function groupBySection(products: ProductOutput[], now: Date): MenuSectionData[] {
+export function groupBySection(products: MenuProductOutput[], now: Date): MenuSectionData[] {
   const sections = new Map<string, MenuSectionData>();
   const uncategorised: MenuProduct[] = [];
 

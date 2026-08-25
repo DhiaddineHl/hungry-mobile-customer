@@ -27,6 +27,20 @@ export const restaurantKeys = {
 };
 
 /**
+ * Catalog cache entries, in the same shape as the factories above.
+ *
+ * Only one leaf: which catalog a restaurant's menu lives in. It is keyed by
+ * the RESTAURANT id rather than by a catalog id, because resolving the one
+ * from the other is the whole point of the entry (see `fetchMenuScope`) — the
+ * caller never has a catalog id to key on.
+ */
+export const catalogKeys = {
+  all: ['catalogs'] as const,
+  scopes: () => [...catalogKeys.all, 'scope'] as const,
+  scope: (restaurantId: string) => [...catalogKeys.scopes(), restaurantId] as const,
+};
+
+/**
  * Product (menu) cache entries, in the same shape as the two factories above.
  *
  * `list` takes the catalog **scope** as well as the params: products are not
@@ -45,6 +59,15 @@ export const productKeys = {
   images: () => [...productKeys.all, 'image'] as const,
   /** Artwork is a separate request per product — see `fetchProductImageUrl`. */
   image: (id: string) => [...productKeys.images(), id] as const,
+  configurations: () => [...productKeys.all, 'configuration'] as const,
+  /**
+   * A configurable dish's addon groups, keyed by the CONFIGURATION id rather
+   * than the product id: the configuration is what
+   * `fetchProductConfiguration` addresses, and keying by product would fetch
+   * the same groups again for every dish that shares a configuration.
+   */
+  configuration: (configurationId: string) =>
+    [...productKeys.configurations(), configurationId] as const,
 };
 
 /**

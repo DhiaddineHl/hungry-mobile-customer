@@ -12,8 +12,9 @@ Replace the hard-coded product arrays on the restaurant-detail and food-detail s
 live, runtime-validated menu data from the Hungry backend.
 
 Read [`docs/plans/restaurant-products-fetch-display-plan.md`](../plans/restaurant-products-fetch-display-plan.md)
-in full before starting. §2 documents a **backend gap that blocks the literal feature** —
-understand it before writing code, because the whole client design follows from it.
+in full before starting. §2 documents a **backend gap** that shaped the whole client
+design; §2.3 documents how the gap was subsequently worked around without a backend change.
+Read both — the design follows from the first, the behaviour from the second.
 
 ## Dependency — RESTO-01 must be done first
 
@@ -50,13 +51,31 @@ The client is therefore built against a **menu scope** the restaurant will event
 function menuScopeOf(restaurant: RestaurantDetail): MenuScope | null
 ```
 
-Until the backend exposes `catalogVersionId` on `RestaurantOutputData`, this returns `null`,
-`useRestaurantMenu` resolves to an explicit unavailable state, and the screens render a
-"menu coming soon" message.
+Until the backend exposes `catalogVersionId` on `RestaurantOutputData`, this returns `null`.
 
 - **DO NOT** fetch all products and guess ownership by name, keyword or category.
 - **DO NOT** invent a restaurant→catalog mapping table in the app.
 - **DO NOT** modify the backend to add the link — that is out of scope (plan §8).
+
+### RESOLVED — the scope no longer waits on the backend (plan §2.3)
+
+`menuScopeOf` returning `null` used to end the story, which left every restaurant showing
+"menu coming soon". It no longer does: `services/api/catalog-service.ts` resolves the
+catalog from the deterministic code the back-office files it under
+(`RESTAURANT-MENU-<restaurantId>-V1`), and `menuScopeOf` is kept as the fast path for the
+day §2.1 lands.
+
+This does not relax the three DO NOTs above — the code convention is read back from the
+tool that creates the menus, not guessed from product names.
+
+Two further corrections landed with it, both in plan §2.3–2.4:
+
+- **Both product subtypes are fetched.** Reading only `/configurable-products/all` dropped
+  every standard dish. `fetchMenu` now reads `/products/all` for the menu and
+  `/configurable-products/all` as the lookup that labels it, since neither endpoint alone
+  carries both the full list and the subtype.
+- **`catalog` / `catalogVersion` are objects on the wire**, not strings — the schema said
+  strings, which would have failed the whole page at the parse boundary.
 
 ## Backend contract (verified — do not re-derive)
 
@@ -231,8 +250,10 @@ export async function fetchProductImageUrl(id: string): Promise<string | null>
   well-formed UUID, and add a comment noting a genuine server fault is indistinguishable.
   Treat 400 and 404 as `null` too.
 - `fetchProductImageUrl` calls `GET /files/products/{id}` and returns the first entry's
-  `url`, or `null`. Call it **only from the food-detail screen** — never fan it out across a
-  menu grid (N+1, plan §3.5).
+  `url`, or `null`. (Superseded: the menu grid now shows real dish photos, so the fan-out
+  IS paid — there is no batch endpoint that would avoid it. It is confined to
+  `useProductImageSources`, which resolves only the sections on screen, de-duplicates ids
+  and caches each answer for 30 minutes. See plan §3.5.)
 
 **Tests** (`services/api/__tests__/product-service.test.ts`): mock `apiClient`. Assert the
 scope filter JSON; assert `nameLike` produces a `names`/`LIKE` filter; assert no request
@@ -340,7 +361,12 @@ failure.
 - **DO NOT** implement RESTO-01's scope, or recreate its files. If it is not done, STOP.
 - **DO NOT** send a `keyword` filter — it returns 500.
 - **DO NOT** use `/products/all` where addons are needed — it omits `configuration`.
-- **DO NOT** call `/files/products/{id}` from a list view — one request per product.
+  (Superseded: NO list endpoint carries addons. See plan §2.5 — the groups and their
+  options are read from `/product-configurations/{id}` and `/attributes/all`, on the
+  food screen only.)
+- **DO NOT** call `/files/products/{id}` directly from a list view. (Revised: list views
+  DO show artwork now, but only through `useProductImageSources`, which scopes and caches
+  the per-product requests — see plan §3.5.)
 - **DO NOT** fall back to a price of `0` when no price applies.
 - **DO NOT** guess restaurant→product ownership by name, keyword or category.
 - **DO NOT** implement cart mutations, ordering, checkout, or menu search — out of scope.
@@ -354,3 +380,38 @@ On completion, report: files created and modified; the exact output of the three
 verification commands; the state the menu renders in today and why; the list of unbacked
 addon fields; and a clear restatement of the backend change from plan §2.1 that unblocks
 real menu data.
+
+---
+
+## UPDATE — the discriminator now ships, and the addon read path is in
+
+`ProductOutputData.productType` is live (plan §2.4 → RESOLVED). Two things changed on the
+mobile side as a result:
+
+- `fetchMenu` is **one** request; the `/configurable-products/all` labelling lookup is gone.
+- `fetchProductById` reads `/products/{id}` for the discriminator and only asks
+  `/configurable-products/{id}` for discriminator 2. The old try-and-read-the-500 fallback
+  is gone with it — it could not distinguish a real fault from a standard dish, and would
+  drop a configurable dish's required choices when it guessed wrong.
+
+The food screen now resolves and renders a configurable dish's choices:
+`services/api/configuration-service.ts` reads `/product-configurations/{id}` for the
+groups and one `/attributes/all` per group for its options. Required groups gate
+add-to-cart, optional ones do not, and the gate is held while the groups are still in
+flight — an unresolved configuration reads as an empty list, which would otherwise let a
+dish be ordered without the choices it requires.
+
+**No longer blocked.** `AttributeGroupController` has been added to the backend, so the
+back-office can persist groups and the client reads a dish's whole configuration in one
+request — `GET /attribute-groups/all?filter={"productConfigurationId":...}`, groups with
+`required` and options with prices nested. See plan §2.5.
+
+Verified live against the running stack: create a configuration, a group and its options,
+then read them back through the gateway in the exact shape
+`services/api/configuration-service.ts` sends. Ordering holds in both directions (groups by
+the client's `sort`, options by `@OrderBy` on the association), and the test rows were
+deleted afterwards.
+
+The one thing that remains true of the whole framework: PUT persists nothing
+(`DefaultCrudService.update` returns null), so `/attribute-groups` deliberately maps no PUT
+and answers 405 rather than a silent 200. Edit a group by delete-and-recreate.

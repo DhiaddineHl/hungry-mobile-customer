@@ -21,8 +21,8 @@ export const RESTAURANT_IMAGE_PLACEHOLDER =
  * The same neutral fill, named for product artwork.
  *
  * Products have no image field on the backend at all — artwork costs a
- * separate `GET /files/products/{id}` per product, which a menu grid cannot
- * afford (plan §3.5) — so every card in a list falls through to this until a
- * batch files endpoint or a product image field exists.
+ * separate `GET /files/products/{id}` per product (plan §3.5) — so a card
+ * falls through to this twice over: while that request is in flight, and
+ * permanently for a dish whose restaurant uploaded no photo.
  */
 export const PRODUCT_IMAGE_PLACEHOLDER = RESTAURANT_IMAGE_PLACEHOLDER;

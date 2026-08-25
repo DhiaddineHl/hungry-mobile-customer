@@ -200,21 +200,25 @@ export function toRestaurantDetail(
 export type MenuScope = { catalogVersionId: string } | { catalogId: string };
 
 /**
- * The catalog scope to fetch this restaurant's menu with, or `null` when the
- * restaurant carries no catalog link.
+ * The catalog scope carried by the restaurant payload itself, or `null` when
+ * it carries none.
  *
- * **`null` is the expected answer today.** The backend has no relation at all
- * between a restaurant and its products: `Restaurant` has no catalog field and
- * `ProductOutputData` has no restaurant field (see
- * docs/plans/restaurant-products-fetch-display-plan.md §2). `ProductFilter`
+ * **`null` is still the expected answer today**, and it is no longer the end
+ * of the story. The backend models no relation between a restaurant and its
+ * products — `Restaurant` has no catalog field and `ProductOutputData` has no
+ * restaurant field (see docs/plans/restaurant-products-fetch-display-plan.md
+ * §2) — so this returns null for every restaurant the API serves. When it
+ * does, `useRestaurantMenu` falls back to `fetchMenuScope`, which resolves the
+ * catalog from the deterministic code the back-office files it under.
+ *
+ * This function is kept as the FAST PATH, not as dead code: `ProductFilter`
  * already implements `catalogId` and `catalogVersionId` as real JPA
- * predicates, so the whole feature switches on as soon as the backend exposes
- * `catalogVersionId` on `RestaurantOutputData` (§2.1) — one field, no change
- * here beyond the data arriving.
+ * predicates, so the day the backend exposes `catalogVersionId` on
+ * `RestaurantOutputData` (§2.1), the fallback request stops being issued and
+ * nothing else has to change.
  *
- * Until then `useRestaurantMenu` resolves to an explicit unavailable state and
- * the screens say so. Guessing ownership by name, keyword or category would
- * produce a menu that is silently wrong, which is worse than one that is
+ * What neither path does is guess ownership by name, keyword or category. That
+ * would produce a menu that is silently wrong, which is worse than one that is
  * honestly absent.
  */
 export function menuScopeOf(restaurant: RestaurantDetail): MenuScope | null {

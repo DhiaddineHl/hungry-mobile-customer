@@ -11,14 +11,12 @@ import {
   useAddonAmounts,
   useAddonGroups,
   useProduct,
+  useProductConfiguration,
   useProductImageUrl,
 } from "@/hooks/use-products";
 import { useRestaurantImageSourceFromPath } from "@/hooks/use-restaurant-image";
 import { useRestaurant } from "@/hooks/use-restaurants";
-import {
-  formatAmount,
-  selectPrice,
-} from "@/services/api/product-view-model";
+import { formatAmount, selectPrice } from "@/services/api/product-view-model";
 import { type CartAddon, useCartStore } from "@/store/cart-store";
 import { useFavoritesStore, useIsFavorite } from "@/store/favorites-store";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -61,8 +59,16 @@ export default function FoodDetailsScreen() {
   const { data: restaurant } = useRestaurant(restaurantId);
   const { data: imageUrl } = useProductImageUrl(id);
 
-  const addonGroups = useAddonGroups(product);
-  const addonAmounts = useAddonAmounts(product);
+  // Only a configurable dish has anything to resolve here; for a standard one
+  // the query never fires and `groups` stays empty.
+  const {
+    groups,
+    isResolving: isResolvingConfig,
+    error: configError,
+  } = useProductConfiguration(product);
+
+  const addonGroups = useAddonGroups(groups);
+  const addonAmounts = useAddonAmounts(groups);
 
   const [quantity, setQuantity] = useState(1);
   const [specialNote, setSpecialNote] = useState("");
@@ -105,25 +111,35 @@ export default function FoodDetailsScreen() {
     [product],
   );
 
-  const handleToggle = useCallback(
-    (groupId: string, optionId: string) => {
-      setSelections((prev) => {
-        const current = prev[groupId] ?? [];
-        // Every group is multi-select: the backend cannot express a
-        // single-select group today (see UNBACKED_ADDON_FIELDS), and there is
-        // no maxSelect to enforce either.
-        return current.includes(optionId)
-          ? { ...prev, [groupId]: current.filter((each) => each !== optionId) }
-          : { ...prev, [groupId]: [...current, optionId] };
-      });
-    },
-    [],
-  );
+  const handleToggle = useCallback((groupId: string, optionId: string) => {
+    setSelections((prev) => {
+      const current = prev[groupId] ?? [];
+      // Every group is multi-select: the backend cannot express a
+      // single-select group today (see UNBACKED_ADDON_FIELDS), and there is
+      // no maxSelect to enforce either.
+      return current.includes(optionId)
+        ? { ...prev, [groupId]: current.filter((each) => each !== optionId) }
+        : { ...prev, [groupId]: [...current, optionId] };
+    });
+  }, []);
 
   const requiredGroups = addonGroups.filter((group) => group.required);
   const allRequiredSatisfied = requiredGroups.every(
     (group) => (selections[group.id] ?? []).length > 0,
   );
+
+  /**
+   * A configurable dish whose groups have not arrived yet renders with NONE,
+   * which would make `allRequiredSatisfied` vacuously true and let the customer
+   * add it without the choices it requires. The groups arriving is therefore
+   * part of the gate, not just a spinner.
+   *
+   * A dish whose configuration FAILED to load is blocked for the same reason:
+   * what it requires is unknown, and guessing "nothing" is the one answer that
+   * produces a wrong order.
+   */
+  const isConfigurationPending = !!product?.isConfigurable && isResolvingConfig;
+  const isConfigurationBroken = !!product?.isConfigurable && !!configError;
 
   // Summed from the selectPrice amounts, never from the "+2.00 DT" labels —
   // re-parsing a formatted price means guessing its separator and symbol.
@@ -135,12 +151,19 @@ export default function FoodDetailsScreen() {
   const totalLabel = formatAmount(unitAmount * quantity, basePrice?.currency);
   const priceLabel = basePrice?.formatted;
 
-  const canAddToCart = !!basePrice && !!product && !!restaurant;
+  const canAddToCart =
+    !!basePrice &&
+    !!product &&
+    !!restaurant &&
+    !isConfigurationPending &&
+    !isConfigurationBroken;
 
   // Without a restaurant there is no per-restaurant cart to open; the tab
   // shows every cart instead.
   const handleGoToCart = () =>
-    restaurant ? router.push(`/cart/${restaurant.id}`) : router.push("/(tabs)/cart");
+    restaurant
+      ? router.push(`/cart/${restaurant.id}`)
+      : router.push("/(tabs)/cart");
 
   const handleAddToCart = () => {
     setValidated(true);
@@ -245,6 +268,22 @@ export default function FoodDetailsScreen() {
           onFavorite={handleToggleFavorite}
         />
 
+        {isConfigurationPending ? (
+          <View style={styles.configNotice}>
+            <ActivityIndicator size="small" color={Palette.primary} />
+            <Text style={styles.configNoticeText}>Loading options…</Text>
+          </View>
+        ) : null}
+
+        {isConfigurationBroken ? (
+          <View style={styles.configNotice}>
+            <Text style={styles.configNoticeText}>
+              We couldn&apos;t load the choices for this dish. Pull to retry, or
+              try again in a moment.
+            </Text>
+          </View>
+        ) : null}
+
         {addonGroups.map((group) => (
           <AddonGroup
             key={group.id}
@@ -254,6 +293,19 @@ export default function FoodDetailsScreen() {
             onToggle={handleToggle}
           />
         ))}
+
+        {/*
+          Shown only after a rejected attempt: the per-group Required badges
+          already turn red, but they can be scrolled off-screen, and the bar the
+          customer just tapped is not where the reason lives.
+        */}
+        {validated && !allRequiredSatisfied ? (
+          <View style={styles.validationNotice}>
+            <Text style={styles.validationNoticeText}>
+              Choose an option in every required section to continue.
+            </Text>
+          </View>
+        ) : null}
 
         <SpecialInstructions
           value={specialNote}
@@ -314,11 +366,20 @@ export default function FoodDetailsScreen() {
       ) : (
         // Unorderable rather than free: either no price applies right now, or
         // the dish was opened without the restaurant that serves it.
-        <View style={[styles.unorderable, { paddingBottom: insets.bottom + Spacing.lg }]}>
+        <View
+          style={[
+            styles.unorderable,
+            { paddingBottom: insets.bottom + Spacing.lg },
+          ]}
+        >
           <Text style={styles.unorderableText}>
-            {basePrice
-              ? "Open this dish from its restaurant to order it."
-              : "This dish isn't available to order right now."}
+            {isConfigurationPending
+              ? "Loading this dish's options…"
+              : isConfigurationBroken
+                ? "We couldn't load the choices this dish needs, so it can't be ordered yet."
+                : basePrice
+                  ? "Open this dish from its restaurant to order it."
+                  : "This dish isn't available to order right now."}
           </Text>
         </View>
       )}
@@ -350,6 +411,28 @@ const styles = StyleSheet.create({
     backgroundColor: Palette.surface,
     paddingHorizontal: Spacing.xl,
     paddingTop: Spacing.lg,
+  },
+  configNotice: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.sm,
+    paddingHorizontal: Spacing.xl,
+    paddingTop: Spacing.xl,
+  },
+  configNoticeText: {
+    flex: 1,
+    fontSize: FontSize.md,
+    fontFamily: Fonts.medium,
+    color: Palette.textMuted,
+  },
+  validationNotice: {
+    paddingHorizontal: Spacing.xl,
+    paddingTop: Spacing.md,
+  },
+  validationNoticeText: {
+    fontSize: FontSize.md,
+    fontFamily: Fonts.medium,
+    color: Palette.danger,
   },
   unorderableText: {
     fontSize: FontSize.md,

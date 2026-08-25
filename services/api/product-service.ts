@@ -2,6 +2,7 @@ import { pageSchema, type Page } from '@/schemas/page';
 import {
   configurableProductOutputSchema,
   fileMetadataSchema,
+  productOutputSchema,
   type ConfigurableProductOutput,
 } from '@/schemas/product';
 import { z } from 'zod';
@@ -30,13 +31,43 @@ import type { MenuScope } from './restaurant-view-model';
  */
 
 /**
- * Everything here goes to `/configurable-products/all`, never `/products/all`.
+ * A menu holds BOTH product subtypes and must show both:
+ * `StandardProduct` (`product_type` 1) is ordered as-is, `ConfigurableProduct`
+ * (2) asks the customer for choices or supplements first.
  *
- * `Product` uses SINGLE_TABLE inheritance and the base endpoint returns the
- * base projection, which silently omits `configuration` — addons would simply
- * be invisible, with no error to notice.
+ * `/products/all` is the polymorphic query — it returns every dish in the
+ * catalog — and since `productType` was added to `ProductOutputData` it also
+ * says which subtype each row is. One request therefore yields a fully
+ * labelled menu; the parallel `/configurable-products/all` lookup this module
+ * used to run existed only to recover the discriminator by id membership, and
+ * is gone.
+ *
+ * `/configurable-products/{id}` is still needed for ONE thing: the
+ * configuration's id, which the base projection does not carry. Nothing else
+ * about it is useful — see `configurableProductOutputSchema`, its
+ * `configuration.attributes` is always empty.
  */
+const PRODUCTS = '/products';
 const CONFIGURABLE_PRODUCTS = '/configurable-products';
+
+/**
+ * The `product_type` discriminator values, mirroring the `@DiscriminatorValue`
+ * on each `Product` subclass. Only `isConfigurableType` reads them.
+ */
+const PRODUCT_TYPE_CONFIGURABLE = 2;
+
+/**
+ * Whether a `productType` means "the customer configures this before ordering".
+ *
+ * Anything that is not explicitly the configurable discriminator — including
+ * `null`, which `resolveProductType` answers for a subtype it does not know —
+ * is treated as standard. That is the safe direction to be wrong in: a dish
+ * mislabelled standard is still orderable at its base price, whereas one
+ * mislabelled configurable opens a sheet with nothing in it.
+ */
+export function isConfigurableType(productType: number | null | undefined): boolean {
+  return productType === PRODUCT_TYPE_CONFIGURABLE;
+}
 
 /**
  * Entity properties the backend can actually sort by. Deliberately a closed
@@ -45,7 +76,7 @@ const CONFIGURABLE_PRODUCTS = '/configurable-products';
  */
 export type ProductSortField = 'name' | 'code' | 'createdAt';
 
-const configurableProductPageSchema = pageSchema(configurableProductOutputSchema);
+const productPageSchema = pageSchema(productOutputSchema);
 const fileMetadataListSchema = z.array(fileMetadataSchema);
 
 /** Turns a zod failure into an ApiError naming the offending field path. */
@@ -85,22 +116,50 @@ interface ProductFilter {
 }
 
 /**
- * One page of a restaurant's menu.
+ * One dish on a menu: the base projection, plus whether ordering it requires
+ * the customer to configure anything.
  *
- * The scope comes from `menuScopeOf`, so a caller cannot reach this function
- * without a catalog link and there is no "fetch everything and guess which
- * products belong to this restaurant" path.
+ * `isConfigurable` is `productType === 2` and nothing more — a fact about the
+ * row, decided by the backend's discriminator rather than inferred. It is kept
+ * as a derived boolean rather than leaving callers to read `productType`
+ * because the mapping from discriminator to meaning belongs in exactly one
+ * place.
+ *
+ * `configuration` is present only on the detail read, and only ever carries
+ * the configuration's own id/code/name — never its groups. Those come from
+ * `fetchProductConfiguration` in `services/api/configuration-service.ts`.
+ */
+export interface MenuProductOutput extends ConfigurableProductOutput {
+  isConfigurable: boolean;
+}
+
+/** The catalog scope as `ProductFilter` wants it — see the interface above. */
+function scopeFilter(scope: MenuScope): ProductFilter {
+  return 'catalogVersionId' in scope
+    ? { catalogVersionId: scope.catalogVersionId }
+    : { catalogId: scope.catalogId };
+}
+
+/**
+ * One page of a restaurant's menu, standard and configurable dishes alike.
+ *
+ * ONE request. `/products/all` is polymorphic, so nothing is missing from it,
+ * and `productType` labels every row — see the endpoint note at the top of
+ * this module. Neither subtype's addons are readable from a list endpoint at
+ * all, so there is nothing a second request could usefully add here; the food
+ * screen resolves them per dish.
+ *
+ * The scope comes from `menuScopeOf` or `fetchMenuScope`, so a caller cannot
+ * reach this function without a catalog and there is no "fetch everything and
+ * guess which products belong to this restaurant" path.
  */
 export async function fetchMenu(
   scope: MenuScope,
   params: FetchMenuParams = {}
-): Promise<Page<ConfigurableProductOutput>> {
+): Promise<Page<MenuProductOutput>> {
   const { categoryId, nameLike, page = 0, size = 20, sort } = params;
 
-  const filter: ProductFilter =
-    'catalogVersionId' in scope
-      ? { catalogVersionId: scope.catalogVersionId }
-      : { catalogId: scope.catalogId };
+  const filter: ProductFilter = scopeFilter(scope);
 
   if (categoryId) filter.categoryId = categoryId;
 
@@ -121,8 +180,17 @@ export async function fetchMenu(
   }
 
   // axios handles the encoding once, so no call site hand-builds a query string.
-  const { data } = await apiClient.get(`${CONFIGURABLE_PRODUCTS}/all`, { params: query });
-  return parseOrThrow(configurableProductPageSchema, data, 'menu');
+  const { data } = await apiClient.get(`${PRODUCTS}/all`, { params: query });
+
+  const menu = parseOrThrow(productPageSchema, data, 'menu');
+
+  return {
+    ...menu,
+    content: menu.content.map((product) => ({
+      ...product,
+      isConfigurable: isConfigurableType(product.productType),
+    })),
+  };
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -147,28 +215,64 @@ export function isUuid(id: string): boolean {
  * restaurant routes it would answer 500 too, so there would be nothing in the
  * response to tell the two cases apart.
  *
- * Note the route: the plan documents the by-id 500s against `/products/{id}`,
- * but that is the base projection with no `configuration`, and the food-detail
- * screen exists to show addons. This calls the configurable analogue of the
- * verified `/configurable-products/all`, following the same `/all` + `/{id}`
- * pairing every other resource here uses. If that route turns out not to
- * exist, its 404 lands in the same not-found branch as a missing product, so
- * the screen degrades to "not found" rather than breaking.
+ * BOTH subtypes are reachable here, and `productType` is what decides how.
+ * `/products/{id}` resolves against the polymorphic base, so it answers for
+ * every dish and its `productType` says which subtype the row is. Only a
+ * configurable dish then costs a second request, to `/configurable-products/{id}`
+ * — the sole projection carrying the CONFIGURATION ID that
+ * `fetchProductConfiguration` needs to reach the addon groups.
+ *
+ * This replaces a try-configurable-then-fall-back-to-base sequence that had to
+ * read a 500 from the first route as "then it must be standard". That was two
+ * requests for every standard dish, and it could not tell a real fault on a
+ * configurable dish from a standard one — the dish would silently render
+ * without its required choices. Asking the discriminator removes the guess.
+ *
+ * A configurable dish whose second request fails is returned WITHOUT its
+ * configuration rather than failing the screen: the dish itself was read
+ * successfully, and `isConfigurable` still says a choice is owed, so the food
+ * screen keeps it out of the cart instead of pricing it as if it had none.
  */
-export async function fetchProductById(id: string): Promise<ConfigurableProductOutput | null> {
+export async function fetchProductById(id: string): Promise<MenuProductOutput | null> {
   // Save the round-trip: a non-UUID can only ever come back 500 here.
   if (!isUuid(id)) return null;
 
+  const path = encodeURIComponent(id);
+
+  let base;
   try {
-    const { data } = await apiClient.get(
-      `${CONFIGURABLE_PRODUCTS}/${encodeURIComponent(id)}`
-    );
-    return parseOrThrow(configurableProductOutputSchema, data, 'product');
+    const { data } = await apiClient.get(`${PRODUCTS}/${path}`);
+    base = parseOrThrow(productOutputSchema, data, 'product');
   } catch (error) {
-    if (isApiError(error, 404) || isApiError(error, 400)) return null;
-    if (isApiError(error, 500)) return null;
+    if (isNotFound(error)) return null;
     throw error;
   }
+
+  if (!isConfigurableType(base.productType)) {
+    return { ...base, isConfigurable: false };
+  }
+
+  try {
+    const { data } = await apiClient.get(`${CONFIGURABLE_PRODUCTS}/${path}`);
+    return {
+      ...parseOrThrow(configurableProductOutputSchema, data, 'product'),
+      isConfigurable: true,
+    };
+  } catch {
+    // See the note above: the dish is still shown, still marked configurable,
+    // and simply has no configuration to resolve groups from.
+    return { ...base, isConfigurable: true };
+  }
+}
+
+/**
+ * Whether a failure means "no such product here" rather than a real fault.
+ *
+ * 500 is included because a missing id answers `500 NoSuchElementException` —
+ * see the note above `fetchProductById`.
+ */
+function isNotFound(error: unknown): boolean {
+  return isApiError(error, 404) || isApiError(error, 400) || isApiError(error, 500);
 }
 
 /**
@@ -177,9 +281,11 @@ export async function fetchProductById(id: string): Promise<ConfigurableProductO
  *
  * Products have NO image field of their own — unlike restaurants, which got
  * `logoUrl` and `coverImageUrl` — so artwork costs a separate request per
- * product. **Call this only from the food-detail screen**: fanning it out
- * across a menu grid is an N+1, and list views use a placeholder instead
- * (plan §3.5).
+ * product, and there is no batch files endpoint to ask for several at once.
+ * A menu grid showing real dish photos therefore pays one request per card
+ * (plan §3.5). Call it through `useProductImageSources`, which is where that
+ * fan-out is scoped to the visible sections, de-duplicated and cached; going
+ * straight to this function from a list view repeats it uncached.
  *
  * The path is returned RAW — relative, exactly as the backend sent it — for
  * the same reason RESTO-01 persists `logoPath` rather than a resolved URL: a
