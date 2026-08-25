@@ -1,9 +1,17 @@
 import { CartItem, CheckoutButton, OrderSummary, SyncBadge } from '@/components/cart';
+import { DeliveryFeeModal, ServiceFeeModal } from '@/components/checkout';
+import {
+  CHARGED_DELIVERY_FEE,
+  DELIVERY_FEE,
+  DELIVERY_FEE_WAIVED,
+  SERVICE_FEE,
+} from '@/constants/fees';
 import { Fonts, FontSize, Palette, Radius, Spacing } from '@/constants/theme';
 import { useStoredImageSource } from '@/hooks/use-restaurant-image';
 import { formatDT, useCartStore } from '@/store/cart-store';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { ArrowLeft, Plus } from 'lucide-react-native';
+import { useState } from 'react';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -12,14 +20,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
   recommendations source anywhere in the backend, so rather than dressing mock
   products up as suggestions the section is gone until one exists.
 */
-
-/**
- * PLACEHOLDER. There is no service-fee concept in the backend — no field on
- * `Cart`, no fee endpoint — so this is a made-up number kept visible rather
- * than an invented API. Replace it when a real fee source ships; do not build
- * one client-side.
- */
-const SERVICE_FEE = 3;
 
 export default function RestaurantCartScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -33,6 +33,12 @@ export default function RestaurantCartScreen() {
   const increment = useCartStore((s) => s.increment);
   const decrement = useCartStore((s) => s.decrement);
   const removeItem = useCartStore((s) => s.removeItem);
+
+  // Which fee explanation is open, if any. The two designs
+  // (`design/Cart Service Fee Info.png`, `design/Cart Delivery Fee Info.png`)
+  // are drawn over THIS screen, and only one can be open at a time — hence one
+  // piece of state rather than a boolean each.
+  const [feeSheet, setFeeSheet] = useState<'service' | 'delivery' | null>(null);
 
   // Stored artwork is a relative path or a bundled module id; it becomes a
   // renderable source only here, against the current API base.
@@ -50,7 +56,10 @@ export default function RestaurantCartScreen() {
     (sum, line) => sum + line.unitPrice * line.quantity,
     0,
   );
-  const total = subtotal + (items.length > 0 ? SERVICE_FEE : 0);
+  // Fees only apply to a cart that has something in it. Both numbers are
+  // client-side placeholders — see `constants/fees.ts`.
+  const total =
+    items.length > 0 ? subtotal + SERVICE_FEE + CHARGED_DELIVERY_FEE : 0;
 
   const handleBackPress = () => router.back();
 
@@ -128,10 +137,16 @@ export default function RestaurantCartScreen() {
             <OrderSummary
               subtotal={formatDT(subtotal)}
               serviceFee={formatDT(SERVICE_FEE)}
-              deliveryFee="Free"
-              originalDeliveryFee="2,5 DT"
-              isFreeDelivery={true}
+              deliveryFee={
+                DELIVERY_FEE_WAIVED ? 'Free' : formatDT(DELIVERY_FEE)
+              }
+              originalDeliveryFee={
+                DELIVERY_FEE_WAIVED ? formatDT(DELIVERY_FEE) : undefined
+              }
+              isFreeDelivery={DELIVERY_FEE_WAIVED}
               total={formatDT(total)}
+              onServiceFeeInfo={() => setFeeSheet('service')}
+              onDeliveryFeeInfo={() => setFeeSheet('delivery')}
             />
           </>
         )}
@@ -140,6 +155,15 @@ export default function RestaurantCartScreen() {
       {items.length > 0 && (
         <CheckoutButton total={formatDT(total)} onPress={handleCheckout} />
       )}
+
+      <ServiceFeeModal
+        visible={feeSheet === 'service'}
+        onClose={() => setFeeSheet(null)}
+      />
+      <DeliveryFeeModal
+        visible={feeSheet === 'delivery'}
+        onClose={() => setFeeSheet(null)}
+      />
     </View>
   );
 }

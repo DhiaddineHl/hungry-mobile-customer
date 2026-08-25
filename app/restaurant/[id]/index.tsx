@@ -75,12 +75,15 @@ export default function RestaurantDetailsScreen() {
     unavailable: menuUnavailable,
   } = useRestaurantMenu(restaurant);
 
+  console.log("resto menu", sections);
+  console.log("resto data", restaurant);
+
   const tabs: MenuTab[] = useMemo(
     () =>
       (sections ?? [])
         .filter((section) => section.title)
         .map((section) => ({ id: section.title, label: section.title })),
-    [sections]
+    [sections],
   );
 
   // A selected tab narrows to that one section; null shows the whole menu.
@@ -89,7 +92,7 @@ export default function RestaurantDetailsScreen() {
       selectedTab === null
         ? (sections ?? [])
         : (sections ?? []).filter((section) => section.title === selectedTab),
-    [sections, selectedTab]
+    [sections, selectedTab],
   );
 
   const imageSource = useRestaurantImageSource();
@@ -98,9 +101,10 @@ export default function RestaurantDetailsScreen() {
   // the banner needs the placeholder fallback applied inside the component.
   // `null` until they resolve: handing the banner a `/files/...` URL before the
   // bearer token is attached would fire one request that can only 401.
-  const [bannerHeaders, setBannerHeaders] = useState<Record<string, string> | null>(
-    null
-  );
+  const [bannerHeaders, setBannerHeaders] = useState<Record<
+    string,
+    string
+  > | null>(null);
   useEffect(() => {
     let active = true;
     imageAuthHeaders().then((headers) => {
@@ -115,7 +119,7 @@ export default function RestaurantDetailsScreen() {
   // with the open/closed badge above it.
   const timings = useMemo(
     () => (restaurant ? toTimingRows(restaurant.days, new Date()) : []),
-    [restaurant]
+    [restaurant],
   );
 
   // Distance the logo travels before it settles into the compact header.
@@ -138,27 +142,32 @@ export default function RestaurantDetailsScreen() {
         p,
         [0, threshold],
         [LOGO_REST_TOP, compactLogoTop],
-        Extrapolation.CLAMP
+        Extrapolation.CLAMP,
       ),
       left: interpolate(
         p,
         [0, threshold],
         [LOGO_REST_LEFT, COMPACT_LOGO_LEFT],
-        Extrapolation.CLAMP
+        Extrapolation.CLAMP,
       ),
       width: interpolate(
         p,
         [0, threshold],
         [LOGO_REST_SIZE, COMPACT_LOGO_SIZE],
-        Extrapolation.CLAMP
+        Extrapolation.CLAMP,
       ),
       height: interpolate(
         p,
         [0, threshold],
         [LOGO_REST_SIZE, COMPACT_LOGO_SIZE],
-        Extrapolation.CLAMP
+        Extrapolation.CLAMP,
       ),
-      borderRadius: interpolate(p, [0, threshold], [18, 12], Extrapolation.CLAMP),
+      borderRadius: interpolate(
+        p,
+        [0, threshold],
+        [18, 12],
+        Extrapolation.CLAMP,
+      ),
       borderWidth: interpolate(p, [0, threshold], [3, 2], Extrapolation.CLAMP),
     };
   });
@@ -168,7 +177,7 @@ export default function RestaurantDetailsScreen() {
       scrollY.get(),
       [threshold - 40, threshold - 4],
       [0, 1],
-      Extrapolation.CLAMP
+      Extrapolation.CLAMP,
     ),
   }));
 
@@ -234,7 +243,8 @@ export default function RestaurantDetailsScreen() {
   const renderMenu = () => {
     if (menuUnavailable) return <MenuUnavailable />;
     if (menuPending) return <MenuSectionSkeleton />;
-    if (menuError) return <QueryError error={menuError} onRetry={refetchMenu} />;
+    if (menuError)
+      return <QueryError error={menuError} onRetry={refetchMenu} />;
     if (visibleSections.length === 0) {
       return (
         <QueryEmpty

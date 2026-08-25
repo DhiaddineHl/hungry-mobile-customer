@@ -64,3 +64,18 @@ export const cartKeys = {
   /** Keyed by the cart `code`, the only field that identifies a cart by restaurant. */
   detail: (code: string) => [...cartKeys.details(), code] as const,
 };
+
+/**
+ * Order cache entries, in the same shape as the four factories above.
+ *
+ * There is deliberately **no `list`**: every filter on `/orders/all` is either
+ * a 500 or silently ignored (see `services/api/order-service.ts`), so there is
+ * no way to ask for one customer's orders. A `lists()` handle here would be an
+ * invalidation target for a query that cannot exist.
+ */
+export const orderKeys = {
+  all: ['orders'] as const,
+  details: () => [...orderKeys.all, 'detail'] as const,
+  /** Keyed by the order's UUID — the backend resolves by id only, never by code. */
+  detail: (id: string) => [...orderKeys.details(), id] as const,
+};
