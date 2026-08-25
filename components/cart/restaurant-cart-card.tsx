@@ -1,5 +1,5 @@
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
-import { Image } from 'expo-image';
+import { Image, type ImageSource } from 'expo-image';
 import { ThumbsUp, Trash2, Plus } from 'lucide-react-native';
 import { Fonts } from '@/constants/theme';
 
@@ -7,14 +7,20 @@ interface CartItem {
   id: string;
   name: string;
   quantity: number;
-  image: any;
+  /** An already-resolved source, or a bundled module id. Never a raw path. */
+  image?: ImageSource | number;
 }
 
 interface RestaurantCartCardProps {
   restaurantName: string;
-  restaurantLogo: any;
-  rating: string;
-  reviewCount: string;
+  restaurantLogo?: ImageSource | number;
+  /**
+   * Optional because NO backend field supplies either one — they are in
+   * `UNBACKED_FIELDS`. Call sites omit them rather than passing invented
+   * numbers, and the row below disappears instead of showing a made-up score.
+   */
+  rating?: string;
+  reviewCount?: string;
   items: CartItem[];
   totalItems: number;
   totalPrice: string;
@@ -42,11 +48,15 @@ export function RestaurantCartCard({
           <Image source={restaurantLogo} style={styles.logo} contentFit="cover" />
           <View>
             <Text style={styles.restaurantName}>{restaurantName}</Text>
-            <View style={styles.ratingRow}>
-              <ThumbsUp size={12} color="#F5A623" />
-              <Text style={styles.rating}>{rating}</Text>
-              <Text style={styles.reviewCount}>({reviewCount})</Text>
-            </View>
+            {rating ? (
+              <View style={styles.ratingRow}>
+                <ThumbsUp size={12} color="#F5A623" />
+                <Text style={styles.rating}>{rating}</Text>
+                {reviewCount ? (
+                  <Text style={styles.reviewCount}>({reviewCount})</Text>
+                ) : null}
+              </View>
+            ) : null}
           </View>
         </View>
         <TouchableOpacity style={styles.deleteButton} onPress={onDelete}>

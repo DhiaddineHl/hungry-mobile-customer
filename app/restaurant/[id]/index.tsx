@@ -2,16 +2,34 @@ import { SearchBar } from "@/components/home";
 import {
   MenuFilterTabs,
   MenuSection,
+  MenuSectionSkeleton,
+  MenuUnavailable,
   RestaurantHeader,
+  type MenuTab,
 } from "@/components/restaurant";
 import { TimingsModal } from "@/components/restaurant/timings-modal";
-import { Fonts } from "@/constants/theme";
+import { QueryEmpty, QueryError } from "@/components/ui/query-state";
+import { Fonts, Palette } from "@/constants/theme";
+import {
+  useProductImageSources,
+  useRestaurantMenu,
+} from "@/hooks/use-products";
+import { useRestaurantImageSource } from "@/hooks/use-restaurant-image";
+import { useRestaurant } from "@/hooks/use-restaurants";
+import { imageAuthHeaders } from "@/services/api/image-url";
+import { toTimingRows } from "@/services/api/restaurant-view-model";
 import { useFavoritesStore, useIsFavorite } from "@/store/favorites-store";
 import { Image } from "expo-image";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { ChevronLeft } from "lucide-react-native";
-import { useState } from "react";
-import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { useEffect, useMemo, useState } from "react";
+import {
+  ActivityIndicator,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from "react-native";
 import Animated, {
   Extrapolation,
   interpolate,
@@ -32,205 +50,88 @@ const COMPACT_BAR_HEIGHT = 52;
 const COMPACT_LOGO_SIZE = 40;
 const COMPACT_LOGO_LEFT = 60;
 
-const RESTAURANT_DATA = {
-  id: "1",
-  name: "Tacoth",
-  distance: "4 km",
-  rating: "92%",
-  reviewCount: "1000+",
-  deliveryTime: "30-45 min",
-  deliveryFee: "2,5 DT",
-  isFreeDelivery: true,
-  minOrder: "8DT",
-  isOpen: true,
-  isNew: true,
-  isTopRated: true,
-  discount: "Up to -20% off",
-  bannerImage: require("@/assets/restaurants-images/restaurant-banner-1.jpg"),
-  logoImage: require("@/assets/restaurants-images/restaurant-2.jpg"),
-  isFavorite: true,
-};
-
-const TIMINGS = [
-  {
-    day: "Monday",
-    hours: "11:00 AM - 11:00 PM",
-    isToday: false,
-    isClosed: false,
-  },
-  {
-    day: "Tuesday",
-    hours: "00:00 AM - 6:00 AM && 11:00AM - 11:00 PM",
-    isToday: false,
-    isClosed: false,
-  },
-  {
-    day: "Wednesday",
-    hours: "11:00 AM - 11:00 PM",
-    isToday: false,
-    isClosed: false,
-  },
-  {
-    day: "Thursday",
-    hours: "00:00 AM - 6:00 AM && 11:00AM - 11:00 PM",
-    isToday: false,
-    isClosed: false,
-  },
-  {
-    day: "Friday (Today)",
-    hours: "00:00 AM - 6:00 AM && 11:00AM - 11:00 PM",
-    isToday: true,
-    isClosed: false,
-  },
-  {
-    day: "Saturday",
-    hours: "11:00 AM - 11:00 PM",
-    isToday: false,
-    isClosed: false,
-  },
-  { day: "Sunday", hours: "Closed", isToday: false, isClosed: true },
-];
-
-const PROMOTIONS_PRODUCTS = [
-  {
-    id: "p1",
-    name: "Double Crispy Deal",
-    price: "24 DT",
-    originalPrice: "30,9 DT",
-    discount: "-10%",
-    image: require("@/assets/products/product-1.png"),
-  },
-  {
-    id: "p2",
-    name: "Crispy Chicken",
-    price: "9,68 DT",
-    originalPrice: "12,9 DT",
-    discount: "-25%",
-    image: require("@/assets/products/product-2.png"),
-  },
-  {
-    id: "p3",
-    name: "Melty Crispy Chicken",
-    price: "16,9 DT",
-    image: require("@/assets/products/prodcut-3.png"),
-  },
-];
-
-const PICKED_FOR_YOU = [
-  {
-    id: "pfy1",
-    name: "Crispy Chicken Taco Bowl",
-    price: "13,9 DT",
-    rating: "66%",
-    reviewCount: "12",
-    image: require("@/assets/products/product-4.png"),
-  },
-  {
-    id: "pfy2",
-    name: "Melty Crispy Chicken",
-    price: "16,9 DT",
-    image: require("@/assets/products/prodcut-3.png"),
-  },
-  {
-    id: "pfy3",
-    name: "Double Crispy Deal",
-    price: "24 DT",
-    originalPrice: "30,9 DT",
-    discount: "-10%",
-    rating: "70%",
-    reviewCount: "20",
-    image: require("@/assets/products/product-1.png"),
-  },
-];
-
-const CLASSIQUES = [
-  {
-    id: "c1",
-    name: "Crispy Chicken",
-    price: "9,68 DT",
-    originalPrice: "12,9 DT",
-    discount: "-25%",
-    rating: "76%",
-    reviewCount: "22",
-    image: require("@/assets/products/product-2.png"),
-  },
-  {
-    id: "c2",
-    name: "Cordon Bleu",
-    price: "12,9 DT",
-    image: require("@/assets/products/product-5.png"),
-  },
-  {
-    id: "c3",
-    name: "Spicy Chicken",
-    price: "12,9 DT",
-    image: require("@/assets/products/product-1.png"),
-  },
-  {
-    id: "c4",
-    name: "Beef Tacoth",
-    price: "12,9 DT",
-    image: require("@/assets/products/product-4.png"),
-  },
-];
-
-const SIGNATURES = [
-  {
-    id: "s1",
-    name: "Epic Spicy Chicken",
-    price: "17,5 DT",
-    image: require("@/assets/products/product-2.png"),
-  },
-  {
-    id: "s2",
-    name: "Ultimate Beef",
-    price: "17,5 DT",
-    image: require("@/assets/products/product-5.png"),
-  },
-  {
-    id: "s3",
-    name: "Melty Crispy Chicken",
-    price: "16,9 DT",
-    image: require("@/assets/products/prodcut-3.png"),
-  },
-  {
-    id: "s4",
-    name: "Gourmand Cordon Bleu",
-    price: "15,9 DT",
-    image: require("@/assets/products/product-1.png"),
-  },
-];
-
-const BOWLS = [
-  {
-    id: "b1",
-    name: "Fajitas Taco Bowl",
-    price: "14,9 DT",
-    image: require("@/assets/products/product-4.png"),
-  },
-  {
-    id: "b2",
-    name: "Spicy Chicken Taco Bowl",
-    price: "13,9 DT",
-    image: require("@/assets/products/product-5.png"),
-  },
-  {
-    id: "b3",
-    name: "Crispy Chicken Taco Bown",
-    price: "16,9 DT",
-    image: require("@/assets/products/prodcut-3.png"),
-  },
-];
-
 export default function RestaurantDetailsScreen() {
   const { id: restaurantId } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const insets = useSafeAreaInsets();
 
-  const [selectedTab, setSelectedTab] = useState("promotions");
+  const [selectedTab, setSelectedTab] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [timingsVisible, setTimingsVisible] = useState(false);
   const [showCompact, setShowCompact] = useState(false);
+
+  const {
+    data: restaurant,
+    isPending,
+    error,
+    refetch,
+  } = useRestaurant(restaurantId);
+
+  // The menu is scoped to the restaurant's catalog. No restaurant payload
+  // carries that link yet, so the hook resolves it from the catalog code the
+  // back-office files the menu under; `unavailable` now means the menu was
+  // never created. See menuScopeOf / fetchMenuScope.
+  const {
+    data: sections,
+    isPending: menuPending,
+    error: menuError,
+    refetch: refetchMenu,
+    unavailable: menuUnavailable,
+  } = useRestaurantMenu(restaurant);
+
+  const tabs: MenuTab[] = useMemo(
+    () =>
+      (sections ?? [])
+        .filter((section) => section.title)
+        .map((section) => ({ id: section.title, label: section.title })),
+    [sections],
+  );
+
+  // A selected tab narrows to that one section; null shows the whole menu.
+  const visibleSections = useMemo(
+    () =>
+      selectedTab === null
+        ? (sections ?? [])
+        : (sections ?? []).filter((section) => section.title === selectedTab),
+    [sections, selectedTab],
+  );
+
+  // Artwork is a separate request per dish — products carry no image field —
+  // so only the sections actually on screen are resolved: picking a tab
+  // narrows this list, and every id is de-duplicated and cached inside the
+  // hook. See `useProductImageSources`.
+  const visibleProductIds = useMemo(
+    () => visibleSections.flatMap((section) => section.products.map((p) => p.id)),
+    [visibleSections],
+  );
+  const productImage = useProductImageSources(visibleProductIds);
+
+  const imageSource = useRestaurantImageSource();
+
+  // RestaurantHeader takes raw headers rather than a source object, because
+  // the banner needs the placeholder fallback applied inside the component.
+  // `null` until they resolve: handing the banner a `/files/...` URL before the
+  // bearer token is attached would fire one request that can only 401.
+  const [bannerHeaders, setBannerHeaders] = useState<Record<
+    string,
+    string
+  > | null>(null);
+  useEffect(() => {
+    let active = true;
+    imageAuthHeaders().then((headers) => {
+      if (active) setBannerHeaders(headers);
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  // One "now" per render pass keeps the sheet's "(Today)" marker consistent
+  // with the open/closed badge above it.
+  const timings = useMemo(
+    () => (restaurant ? toTimingRows(restaurant.days, new Date()) : []),
+    [restaurant],
+  );
 
   // Distance the logo travels before it settles into the compact header.
   const compactLogoTop =
@@ -252,27 +153,32 @@ export default function RestaurantDetailsScreen() {
         p,
         [0, threshold],
         [LOGO_REST_TOP, compactLogoTop],
-        Extrapolation.CLAMP
+        Extrapolation.CLAMP,
       ),
       left: interpolate(
         p,
         [0, threshold],
         [LOGO_REST_LEFT, COMPACT_LOGO_LEFT],
-        Extrapolation.CLAMP
+        Extrapolation.CLAMP,
       ),
       width: interpolate(
         p,
         [0, threshold],
         [LOGO_REST_SIZE, COMPACT_LOGO_SIZE],
-        Extrapolation.CLAMP
+        Extrapolation.CLAMP,
       ),
       height: interpolate(
         p,
         [0, threshold],
         [LOGO_REST_SIZE, COMPACT_LOGO_SIZE],
-        Extrapolation.CLAMP
+        Extrapolation.CLAMP,
       ),
-      borderRadius: interpolate(p, [0, threshold], [18, 12], Extrapolation.CLAMP),
+      borderRadius: interpolate(
+        p,
+        [0, threshold],
+        [18, 12],
+        Extrapolation.CLAMP,
+      ),
       borderWidth: interpolate(p, [0, threshold], [3, 2], Extrapolation.CLAMP),
     };
   });
@@ -282,29 +188,93 @@ export default function RestaurantDetailsScreen() {
       scrollY.get(),
       [threshold - 40, threshold - 4],
       [0, 1],
-      Extrapolation.CLAMP
+      Extrapolation.CLAMP,
     ),
   }));
 
   const toggleFavorite = useFavoritesStore((s) => s.toggle);
-  const isFavorite = useIsFavorite("restaurant", RESTAURANT_DATA.id);
+  const isFavorite = useIsFavorite("restaurant", restaurantId ?? "");
 
   const handleBackPress = () => router.back();
-  const handleFavoritePress = () =>
+  const handleFavoritePress = () => {
+    if (!restaurant) return;
     toggleFavorite({
-      id: RESTAURANT_DATA.id,
+      id: restaurant.id,
       type: "restaurant",
-      name: RESTAURANT_DATA.name,
-      image: RESTAURANT_DATA.bannerImage,
-      subtitle: RESTAURANT_DATA.distance,
-      rating: RESTAURANT_DATA.rating,
-      reviewCount: RESTAURANT_DATA.reviewCount,
+      // The RELATIVE path: resolved at render time so the stored favorite
+      // survives a change of EXPO_PUBLIC_API_URL.
+      image: restaurant.logoPath,
+      name: restaurant.name,
+      subtitle: restaurant.categories,
     });
+  };
   const handleMorePress = () => {};
+  // The restaurant travels with the route: a product carries no restaurant
+  // field on the backend, so the food screen cannot work out which restaurant
+  // serves it any other way (plan §2).
   const handleProductPress = (productId: string) =>
-    router.push(`/food/${productId}`);
+    router.push(`/food/${productId}?restaurantId=${restaurantId}`);
   const handleOpenPress = () => setTimingsVisible(true);
   const handleNamePress = () => router.push(`/restaurant/${restaurantId}/info`);
+
+  // Every hook above has already run, so these early returns are safe.
+  if (isPending) {
+    return (
+      <View style={[styles.container, styles.centered]}>
+        <ActivityIndicator size="large" color={Palette.primary} />
+      </View>
+    );
+  }
+
+  if (error) {
+    return (
+      <View style={[styles.container, styles.centered]}>
+        <QueryError error={error} onRetry={refetch} />
+      </View>
+    );
+  }
+
+  if (!restaurant) {
+    return (
+      <View style={[styles.container, styles.centered]}>
+        <QueryEmpty
+          title="Restaurant not found"
+          body="This restaurant is no longer available."
+        />
+      </View>
+    );
+  }
+
+  /**
+   * Loading / error / unavailable / empty / content for the menu, in that
+   * order. `unavailable` is checked before `empty` because "no menu connected"
+   * and "this menu has no dishes" are different things to tell a customer, and
+   * before `error` because no request was made to fail.
+   */
+  const renderMenu = () => {
+    if (menuUnavailable) return <MenuUnavailable />;
+    if (menuPending) return <MenuSectionSkeleton />;
+    if (menuError)
+      return <QueryError error={menuError} onRetry={refetchMenu} />;
+    if (visibleSections.length === 0) {
+      return (
+        <QueryEmpty
+          title="Nothing on the menu yet"
+          body="This restaurant hasn't published any dishes."
+        />
+      );
+    }
+
+    return visibleSections.map((section, index) => (
+      <MenuSection
+        key={section.title || `uncategorised-${index}`}
+        title={section.title}
+        products={section.products}
+        imageFor={productImage}
+        onProductPress={handleProductPress}
+      />
+    ));
+  };
 
   return (
     <View style={styles.container}>
@@ -316,7 +286,10 @@ export default function RestaurantDetailsScreen() {
         scrollEventThrottle={16}
       >
         <RestaurantHeader
-          {...RESTAURANT_DATA}
+          name={restaurant.name}
+          isOpen={restaurant.isOpen}
+          bannerImage={bannerHeaders ? restaurant.bannerImage : undefined}
+          imageHeaders={bannerHeaders ?? undefined}
           hideLogo
           isFavorite={isFavorite}
           onBackPress={handleBackPress}
@@ -332,34 +305,14 @@ export default function RestaurantDetailsScreen() {
             placeholder="Search the menu"
             onChangeText={setSearchQuery}
           />
-          <MenuFilterTabs selectedTab={selectedTab} onTabPress={setSelectedTab} />
+          <MenuFilterTabs
+            tabs={tabs}
+            selectedTab={selectedTab}
+            onTabPress={setSelectedTab}
+          />
         </View>
 
-        <MenuSection
-          title=""
-          products={PROMOTIONS_PRODUCTS}
-          onProductPress={handleProductPress}
-        />
-        <MenuSection
-          title="Picked For You"
-          products={PICKED_FOR_YOU}
-          onProductPress={handleProductPress}
-        />
-        <MenuSection
-          title="Les Tacoths Classiques"
-          products={CLASSIQUES}
-          onProductPress={handleProductPress}
-        />
-        <MenuSection
-          title="Les Tacoths Signatures"
-          products={SIGNATURES}
-          onProductPress={handleProductPress}
-        />
-        <MenuSection
-          title="Tacoth Bowls"
-          products={BOWLS}
-          onProductPress={handleProductPress}
-        />
+        {renderMenu()}
       </Animated.ScrollView>
 
       {/* Compact sticky header — fades in as the banner scrolls away. */}
@@ -377,11 +330,12 @@ export default function RestaurantDetailsScreen() {
           </TouchableOpacity>
           <View style={styles.compactLogoSlot} />
           <Text style={styles.compactName} numberOfLines={1}>
-            {RESTAURANT_DATA.name}
+            {restaurant.name}
           </Text>
         </View>
         <MenuFilterTabs
           compact
+          tabs={tabs}
           selectedTab={selectedTab}
           onTabPress={setSelectedTab}
         />
@@ -393,7 +347,7 @@ export default function RestaurantDetailsScreen() {
         pointerEvents="none"
       >
         <Image
-          source={RESTAURANT_DATA.logoImage}
+          source={imageSource(restaurant.logoUrl)}
           style={styles.floatingLogoImage}
           contentFit="cover"
         />
@@ -401,7 +355,7 @@ export default function RestaurantDetailsScreen() {
 
       <TimingsModal
         visible={timingsVisible}
-        timings={TIMINGS}
+        timings={timings}
         onClose={() => setTimingsVisible(false)}
       />
     </View>
@@ -412,6 +366,10 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#FFFFFF",
+  },
+  centered: {
+    alignItems: "center",
+    justifyContent: "center",
   },
   scrollView: {
     flex: 1,

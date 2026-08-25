@@ -3,5 +3,6 @@ export { RestaurantCartCard } from './restaurant-cart-card';
 export { TrackOrdersSection } from './track-orders-section';
 export { CartItem } from './cart-item';
 export { SuggestedItems } from './suggested-items';
+export { SyncBadge } from './sync-badge';
 export { OrderSummary } from './order-summary';
 export { CheckoutButton } from './checkout-button';

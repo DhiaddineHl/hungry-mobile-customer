@@ -1,36 +1,25 @@
-import { CartItem, CheckoutButton, OrderSummary, SuggestedItems } from '@/components/cart';
-import { Fonts } from '@/constants/theme';
+import { CartItem, CheckoutButton, OrderSummary, SyncBadge } from '@/components/cart';
+import { DeliveryFeeModal, ServiceFeeModal } from '@/components/checkout';
+import {
+  CHARGED_DELIVERY_FEE,
+  DELIVERY_FEE,
+  DELIVERY_FEE_WAIVED,
+  SERVICE_FEE,
+} from '@/constants/fees';
+import { Fonts, FontSize, Palette, Radius, Spacing } from '@/constants/theme';
+import { useStoredImageSource } from '@/hooks/use-restaurant-image';
 import { formatDT, useCartStore } from '@/store/cart-store';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { ArrowLeft, Plus } from 'lucide-react-native';
+import { useState } from 'react';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-const SUGGESTED_ITEMS = [
-  {
-    id: 's1',
-    name: 'Boga - Lim (24Cl) Canette',
-    price: '2,7 DT',
-    image: require('@/assets/products/product-5.png'),
-    isPopular: true,
-  },
-  {
-    id: 's2',
-    name: 'Nuggets (12 pcs)',
-    description: '12 pieces of nuggets',
-    price: '12,9 DT',
-    image: require('@/assets/products/product-4.png'),
-  },
-  {
-    id: 's3',
-    name: 'Nuggets (12 pcs)',
-    description: '12 pieces of nuggets',
-    price: '12,9 DT',
-    image: require('@/assets/products/prodcut-3.png'),
-  },
-];
-
-const SERVICE_FEE = 3;
+/*
+  "Based On Your Choice" was a hardcoded list of three dishes. There is no
+  recommendations source anywhere in the backend, so rather than dressing mock
+  products up as suggestions the section is gone until one exists.
+*/
 
 export default function RestaurantCartScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -38,24 +27,41 @@ export default function RestaurantCartScreen() {
   const insets = useSafeAreaInsets();
 
   const allItems = useCartStore((s) => s.items);
+  // Read-only here: the sync engine is mounted on the cart tab, so this screen
+  // reports the last known state rather than driving a write of its own.
+  const syncStatus = useCartStore((s) => s.remote[id]?.status ?? 'idle');
   const increment = useCartStore((s) => s.increment);
   const decrement = useCartStore((s) => s.decrement);
   const removeItem = useCartStore((s) => s.removeItem);
 
+  // Which fee explanation is open, if any. The two designs
+  // (`design/Cart Service Fee Info.png`, `design/Cart Delivery Fee Info.png`)
+  // are drawn over THIS screen, and only one can be open at a time — hence one
+  // piece of state rather than a boolean each.
+  const [feeSheet, setFeeSheet] = useState<'service' | 'delivery' | null>(null);
+
+  // Stored artwork is a relative path or a bundled module id; it becomes a
+  // renderable source only here, against the current API base.
+  const toImageSource = useStoredImageSource();
+
   const items = allItems.filter((i) => i.restaurantId === id);
   const restaurantName = items[0]?.restaurantName ?? 'Cart';
+
+  // Lines rebuilt from the server carry no addons and no note — `CartItem` is
+  // `{cart, product, quantity}`, so those were never stored in the first place.
+  // Say so plainly rather than letting an empty description read as "plain".
+  const hasHydratedLines = items.some((line) => line.hydrated);
 
   const subtotal = items.reduce(
     (sum, line) => sum + line.unitPrice * line.quantity,
     0,
   );
-  const total = subtotal + (items.length > 0 ? SERVICE_FEE : 0);
+  // Fees only apply to a cart that has something in it. Both numbers are
+  // client-side placeholders — see `constants/fees.ts`.
+  const total =
+    items.length > 0 ? subtotal + SERVICE_FEE + CHARGED_DELIVERY_FEE : 0;
 
   const handleBackPress = () => router.back();
-
-  const handleAddSuggestedItem = (itemId: string) => {
-    console.log('Add suggested item:', itemId);
-  };
 
   const handleAddItems = () => {
     router.push(`/restaurant/${id}`);
@@ -75,12 +81,26 @@ export default function RestaurantCartScreen() {
         <View style={styles.headerSpacer} />
       </View>
 
+      {items.length > 0 ? (
+        <View style={styles.syncRow}>
+          <SyncBadge status={syncStatus} />
+        </View>
+      ) : null}
+
       <ScrollView
         style={styles.scrollView}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
       >
         <View style={styles.itemsSection}>
+          {hasHydratedLines ? (
+            <Text style={styles.hydratedNote}>
+              This cart was restored from your account. Extras and notes you
+              added on another device weren&apos;t saved, so they aren&apos;t
+              applied here.
+            </Text>
+          ) : null}
+
           {items.length === 0 ? (
             <Text style={styles.emptyText}>This cart is empty.</Text>
           ) : (
@@ -97,7 +117,7 @@ export default function RestaurantCartScreen() {
                   description={description}
                   price={formatDT(line.unitPrice * line.quantity)}
                   quantity={line.quantity}
-                  image={line.image}
+                  image={toImageSource(line.image)}
                   onIncrement={() => increment(line.lineId)}
                   onDecrement={() => decrement(line.lineId)}
                   onDelete={() => removeItem(line.lineId)}
@@ -114,19 +134,19 @@ export default function RestaurantCartScreen() {
 
         {items.length > 0 && (
           <>
-            <SuggestedItems
-              title="Based On Your Choice"
-              items={SUGGESTED_ITEMS}
-              onAddItem={handleAddSuggestedItem}
-            />
-
             <OrderSummary
               subtotal={formatDT(subtotal)}
               serviceFee={formatDT(SERVICE_FEE)}
-              deliveryFee="Free"
-              originalDeliveryFee="2,5 DT"
-              isFreeDelivery={true}
+              deliveryFee={
+                DELIVERY_FEE_WAIVED ? 'Free' : formatDT(DELIVERY_FEE)
+              }
+              originalDeliveryFee={
+                DELIVERY_FEE_WAIVED ? formatDT(DELIVERY_FEE) : undefined
+              }
+              isFreeDelivery={DELIVERY_FEE_WAIVED}
               total={formatDT(total)}
+              onServiceFeeInfo={() => setFeeSheet('service')}
+              onDeliveryFeeInfo={() => setFeeSheet('delivery')}
             />
           </>
         )}
@@ -135,6 +155,15 @@ export default function RestaurantCartScreen() {
       {items.length > 0 && (
         <CheckoutButton total={formatDT(total)} onPress={handleCheckout} />
       )}
+
+      <ServiceFeeModal
+        visible={feeSheet === 'service'}
+        onClose={() => setFeeSheet(null)}
+      />
+      <DeliveryFeeModal
+        visible={feeSheet === 'delivery'}
+        onClose={() => setFeeSheet(null)}
+      />
     </View>
   );
 }
@@ -177,6 +206,19 @@ const styles = StyleSheet.create({
     color: '#8A8A8A',
     textAlign: 'center',
     paddingVertical: 24,
+  },
+  syncRow: {
+    paddingHorizontal: Spacing.xl,
+    paddingTop: Spacing.md,
+  },
+  hydratedNote: {
+    fontSize: FontSize.sm,
+    fontFamily: Fonts.regular,
+    color: Palette.textSecondary,
+    backgroundColor: Palette.surfaceMuted,
+    borderRadius: Radius.lg,
+    padding: Spacing.md,
+    lineHeight: 18,
   },
   addItemsButton: {
     flexDirection: 'row',

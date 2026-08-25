@@ -11,11 +11,21 @@ import {
   OpenRestaurants,
 } from '@/components/home';
 import { AnimatedEntrance } from '@/components/ui/animated-entrance';
+import { useRestaurants } from '@/hooks/use-restaurants';
 
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const [selectedFilters, setSelectedFilters] = useState<string[]>([]);
+
+  // The home screen owns the restaurant query; both sections below are
+  // presentational and read from this one cache entry.
+  const {
+    data: restaurants,
+    isPending,
+    error,
+    refetch,
+  } = useRestaurants({ sort: 'name' });
 
   const handleNotificationPress = () => {
     console.log('Notification pressed');
@@ -84,11 +94,19 @@ export default function HomeScreen() {
         </AnimatedEntrance>
         <AnimatedEntrance index={3}>
           <PopularRestaurants
+            restaurants={restaurants ?? []}
+            isLoading={isPending}
+            error={error}
+            onRetry={refetch}
             onRestaurantPress={handlePopularRestaurantPress}
           />
         </AnimatedEntrance>
         <AnimatedEntrance index={4}>
           <OpenRestaurants
+            restaurants={restaurants ?? []}
+            isLoading={isPending}
+            error={error}
+            onRetry={refetch}
             onRestaurantPress={handleRestaurantPress}
             onSeeAllPress={handleSeeAllRestaurants}
           />

@@ -9,6 +9,14 @@ interface OrderSummaryProps {
   originalDeliveryFee?: string;
   isFreeDelivery?: boolean;
   total: string;
+  /**
+   * Opens the fee explanations from `design/Cart Service Fee Info.png` and
+   * `design/Cart Delivery Fee Info.png`. Optional so the two `Info` icons stay
+   * decorative wherever the sheets are not mounted, rather than presenting a
+   * dead control.
+   */
+  onServiceFeeInfo?: () => void;
+  onDeliveryFeeInfo?: () => void;
 }
 
 export function OrderSummary({
@@ -18,6 +26,8 @@ export function OrderSummary({
   originalDeliveryFee,
   isFreeDelivery,
   total,
+  onServiceFeeInfo,
+  onDeliveryFeeInfo,
 }: OrderSummaryProps) {
   return (
     <View style={styles.container}>
@@ -31,7 +41,12 @@ export function OrderSummary({
         <View style={styles.row}>
           <View style={styles.labelRow}>
             <Text style={styles.label}>Service Fee</Text>
-            <TouchableOpacity>
+            <TouchableOpacity
+              onPress={onServiceFeeInfo}
+              disabled={!onServiceFeeInfo}
+              accessibilityLabel="What is the service fee?"
+              hitSlop={8}
+            >
               <Info size={14} color="#8A8A8A" />
             </TouchableOpacity>
           </View>
@@ -41,7 +56,12 @@ export function OrderSummary({
         <View style={styles.row}>
           <View style={styles.labelRow}>
             <Text style={styles.label}>Delivery Fee</Text>
-            <TouchableOpacity>
+            <TouchableOpacity
+              onPress={onDeliveryFeeInfo}
+              disabled={!onDeliveryFeeInfo}
+              accessibilityLabel="What is the delivery fee?"
+              hitSlop={8}
+            >
               <Info size={14} color="#8A8A8A" />
             </TouchableOpacity>
           </View>
@@ -54,11 +74,16 @@ export function OrderSummary({
             {originalDeliveryFee && (
               <Text style={styles.originalFee}>{originalDeliveryFee}</Text>
             )}
+            {/* The charged amount, shown whenever it is not waived — without
+                this the row rendered nothing at all once the waiver ends. */}
+            {!isFreeDelivery && <Text style={styles.value}>{deliveryFee}</Text>}
           </View>
         </View>
 
         <View style={[styles.row, styles.totalRow]}>
-          <Text style={styles.totalLabel}>Delivery Fee</Text>
+          {/* Reads `Total`, not `Delivery Fee`: the row has always shown the
+              total, and the old label named the row above it. */}
+          <Text style={styles.totalLabel}>Total</Text>
           <Text style={styles.totalValue}>{total}</Text>
         </View>
       </View>

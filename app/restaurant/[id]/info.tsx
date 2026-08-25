@@ -1,40 +1,69 @@
-import { View, Text, StyleSheet, TouchableOpacity, Clipboard, Platform } from 'react-native';
-import { useRouter } from 'expo-router';
+import { ActivityIndicator, View, Text, StyleSheet, TouchableOpacity, Clipboard, Platform } from 'react-native';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { MapPin, Clock, ThumbsUp, TriangleAlert, Phone, Mail, Copy, ChevronDown, ArrowLeft } from 'lucide-react-native';
-import { Fonts } from '@/constants/theme';
+import { MapPin, Clock, TriangleAlert, Phone, Mail, Copy, ArrowLeft } from 'lucide-react-native';
+import { Fonts, Palette } from '@/constants/theme';
 import { MapPlaceholder } from '@/components/location/map-placeholder';
+import { QueryEmpty, QueryError } from '@/components/ui/query-state';
+import { useRestaurant } from '@/hooks/use-restaurants';
 import MapView, { Marker } from 'react-native-maps';
 
-const RESTAURANT_INFO = {
-  name: 'Tacoth',
-  categories: 'Tacos - Tacos Bowls',
-  address: 'RJW9+VMG, Avenue 14 Janvier, Sousse, Tunisia',
-  openUntil: 'Open Until 11:00 PM',
-  rating: '92% (1000+ ratings)',
-  phone: '+21671724000',
-  email: 'chokri.jammazi@gmail.com',
-  allergyNote: 'In case of possible alergies or other dietary restrictions, please contact the restaurant. The restaurant will provide food-specific information upon request.',
-  coordinates: { latitude: 35.8245, longitude: 10.6346 },
-};
+const ALLERGY_NOTE =
+  'In case of possible alergies or other dietary restrictions, please contact the restaurant. The restaurant will provide food-specific information upon request.';
 
 export default function RestaurantInfoModal() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { id: restaurantId } = useLocalSearchParams<{ id: string }>();
+
+  const { data: restaurant, isPending, error, refetch } = useRestaurant(restaurantId);
 
   const copyToClipboard = (text: string) => {
     Clipboard.setString(text);
   };
 
+  if (isPending) {
+    return (
+      <View style={[styles.container, styles.centered]}>
+        <ActivityIndicator size="large" color={Palette.primary} />
+      </View>
+    );
+  }
+
+  if (error) {
+    return (
+      <View style={[styles.container, styles.centered]}>
+        <QueryError error={error} onRetry={refetch} />
+      </View>
+    );
+  }
+
+  if (!restaurant) {
+    return (
+      <View style={[styles.container, styles.centered]}>
+        <QueryEmpty
+          title="Restaurant not found"
+          body="This restaurant is no longer available."
+        />
+      </View>
+    );
+  }
+
+  const address = restaurant.address?.formattedAddress;
+  const phone = restaurant.phones[0];
+  const { coordinates } = restaurant;
+
   return (
     <View style={styles.container}>
       <View style={styles.mapContainer}>
-        {Platform.OS !== 'web' ? (
+        {/* Without real coordinates a MapView would centre on 0,0 in the Gulf
+            of Guinea and plant a marker there — worse than no map at all. */}
+        {Platform.OS !== 'web' && coordinates ? (
           <MapView
             style={styles.map}
             initialRegion={{
-              latitude: RESTAURANT_INFO.coordinates.latitude,
-              longitude: RESTAURANT_INFO.coordinates.longitude,
+              latitude: coordinates.latitude,
+              longitude: coordinates.longitude,
               latitudeDelta: 0.005,
               longitudeDelta: 0.005,
             }}
@@ -43,10 +72,7 @@ export default function RestaurantInfoModal() {
             pitchEnabled={false}
             rotateEnabled={false}
           >
-            <Marker
-              coordinate={RESTAURANT_INFO.coordinates}
-              anchor={{ x: 0.5, y: 1 }}
-            >
+            <Marker coordinate={coordinates} anchor={{ x: 0.5, y: 1 }}>
               <View style={styles.markerContainer}>
                 <View style={styles.markerPin}>
                   <View style={styles.markerPinInner} />
@@ -68,53 +94,58 @@ export default function RestaurantInfoModal() {
 
       <View style={styles.sheet}>
         <View style={styles.handle} />
-        <Text style={styles.restaurantName}>{RESTAURANT_INFO.name}</Text>
-        <Text style={styles.categories}>{RESTAURANT_INFO.categories}</Text>
+        <Text style={styles.restaurantName}>{restaurant.name}</Text>
+        {restaurant.categories ? (
+          <Text style={styles.categories}>{restaurant.categories}</Text>
+        ) : null}
 
         <View style={styles.divider} />
 
-        <View style={styles.infoRow}>
-          <MapPin size={20} color="#8A8A8A" />
-          <Text style={styles.infoText}>{RESTAURANT_INFO.address}</Text>
-          <TouchableOpacity onPress={() => copyToClipboard(RESTAURANT_INFO.address)}>
-            <Copy size={18} color="#8A8A8A" />
-          </TouchableOpacity>
-        </View>
-
-        <View style={styles.infoRow}>
-          <Clock size={20} color="#8A8A8A" />
-          <Text style={styles.infoText}>{RESTAURANT_INFO.openUntil}</Text>
-          <ChevronDown size={18} color="#8A8A8A" />
-        </View>
-
-        <View style={styles.infoRow}>
-          <ThumbsUp size={20} color="#8A8A8A" />
-          <Text style={styles.infoText}>{RESTAURANT_INFO.rating}</Text>
-          <View style={styles.infoIcon}>
-            <Text style={styles.infoIconText}>i</Text>
+        {/* Each row renders only when the backend actually supplies it — the
+            rating row is gone entirely because no ratings service exists yet. */}
+        {address ? (
+          <View style={styles.infoRow}>
+            <MapPin size={20} color="#8A8A8A" />
+            <Text style={styles.infoText}>{address}</Text>
+            <TouchableOpacity onPress={() => copyToClipboard(address)}>
+              <Copy size={18} color="#8A8A8A" />
+            </TouchableOpacity>
           </View>
-        </View>
+        ) : null}
+
+        {restaurant.isOpen !== null ? (
+          <View style={styles.infoRow}>
+            <Clock size={20} color="#8A8A8A" />
+            <Text style={styles.infoText}>
+              {restaurant.isOpen ? 'Open now' : 'Closed now'}
+            </Text>
+          </View>
+        ) : null}
 
         <View style={[styles.infoRow, styles.allergyRow]}>
           <TriangleAlert size={20} color="#F5A623" />
-          <Text style={[styles.infoText, styles.allergyText]}>{RESTAURANT_INFO.allergyNote}</Text>
+          <Text style={[styles.infoText, styles.allergyText]}>{ALLERGY_NOTE}</Text>
         </View>
 
-        <View style={styles.infoRow}>
-          <Phone size={20} color="#8A8A8A" />
-          <Text style={styles.infoText}>{RESTAURANT_INFO.phone}</Text>
-          <TouchableOpacity onPress={() => copyToClipboard(RESTAURANT_INFO.phone)}>
-            <Copy size={18} color="#8A8A8A" />
-          </TouchableOpacity>
-        </View>
+        {phone ? (
+          <View style={styles.infoRow}>
+            <Phone size={20} color="#8A8A8A" />
+            <Text style={styles.infoText}>{phone}</Text>
+            <TouchableOpacity onPress={() => copyToClipboard(phone)}>
+              <Copy size={18} color="#8A8A8A" />
+            </TouchableOpacity>
+          </View>
+        ) : null}
 
-        <View style={styles.infoRow}>
-          <Mail size={20} color="#8A8A8A" />
-          <Text style={styles.infoText}>{RESTAURANT_INFO.email}</Text>
-          <TouchableOpacity onPress={() => copyToClipboard(RESTAURANT_INFO.email)}>
-            <Copy size={18} color="#8A8A8A" />
-          </TouchableOpacity>
-        </View>
+        {restaurant.email ? (
+          <View style={styles.infoRow}>
+            <Mail size={20} color="#8A8A8A" />
+            <Text style={styles.infoText}>{restaurant.email}</Text>
+            <TouchableOpacity onPress={() => copyToClipboard(restaurant.email!)}>
+              <Copy size={18} color="#8A8A8A" />
+            </TouchableOpacity>
+          </View>
+        ) : null}
 
         <View style={{ height: Math.max(insets.bottom, 16) }} />
       </View>
@@ -126,6 +157,10 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#FFFFFF',
+  },
+  centered: {
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   mapContainer: {
     height: '38%',
@@ -233,19 +268,5 @@ const styles = StyleSheet.create({
   allergyText: {
     color: '#444444',
     fontSize: 13,
-  },
-  infoIcon: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    borderWidth: 1.5,
-    borderColor: '#CCCCCC',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  infoIconText: {
-    fontSize: 12,
-    fontFamily: Fonts.bold,
-    color: '#8A8A8A',
   },
 });

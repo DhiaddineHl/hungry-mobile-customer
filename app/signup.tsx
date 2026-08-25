@@ -32,13 +32,14 @@ import { Duration, FontSize, Fonts, Palette, Radius, Shadows, Spacing } from '@/
 
 export default function SignupScreen() {
   const router = useRouter();
-  const { loginWithGoogle } = useAuth();
+  const { login, loginWithGoogle } = useAuth();
   const insets = useSafeAreaInsets();
   const registerCustomer = useRegisterCustomer();
   const [countryCode] = useState('+216');
   const [authError, setAuthError] = useState<string | null>(null);
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
-  const isSubmitting = registerCustomer.isPending;
+  const [isSigningIn, setIsSigningIn] = useState(false);
+  const isSubmitting = registerCustomer.isPending || isSigningIn;
 
   const wasCancelled = (error?: string) => !!error && error.toLowerCase().includes('cancel');
 
@@ -70,12 +71,32 @@ export default function SignupScreen() {
         password: data.password,
         phoneNumber: `${countryCode}${data.phoneNumber}`,
       });
-      // Account created — walk the new user through location onboarding.
+      // Sign in immediately: the onboarding that follows saves the address via
+      // GET /customers/by-account + PUT /customers, both of which the gateway
+      // rejects with 401 without a token. POST /customers above is the only
+      // endpoint it lets through unauthenticated.
+      setIsSigningIn(true);
+      const loginResult = await login(data.email, data.password);
+      if (!loginResult.success) {
+        // The account exists — only the session failed (a realm that requires
+        // email verification will refuse the password grant here). Keep the
+        // user on this screen; the "Already have an account?" link below is
+        // their way forward once they can sign in.
+        setAuthError(
+          loginResult.error ??
+            'Your account was created, but we could not sign you in. Please log in to continue.'
+        );
+        return;
+      }
+      // Account created and signed in — walk the new user through location
+      // onboarding.
       router.replace('/location');
     } catch (error) {
       setAuthError(
         error instanceof Error ? error.message : 'An unexpected error occurred. Please try again.'
       );
+    } finally {
+      setIsSigningIn(false);
     }
   };
 
