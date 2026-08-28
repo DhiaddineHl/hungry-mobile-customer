@@ -91,13 +91,18 @@ export const cartKeys = {
 /**
  * Order cache entries, in the same shape as the four factories above.
  *
- * There is deliberately **no `list`**: every filter on `/orders/all` is either
- * a 500 or silently ignored (see `services/api/order-service.ts`), so there is
- * no way to ask for one customer's orders. A `lists()` handle here would be an
- * invalidation target for a query that cannot exist.
+ * `list` is keyed by the CUSTOMER even though the server cannot filter by one:
+ * every filter on `/orders/all` is a 500 or is silently ignored, so
+ * `fetchCustomerOrders` pages the list and narrows it on the device (see
+ * `services/api/order-service.ts`). The key still has to carry the customer —
+ * the cached result is one customer's orders, and re-using it across accounts
+ * would show the previous customer's history to the next one.
  */
 export const orderKeys = {
   all: ['orders'] as const,
+  lists: () => [...orderKeys.all, 'list'] as const,
+  /** Keyed by the backend `Customer.id` UUID — never the Keycloak `sub`. */
+  list: (customerId: string) => [...orderKeys.lists(), customerId] as const,
   details: () => [...orderKeys.all, 'detail'] as const,
   /** Keyed by the order's UUID — the backend resolves by id only, never by code. */
   detail: (id: string) => [...orderKeys.details(), id] as const,

@@ -106,6 +106,10 @@ function RootNavigator() {
         />
         <Stack.Screen name="cart/[id]" options={{ animation: "slide_from_bottom" }} />
         <Stack.Screen name="order-details/[id]" />
+        {/* My Orders and one placed order — both slide in like the rest of
+            the push stack. */}
+        <Stack.Screen name="orders/index" />
+        <Stack.Screen name="orders/[id]" />
         <Stack.Screen
           name="modal"
           options={{ presentation: "modal", title: "Modal" }}

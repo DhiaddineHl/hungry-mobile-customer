@@ -2,8 +2,10 @@ import type { OrderInput } from '@/schemas/order';
 import { ApiError, apiClient } from '@/services/api/client';
 import {
   createOrder,
+  fetchCustomerOrders,
   fetchOrderById,
   isUuid,
+  MAX_ORDER_PAGES,
 } from '@/services/api/order-service';
 
 jest.mock('@/services/api/client', () => {
@@ -78,8 +80,81 @@ function order(overrides: Record<string, unknown> = {}) {
   };
 }
 
+function page(
+  content: Record<string, unknown>[],
+  { last = true }: { last?: boolean } = {}
+) {
+  return { content, number: 0, totalPages: 1, totalElements: content.length, last };
+}
+
 beforeEach(() => {
   jest.clearAllMocks();
+});
+
+describe('fetchCustomerOrders', () => {
+  const OTHER_CUSTOMER = 'd4d4d4d4-2222-3333-4444-555555555555';
+
+  it('drops orders belonging to other customers', async () => {
+    // `/orders/all` is not scoped to the caller and no filter on it works, so
+    // the response genuinely contains other people's rows.
+    mockedGet.mockResolvedValueOnce({
+      data: page(
+        [
+          order({ id: ORDER_ID }),
+          order({ id: 'f0f0f0f0-1111-2222-3333-444444444444', customerId: OTHER_CUSTOMER }),
+        ],
+        { last: true }
+      ),
+    });
+
+    const orders = await fetchCustomerOrders(CUSTOMER_ID);
+
+    expect(orders.map((o) => o.id)).toEqual([ORDER_ID]);
+  });
+
+  it('keeps paging while the server says there are more pages', async () => {
+    mockedGet
+      .mockResolvedValueOnce({ data: page([order({ id: ORDER_ID })], { last: false }) })
+      .mockResolvedValueOnce({
+        data: page([order({ id: '11111111-2222-3333-4444-555555555555' })], {
+          last: true,
+        }),
+      });
+
+    const orders = await fetchCustomerOrders(CUSTOMER_ID);
+
+    expect(mockedGet).toHaveBeenCalledTimes(2);
+    expect(orders).toHaveLength(2);
+    expect(mockedGet.mock.calls[1][1]?.params).toMatchObject({ page: 1 });
+  });
+
+  it('stops at the page cap instead of crawling an unbounded table', async () => {
+    mockedGet.mockResolvedValue({
+      data: page([order({ customerId: OTHER_CUSTOMER })], { last: false }),
+    });
+
+    const orders = await fetchCustomerOrders(CUSTOMER_ID);
+
+    expect(mockedGet).toHaveBeenCalledTimes(MAX_ORDER_PAGES);
+    expect(orders).toEqual([]);
+  });
+
+  it('asks for the newest orders first', async () => {
+    mockedGet.mockResolvedValueOnce({ data: page([], { last: true }) });
+
+    await fetchCustomerOrders(CUSTOMER_ID);
+
+    const params = mockedGet.mock.calls[0][1]?.params as { sort: string };
+    expect(JSON.parse(params.sort)).toEqual([
+      { field: 'createdAt', direction: 'DESC' },
+    ]);
+  });
+
+  it('throws when a page does not parse, rather than returning half a history', async () => {
+    mockedGet.mockResolvedValueOnce({ data: page([order({ id: 42 })], { last: true }) });
+
+    await expect(fetchCustomerOrders(CUSTOMER_ID)).rejects.toThrow(ApiError);
+  });
 });
 
 describe('isUuid', () => {
@@ -191,7 +266,7 @@ describe('forbidden calls', () => {
     expect(mockedPut).not.toHaveBeenCalled();
   });
 
-  it('never requests /orders/all, and never emits a broken filter key', async () => {
+  it('reads one order by id without touching the list endpoint', async () => {
     mockedPost.mockResolvedValueOnce({ data: order() });
     mockedGet.mockResolvedValueOnce({ data: order() });
 
@@ -204,10 +279,21 @@ describe('forbidden calls', () => {
     ]);
 
     expect(requested).not.toContain('/orders/all');
-    // `restaurantIds`/`customerIds` answer 500; `statuses` compares an ORDINAL
-    // enum to a String; `ids`/`codes`/`names` are silently ignored.
-    for (const key of ['restaurantIds', 'customerIds', 'statuses', 'filter']) {
+    expect(requested).not.toContain('filter');
+  });
+
+  it('never emits a filter key that the backend answers 500 to', async () => {
+    mockedGet.mockResolvedValueOnce({ data: page([order()], { last: true }) });
+
+    await fetchCustomerOrders(CUSTOMER_ID);
+
+    const requested = JSON.stringify(mockedGet.mock.calls);
+
+    // `restaurantIds`/`customerIds` answer 500 and `statuses` compares a bare
+    // ORDINAL enum to a String. Only `codes` — ignored, never fatal — is sent.
+    for (const key of ['restaurantIds', 'customerIds', 'statuses']) {
       expect(requested).not.toContain(key);
     }
+    expect(requested).toContain('codes');
   });
 });

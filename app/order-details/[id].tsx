@@ -161,7 +161,9 @@ export default function OrderDetailsScreen() {
       {
         // The cart is cleared inside the mutation's own `onSuccess`, never
         // here: it must happen whether or not this screen is still mounted.
-        onSuccess: () => router.replace('/(tabs)/cart'),
+        // The customer lands on My Orders, where the order they just placed is
+        // now the top card — the emptied cart would show them nothing.
+        onSuccess: () => router.replace('/orders'),
         onError: () => setFailed(true),
       }
     );

@@ -2,7 +2,10 @@ import {
   ORDER_CODE_PREFIX,
   buildOrderComment,
   checkoutBlockers,
+  customerOrderCodePrefix,
   orderCodeFor,
+  parseOrderComment,
+  parseOrderCodeCustomerId,
   toOrderInput,
 } from '@/services/api/order-view-model';
 import type { BackendAddress } from '@/services/api/types';
@@ -276,5 +279,55 @@ describe('checkoutBlockers', () => {
       'no-restaurant',
       'empty-cart',
     ]);
+  });
+});
+
+describe('customerOrderCodePrefix', () => {
+  it('ends on the separator so one customer id cannot match a longer one', () => {
+    // `SpecificationUtils` renders LIKE as `%value%` — a substring match.
+    expect(customerOrderCodePrefix(CUSTOMER_ID)).toBe(
+      `${ORDER_CODE_PREFIX}:${CUSTOMER_ID}:`
+    );
+  });
+});
+
+describe('parseOrderCodeCustomerId', () => {
+  it('reads the customer id back out of a code this app minted', () => {
+    const code = orderCodeFor(CUSTOMER_ID, RESTAURANT_ID, 1756000000000);
+    expect(parseOrderCodeCustomerId(code)).toBe(CUSTOMER_ID);
+  });
+
+  it('returns null for anything this app did not write', () => {
+    // `/orders/all` returns rows written by other clients; they must be
+    // skipped, never mis-attributed.
+    expect(parseOrderCodeCustomerId('hc:someone:else')).toBeNull();
+    expect(parseOrderCodeCustomerId('ho:truncated')).toBeNull();
+    expect(parseOrderCodeCustomerId(null)).toBeNull();
+  });
+});
+
+describe('parseOrderComment', () => {
+  it('round-trips what buildOrderComment wrote', () => {
+    const parsed = parseOrderComment(buildOrderComment('cash', 'Ring twice'));
+    expect(parsed).toEqual({ payment: 'Cash', note: 'Ring twice' });
+  });
+
+  it('reads a payment-only comment', () => {
+    expect(parseOrderComment(buildOrderComment('bank'))).toEqual({
+      payment: 'Bank',
+      note: null,
+    });
+  });
+
+  it('treats a comment written by anything else as a plain note', () => {
+    // Never present a foreign comment as a payment the customer chose.
+    expect(parseOrderComment('Leave at the door')).toEqual({
+      payment: null,
+      note: 'Leave at the door',
+    });
+  });
+
+  it('is empty for no comment at all', () => {
+    expect(parseOrderComment(null)).toEqual({ payment: null, note: null });
   });
 });

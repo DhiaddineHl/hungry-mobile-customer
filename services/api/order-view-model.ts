@@ -48,6 +48,38 @@ export function orderCodeFor(
   );
 }
 
+/**
+ * The `LIKE` needle matching every order of one customer.
+ *
+ * Mirrors `customerCartCodePrefix`: `SpecificationUtils` renders `LIKE` as
+ * `%value%`, and customer ids are UUIDs, so the trailing separator keeps the
+ * prefix from colliding with a longer id.
+ *
+ * The order list endpoint IGNORES this filter today — `OrderSpecificationPopulator`
+ * never copies `codes` (plan §3.5) — so `fetchCustomerOrders` filters the
+ * response by `customerId` as well. It is sent anyway because it costs nothing
+ * and narrows the query the day that populator is fixed.
+ */
+export function customerOrderCodePrefix(customerId: string): string {
+  return [ORDER_CODE_PREFIX, customerId, ''].join(SEPARATOR);
+}
+
+/**
+ * The customer id encoded in an order `code`, or `null` when the code was not
+ * written by this app.
+ *
+ * Never throws: `/orders/all` returns rows this app did not write, and an
+ * unrecognised code must be skipped rather than mis-attributed.
+ */
+export function parseOrderCodeCustomerId(
+  code: string | null | undefined
+): string | null {
+  if (!code) return null;
+  const parts = code.split(SEPARATOR);
+  if (parts.length < 4 || parts[0] !== ORDER_CODE_PREFIX) return null;
+  return parts[1] || null;
+}
+
 // --- The order comment ---------------------------------------------------
 
 /**
@@ -70,6 +102,28 @@ export function buildOrderComment(
   const note = cartComment?.trim();
 
   return note ? `${payment}\n${note}` : payment;
+}
+
+/**
+ * The two halves of an order `comment` written by {@link buildOrderComment}.
+ *
+ * Reading it back is how the order screens show a payment method at all: there
+ * is no payment column anywhere in the backend (plan §3.3), so the comment this
+ * app wrote is the only record of what the customer chose. A comment written by
+ * anything else parses as a plain note, never as a payment claim.
+ */
+export function parseOrderComment(comment: string | null | undefined): {
+  payment: string | null;
+  note: string | null;
+} {
+  if (!comment) return { payment: null, note: null };
+
+  const [first, ...rest] = comment.split('\n');
+  const match = /^Payment:\s*(.+)$/.exec(first.trim());
+  if (!match) return { payment: null, note: comment.trim() || null };
+
+  const note = rest.join('\n').trim();
+  return { payment: match[1].trim(), note: note || null };
 }
 
 // --- Mapping local lines to a payload -----------------------------------

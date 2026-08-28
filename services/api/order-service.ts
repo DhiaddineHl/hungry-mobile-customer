@@ -1,3 +1,4 @@
+import { pageSchema } from '@/schemas/page';
 import {
   orderOutputSchema,
   type OrderInput,
@@ -5,6 +6,7 @@ import {
 } from '@/schemas/order';
 import { z } from 'zod';
 import { ApiError, apiClient, isApiError } from './client';
+import { customerOrderCodePrefix } from './order-view-model';
 
 /**
  * Order reads and writes against the gateway.
@@ -29,9 +31,11 @@ import { ApiError, apiClient, isApiError } from './client';
  *      status key compares a bare ORDINAL enum to a String, and the id, code
  *      and name keys are silently dropped by `OrderSpecificationPopulator` — a
  *      200 with UNFILTERED results, which is worse than an error. Plan §3.5
- *      names all of them exactly. This module never calls that endpoint and
- *      declares no filter type that could express one, which is also why
- *      `orderKeys` has no `list`.
+ *      names all of them exactly. {@link fetchCustomerOrders} therefore reads
+ *      the list endpoint WITHOUT relying on any of them: it emits only the
+ *      harmless `codes` key (ignored today, correct the day it is fixed) and
+ *      narrows the response to one customer on the device, exactly as
+ *      `fetchCustomerCarts` does for the identically broken cart filter.
  *   3. **A missing or malformed id answers 500, not 404 or 400.**
  *      `DefaultCrudRepository.find` is `findById(...).orElseThrow()` and no
  *      exception handler is registered.
@@ -46,6 +50,40 @@ import { ApiError, apiClient, isApiError } from './client';
  */
 
 const ORDERS = '/orders';
+
+const orderPageSchema = pageSchema(orderOutputSchema);
+
+/**
+ * Rows per page when walking the order list.
+ *
+ * Large on purpose: the customer filter is applied on the device, so a page is
+ * a slice of EVERY customer's orders and a small page could contain none of
+ * this customer's. Bounded by {@link MAX_ORDER_PAGES} so a big table can never
+ * turn one screen into an unbounded crawl.
+ */
+export const ORDER_LIST_PAGE_SIZE = 50;
+
+/** How many pages `fetchCustomerOrders` will walk before giving up. */
+export const MAX_ORDER_PAGES = 5;
+
+/**
+ * Entity properties the backend can sort orders by. A closed union, like
+ * `RestaurantSortField`: an unknown sort field answers 500.
+ */
+export type OrderSortField = 'createdAt' | 'modifiedAt' | 'code';
+
+/**
+ * The only filter shape this module emits.
+ *
+ * `codes` is the sole key, and it is currently a NO-OP: `OrderSpecificationPopulator`
+ * never copies it (plan §3.5). It is still sent because it cannot fail — the
+ * request succeeds either way — and it becomes a real server-side narrowing the
+ * day the populator is fixed. `customerIds` and `statuses` are deliberately not
+ * expressible here: both answer 500, and the type is the guard.
+ */
+interface OrderFilter {
+  codes: { operator: 'LIKE'; fieldValue: string; fieldType: 'STRING' }[];
+}
 
 /** Turns a zod failure into an ApiError naming the offending field path. */
 function parseOrThrow<T extends z.ZodType>(
@@ -140,4 +178,62 @@ export async function fetchOrderById(id: string): Promise<OrderOutput | null> {
     if (isApiError(error, 500)) return null;
     throw error;
   }
+}
+
+/**
+ * Every order belonging to one customer, newest first.
+ *
+ * **The list endpoint returns other customers' orders**, because no filter on
+ * it works and the backend enforces no ownership anywhere in the request path.
+ * The `customerId` pass below is what makes the result correct — it is *query
+ * correctness, not a security measure*, the same wording and the same trade as
+ * `fetchCustomerCarts`. The real fix belongs in `OrderSpecificationPopulator`.
+ *
+ * Walking pages is likewise forced by that: sorted newest-first, this
+ * customer's orders can sit anywhere in a table shared with every other
+ * customer, so the reader keeps paging until it runs out of pages or hits
+ * {@link MAX_ORDER_PAGES}. A page that fails to parse throws — a half-read
+ * order history is worse than a visible error.
+ *
+ * Note what an order read back does NOT carry: its `items` can come back empty
+ * even when the create response showed them, because the backend never sets the
+ * `order_item.order_id` back-reference (plan §2.2). Callers must present that as
+ * "no line detail available", never as "an order with no items".
+ */
+export async function fetchCustomerOrders(
+  customerId: string,
+  params: { sort?: OrderSortField; maxPages?: number } = {}
+): Promise<OrderOutput[]> {
+  const { sort = 'createdAt', maxPages = MAX_ORDER_PAGES } = params;
+
+  const filter: OrderFilter = {
+    codes: [
+      {
+        operator: 'LIKE',
+        fieldValue: customerOrderCodePrefix(customerId),
+        fieldType: 'STRING',
+      },
+    ],
+  };
+
+  const mine: OrderOutput[] = [];
+
+  for (let page = 0; page < maxPages; page += 1) {
+    const { data } = await apiClient.get(`${ORDERS}/all`, {
+      params: {
+        page,
+        size: ORDER_LIST_PAGE_SIZE,
+        filter: JSON.stringify(filter),
+        sort: JSON.stringify([{ field: sort, direction: 'DESC' }]),
+      },
+    });
+
+    const parsed = parseOrThrow(orderPageSchema, data, 'order list');
+
+    mine.push(...parsed.content.filter((order) => order.customerId === customerId));
+
+    if (parsed.last !== false || parsed.content.length === 0) break;
+  }
+
+  return mine;
 }

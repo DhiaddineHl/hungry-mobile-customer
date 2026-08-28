@@ -260,3 +260,14 @@ export function groupByRestaurant(items: CartLine[]): RestaurantCartGroup[] {
 export function formatDT(value: number): string {
   return value.toFixed(2).replace(".", ",") + " DT";
 }
+
+/**
+ * Total number of units across every line — what the tab-bar badge shows.
+ *
+ * Counts quantities rather than lines so bumping a dish from 1 to 2 moves the
+ * badge, and returns a primitive so subscribers only re-render when the number
+ * itself changes.
+ */
+export function selectCartItemCount(state: Pick<CartState, "items">): number {
+  return state.items.reduce((total, item) => total + item.quantity, 0);
+}

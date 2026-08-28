@@ -28,7 +28,7 @@ export default function CartScreen() {
   const toImageSource = useStoredImageSource();
 
   const handleOrdersPress = () => {
-    console.log('Orders pressed');
+    router.push('/orders');
   };
 
   return (
