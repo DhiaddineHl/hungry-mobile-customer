@@ -10,7 +10,6 @@ import {
   PopularRestaurants,
   OpenRestaurants,
 } from '@/components/home';
-import { AnimatedEntrance } from '@/components/ui/animated-entrance';
 import { useRestaurants } from '@/hooks/use-restaurants';
 
 export default function HomeScreen() {
@@ -74,43 +73,30 @@ export default function HomeScreen() {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
       >
-        <AnimatedEntrance index={0} variant="fade">
-          <SearchBar
-            placeholder="Search the menu"
-            onChangeText={handleSearch}
-          />
-        </AnimatedEntrance>
-        <AnimatedEntrance index={1}>
-          <CategoriesSlider
-            onCategoryPress={handleCategoryPress}
-            onSeeAllPress={handleSeeAllCategories}
-          />
-        </AnimatedEntrance>
-        <AnimatedEntrance index={2}>
-          <FiltersSlider
-            selectedFilters={selectedFilters}
-            onFilterPress={handleFilterPress}
-          />
-        </AnimatedEntrance>
-        <AnimatedEntrance index={3}>
-          <PopularRestaurants
-            restaurants={restaurants ?? []}
-            isLoading={isPending}
-            error={error}
-            onRetry={refetch}
-            onRestaurantPress={handlePopularRestaurantPress}
-          />
-        </AnimatedEntrance>
-        <AnimatedEntrance index={4}>
-          <OpenRestaurants
-            restaurants={restaurants ?? []}
-            isLoading={isPending}
-            error={error}
-            onRetry={refetch}
-            onRestaurantPress={handleRestaurantPress}
-            onSeeAllPress={handleSeeAllRestaurants}
-          />
-        </AnimatedEntrance>
+        <SearchBar placeholder="Search the menu" onChangeText={handleSearch} />
+        <CategoriesSlider
+          onCategoryPress={handleCategoryPress}
+          onSeeAllPress={handleSeeAllCategories}
+        />
+        <FiltersSlider
+          selectedFilters={selectedFilters}
+          onFilterPress={handleFilterPress}
+        />
+        <PopularRestaurants
+          restaurants={restaurants ?? []}
+          isLoading={isPending}
+          error={error}
+          onRetry={refetch}
+          onRestaurantPress={handlePopularRestaurantPress}
+        />
+        <OpenRestaurants
+          restaurants={restaurants ?? []}
+          isLoading={isPending}
+          error={error}
+          onRetry={refetch}
+          onRestaurantPress={handleRestaurantPress}
+          onSeeAllPress={handleSeeAllRestaurants}
+        />
       </ScrollView>
     </View>
   );

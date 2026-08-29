@@ -1,14 +1,16 @@
-import { AuthProvider, useAuth } from "@/contexts/auth-context";
 import { Palette } from "@/constants/theme";
+import { AuthProvider, useAuth } from "@/contexts/auth-context";
 import { useFrameworkReady } from "@/hooks/useFrameworkReady";
+import { useCurrentCustomer } from "@/hooks/use-delivery-address";
+import { hasDeliveryAddress } from "@/services/api/customer-service";
 import { queryClient, wireAppFocus } from "@/services/api/query-client";
-import { QueryClientProvider } from "@tanstack/react-query";
 import {
   Poppins_400Regular,
   Poppins_500Medium,
   Poppins_600SemiBold,
   Poppins_700Bold,
 } from "@expo-google-fonts/poppins";
+import { QueryClientProvider } from "@tanstack/react-query";
 import { useFonts } from "expo-font";
 import {
   DefaultTheme,
@@ -32,15 +34,20 @@ export const unstable_settings = {
 function RootNavigator() {
   const router = useRouter();
   const segments = useSegments();
-  const { isAuthenticated, isLoading } = useAuth();
+  const { isAuthenticated, isLoading, isCustomerResolved } = useAuth();
+  const { data: customer } = useCurrentCustomer();
 
   useEffect(() => {
     if (isLoading) return;
 
+    // "auth" is the OAuth deep-link landing group (app/auth/callback.tsx). It
+    // belongs here so an unauthenticated arrival is not bounced to /login while
+    // the token exchange is still in flight.
     const inAuthGroup =
       segments[0] === "login" ||
       segments[0] === "signup" ||
-      segments[0] === "verification";
+      segments[0] === "verification" ||
+      segments[0] === "auth";
 
     // Post-sign-up onboarding screens are reachable before the user has a
     // session (sign up → location → map → address → login), so they must not
@@ -50,12 +57,32 @@ function RootNavigator() {
       segments[0] === "map-select" ||
       segments[0] === "address-info";
 
+    // An account with a valid session but nowhere to deliver to is held in the
+    // address onboarding — it outranks the rules below. This is keyed off the
+    // customer record rather than a local flag so it covers every way in:
+    // in-app registration, password login, and a Google sign-in (whose record
+    // the app creates itself, addressless, right after the token exchange).
+    if (isAuthenticated) {
+      // Route nothing until the record is known, or a new account flashes the
+      // tabs on its way to the onboarding.
+      if (!isCustomerResolved) return;
+      // A null record means the lookup finished and found none (or its
+      // creation failed). Sending the user to an onboarding that has nothing
+      // to save against would strand them, so let them through instead.
+      if (customer && !hasDeliveryAddress(customer)) {
+        if (!inOnboarding) {
+          router.replace("/location");
+        }
+        return;
+      }
+    }
+
     if (isAuthenticated && inAuthGroup) {
       router.replace("/(tabs)");
     } else if (!isAuthenticated && !inAuthGroup && !inOnboarding) {
       router.replace("/login");
     }
-  }, [isAuthenticated, isLoading, segments]);
+  }, [isAuthenticated, isLoading, segments, isCustomerResolved, customer]);
 
   return (
     <>
@@ -74,17 +101,39 @@ function RootNavigator() {
             navy so the fade never flashes white behind the backdrop. */}
         <Stack.Screen
           name="login"
-          options={{ animation: "fade", contentStyle: { backgroundColor: Palette.navy } }}
+          options={{
+            animation: "fade",
+            contentStyle: { backgroundColor: Palette.navy },
+          }}
         />
         <Stack.Screen
           name="signup"
-          options={{ animation: "fade", contentStyle: { backgroundColor: Palette.navy } }}
+          options={{
+            animation: "fade",
+            contentStyle: { backgroundColor: Palette.navy },
+          }}
         />
         <Stack.Screen name="verification" options={{ animation: "fade" }} />
-        <Stack.Screen name="account-settings" options={{ animation: "slide_from_right" }} />
+        <Stack.Screen
+          name="auth/callback"
+          options={{
+            animation: "fade",
+            contentStyle: { backgroundColor: Palette.navy },
+          }}
+        />
+        <Stack.Screen
+          name="account-settings"
+          options={{ animation: "slide_from_right" }}
+        />
         <Stack.Screen name="location" />
-        <Stack.Screen name="map-select" options={{ animation: "slide_from_bottom" }} />
-        <Stack.Screen name="address-info" options={{ animation: "slide_from_bottom" }} />
+        <Stack.Screen
+          name="map-select"
+          options={{ animation: "slide_from_bottom" }}
+        />
+        <Stack.Screen
+          name="address-info"
+          options={{ animation: "slide_from_bottom" }}
+        />
         {/* Restaurant details slide in from the side. */}
         <Stack.Screen
           name="restaurant/[id]/index"
@@ -104,7 +153,10 @@ function RootNavigator() {
             gestureDirection: "vertical",
           }}
         />
-        <Stack.Screen name="cart/[id]" options={{ animation: "slide_from_bottom" }} />
+        <Stack.Screen
+          name="cart/[id]"
+          options={{ animation: "slide_from_bottom" }}
+        />
         <Stack.Screen name="order-details/[id]" />
         {/* My Orders and one placed order — both slide in like the rest of
             the push stack. */}

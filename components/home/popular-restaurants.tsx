@@ -1,4 +1,3 @@
-import { AnimatedEntrance } from "@/components/ui/animated-entrance";
 import { PressableScale } from "@/components/ui/pressable-scale";
 import { QueryError } from "@/components/ui/query-state";
 import { Fonts, FontSize, Palette, Radius, Spacing } from "@/constants/theme";
@@ -69,31 +68,30 @@ export function PopularRestaurants({
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.scrollContent}
         >
-          {popular.map((restaurant, index) => (
-            <AnimatedEntrance key={restaurant.id} index={index} delay={80}>
-              <PressableScale
-                style={styles.restaurantItem}
-                onPress={() => onRestaurantPress?.(restaurant.id)}
-                scaleTo={0.94}
-                accessibilityLabel={restaurant.name}
-              >
-                <View style={styles.imageContainer}>
-                  <Image
-                    source={imageSource(restaurant.logoUrl ?? restaurant.bannerImage)}
-                    style={styles.restaurantImage}
-                    contentFit="cover"
-                  />
-                </View>
-                <Text style={styles.restaurantName} numberOfLines={1}>
-                  {restaurant.name}
+          {popular.map((restaurant) => (
+            <PressableScale
+              key={restaurant.id}
+              style={styles.restaurantItem}
+              onPress={() => onRestaurantPress?.(restaurant.id)}
+              scaleTo={0.94}
+              accessibilityLabel={restaurant.name}
+            >
+              <View style={styles.imageContainer}>
+                <Image
+                  source={imageSource(restaurant.logoUrl ?? restaurant.bannerImage)}
+                  style={styles.restaurantImage}
+                  contentFit="cover"
+                />
+              </View>
+              <Text style={styles.restaurantName} numberOfLines={1}>
+                {restaurant.name}
+              </Text>
+              {restaurant.categories ? (
+                <Text style={styles.restaurantSubtitle} numberOfLines={1}>
+                  {restaurant.categories}
                 </Text>
-                {restaurant.categories ? (
-                  <Text style={styles.restaurantSubtitle} numberOfLines={1}>
-                    {restaurant.categories}
-                  </Text>
-                ) : null}
-              </PressableScale>
-            </AnimatedEntrance>
+              ) : null}
+            </PressableScale>
           ))}
         </ScrollView>
       )}

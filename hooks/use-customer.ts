@@ -1,5 +1,6 @@
 import { isApiError } from '@/services/api/client';
 import {
+  createCustomerForAccount,
   CustomerRegistration,
   getCustomerByAccount,
   registerCustomer,
@@ -10,7 +11,7 @@ import { customerKeys } from '@/services/api/query-keys';
 import { Customer, CustomerInput } from '@/services/api/types';
 import { useCustomerStore } from '@/store/customer-store';
 import { AddressData } from '@/types/location';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { QueryClient, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 /**
  * Shared query options for the customer-by-account fetch. Colocated so both
@@ -33,6 +34,30 @@ export function customerQueryOptions(keycloakUserId: string | null | undefined) 
     // Profile data rarely changes outside this device's own mutations.
     staleTime: 5 * 60 * 1000,
   };
+}
+
+/**
+ * Guarantees the logged-in account has a customer record, and seeds the cache
+ * with it.
+ *
+ * Accounts created by in-app signup already have one (the backend writes both
+ * in a single transaction). Accounts created by Keycloak itself — a Google
+ * sign-in, brokered by Keycloak — do not: nothing ever called `POST
+ * /customers` for them, and it would answer 409 if it did, because that
+ * endpoint always provisions a new Keycloak user. `POST /customers/me` fills
+ * that gap and is idempotent, so this is safe to run after every login and
+ * session restore, including for accounts that predate it.
+ */
+export async function ensureCustomerForAccount(
+  queryClient: QueryClient,
+  keycloakUserId: string
+): Promise<Customer | null> {
+  const existing = await queryClient.fetchQuery(customerQueryOptions(keycloakUserId));
+  if (existing) return existing;
+
+  const created = await createCustomerForAccount();
+  queryClient.setQueryData(customerKeys.detail(keycloakUserId), created);
+  return created;
 }
 
 /**

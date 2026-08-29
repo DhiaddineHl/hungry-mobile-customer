@@ -3,7 +3,6 @@ import {
   CompletedOrderCard,
   OrderTabSwitch,
 } from '@/components/order';
-import { AnimatedEntrance } from '@/components/ui/animated-entrance';
 import { QueryState } from '@/components/ui/query-state';
 import { Fonts, FontSize, Palette, Radius, Spacing } from '@/constants/theme';
 import { useCustomerOrders } from '@/hooks/use-customer-orders';
@@ -93,26 +92,26 @@ export default function MyOrdersScreen() {
           }
           onRetry={refetch}
         >
-          {orders.map((order, index) => (
-            <AnimatedEntrance key={order.id} index={index}>
-              {tab === 'active' ? (
-                <ActiveOrderCard
-                  order={order}
-                  onPress={() => router.push(`/orders/${order.id}`)}
-                />
-              ) : (
-                <CompletedOrderCard
-                  order={order}
-                  onPress={() => router.push(`/orders/${order.id}`)}
-                  onOrderAgain={() =>
-                    order.restaurantId
-                      ? router.push(`/restaurant/${order.restaurantId}`)
-                      : router.push('/(tabs)')
-                  }
-                />
-              )}
-            </AnimatedEntrance>
-          ))}
+          {orders.map((order) =>
+            tab === 'active' ? (
+              <ActiveOrderCard
+                key={order.id}
+                order={order}
+                onPress={() => router.push(`/orders/${order.id}`)}
+              />
+            ) : (
+              <CompletedOrderCard
+                key={order.id}
+                order={order}
+                onPress={() => router.push(`/orders/${order.id}`)}
+                onOrderAgain={() =>
+                  order.restaurantId
+                    ? router.push(`/restaurant/${order.restaurantId}`)
+                    : router.push('/(tabs)')
+                }
+              />
+            )
+          )}
         </QueryState>
       </ScrollView>
     </View>

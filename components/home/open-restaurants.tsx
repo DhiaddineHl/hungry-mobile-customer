@@ -1,5 +1,4 @@
 import { RestaurantListSkeleton } from "@/components/home/restaurant-card-skeleton";
-import { AnimatedEntrance } from "@/components/ui/animated-entrance";
 import { QueryState } from "@/components/ui/query-state";
 import { Fonts, FontSize, Palette, Radius, Spacing } from "@/constants/theme";
 import { useRestaurantImageSource } from "@/hooks/use-restaurant-image";
@@ -217,13 +216,12 @@ export function OpenRestaurants({
         onRetry={onRetry}
       >
         <View style={styles.restaurantsList}>
-          {restaurants.map((restaurant, index) => (
-            <AnimatedEntrance key={restaurant.id} index={index} delay={120}>
-              <RestaurantCard
-                restaurant={restaurant}
-                onPress={() => onRestaurantPress?.(restaurant.id)}
-              />
-            </AnimatedEntrance>
+          {restaurants.map((restaurant) => (
+            <RestaurantCard
+              key={restaurant.id}
+              restaurant={restaurant}
+              onPress={() => onRestaurantPress?.(restaurant.id)}
+            />
           ))}
         </View>
       </QueryState>

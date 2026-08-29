@@ -10,7 +10,7 @@ import {
 } from '@/services/keycloak/auth-service';
 import { keycloakConfig } from '@/services/keycloak/config';
 import { clearTokens, getTokens } from '@/services/keycloak/token-storage';
-import { customerQueryOptions } from '@/hooks/use-customer';
+import { ensureCustomerForAccount } from '@/hooks/use-customer';
 import { useCustomerStore } from '@/store/customer-store';
 import { useDeliveryAddressStore } from '@/store/delivery-address-store';
 import { useQueryClient } from '@tanstack/react-query';
@@ -24,6 +24,17 @@ interface AuthState {
 }
 
 interface AuthContextValue extends AuthState {
+  /**
+   * Whether the customer record behind the current session has been resolved
+   * (read from the backend, or created for an account the app never
+   * registered — see `ensureCustomerForAccount`). The router waits on this
+   * before choosing between the app and the address onboarding, so a new
+   * account never flashes the tabs on its way to picking an address.
+   *
+   * `true` with no record simply means the lookup finished and there is none;
+   * the router treats that as "cannot decide" and lets the user through.
+   */
+  isCustomerResolved: boolean;
   login: (email: string, password: string) => Promise<AuthResult>;
   // Registration moved to the backend: the signup screen calls
   // useRegisterCustomer (hooks/use-customer.ts), and the backend provisions
@@ -75,6 +86,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     isLoading: !BYPASS_AUTH,
     user: BYPASS_AUTH ? GUEST_USER : null,
   });
+  const [isCustomerResolved, setIsCustomerResolved] = useState(BYPASS_AUTH);
 
   const redirectUri = AuthSession.makeRedirectUri({
     scheme: 'hungrycustomer',
@@ -87,12 +99,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   console.log('[Auth] OAuth redirect_uri =', redirectUri);
 
   // Browser-based Authorization Code + PKCE flow, jumping straight to Google.
+  //
+  // `prompt=login` stops Keycloak from silently resuming its browser SSO
+  // session (the KEYCLOAK_IDENTITY cookie outlives our back-channel logout,
+  // which only revokes the refresh token). Without it, tapping "Continue with
+  // Google" re-authenticates the previous user with no chance to switch.
+  // Keycloak must ALSO be told to forward an account chooser to Google —
+  // Identity providers > google > Advanced > Prompt = "select_account" — or
+  // Google auto-selects its remembered account on the next hop.
   const [googleRequest, , promptGoogleAsync] = AuthSession.useAuthRequest(
     {
       clientId: keycloakConfig.clientId,
       redirectUri,
       scopes: ['openid', 'profile', 'email'],
       usePKCE: true,
+      prompt: AuthSession.Prompt.Login,
       extraParams: {
         kc_idp_hint: 'google',
       },
@@ -102,10 +123,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // Warm the customer record into the query cache as soon as we have an
   // account id, so it is ready across the app right after login/session
-  // restore instead of only when a screen first reads it.
-  const prefetchCustomer = useCallback(
+  // restore instead of only when a screen first reads it — creating the record
+  // first when the account has none, which is the normal state of a Google
+  // sign-in (Keycloak provisions those accounts itself, so nothing ever
+  // registered them with the backend).
+  //
+  // Fire-and-forget on purpose: the session is already valid, so a backend
+  // hiccup here must not block the user out of the app. The screens that need
+  // the record refetch it through `useCustomer`.
+  const ensureCustomer = useCallback(
     (sub?: string | null) => {
-      if (sub) queryClient.prefetchQuery(customerQueryOptions(sub));
+      if (!sub) {
+        setIsCustomerResolved(true);
+        return;
+      }
+      setIsCustomerResolved(false);
+      ensureCustomerForAccount(queryClient, sub)
+        .catch((error) => {
+          console.warn('[Auth] Could not resolve the customer record:', error);
+        })
+        .finally(() => setIsCustomerResolved(true));
     },
     [queryClient]
   );
@@ -131,7 +168,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           if (tokenResult.success) {
             const userInfo = await fetchUserInfo();
             setState({ isAuthenticated: true, isLoading: false, user: userInfo });
-            prefetchCustomer(userInfo?.sub);
+            ensureCustomer(userInfo?.sub);
           }
           return tokenResult;
         }
@@ -143,7 +180,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return { success: false, error: 'Authentication failed. Please try again.' };
       }
     },
-    [redirectUri, prefetchCustomer]
+    [redirectUri, ensureCustomer]
   );
 
   useEffect(() => {
@@ -153,6 +190,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const tokens = await getTokens();
         if (!tokens) {
           setState({ isAuthenticated: false, isLoading: false, user: null });
+          setIsCustomerResolved(true);
           return;
         }
 
@@ -167,7 +205,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         const userInfo = await fetchUserInfo();
         setState({ isAuthenticated: true, isLoading: false, user: userInfo });
-        prefetchCustomer(userInfo?.sub);
+        ensureCustomer(userInfo?.sub);
       } catch {
         setState({ isAuthenticated: false, isLoading: false, user: null });
       }
@@ -180,10 +218,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (result.success) {
       const userInfo = await fetchUserInfo();
       setState({ isAuthenticated: true, isLoading: false, user: userInfo });
-      prefetchCustomer(userInfo?.sub);
+      ensureCustomer(userInfo?.sub);
     }
     return result;
-  }, [prefetchCustomer]);
+  }, [ensureCustomer]);
 
   const loginWithGoogleFn = useCallback(
     (): Promise<AuthResult> => runBrowserAuth(googleRequest, promptGoogleAsync),
@@ -220,6 +258,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     <AuthContext.Provider
       value={{
         ...state,
+        isCustomerResolved,
         login,
         loginWithGoogle: loginWithGoogleFn,
         reloadUser,

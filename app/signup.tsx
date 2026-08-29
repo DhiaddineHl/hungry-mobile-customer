@@ -27,6 +27,7 @@ import {
 import { AnimatedEntrance } from '@/components/ui/animated-entrance';
 import { useAuth } from '@/contexts/auth-context';
 import { useRegisterCustomer } from '@/hooks/use-customer';
+import { hasDeliveryAddress } from '@/services/api/customer-service';
 import { SignupFormData, signupSchema } from '@/schemas/auth';
 import { Duration, FontSize, Fonts, Palette, Radius, Shadows, Spacing } from '@/constants/theme';
 
@@ -64,13 +65,20 @@ export default function SignupScreen() {
     try {
       // One backend call creates the Keycloak login account and the Customer
       // entity in sync (same flow as employees in the back-office app).
-      await registerCustomer.mutateAsync({
+      const customer = await registerCustomer.mutateAsync({
         firstName: data.firstName,
         lastName: data.lastName,
         email: data.email,
         password: data.password,
         phoneNumber: `${countryCode}${data.phoneNumber}`,
       });
+
+      // An account with nowhere to deliver to has to pick an address before it
+      // reaches the app. The root navigator enforces the same rule from the
+      // customer record, for every way in; deciding here too just skips the
+      // extra hop through the tabs.
+      const needsAddress = !hasDeliveryAddress(customer);
+
       // Sign in immediately: the onboarding that follows saves the address via
       // GET /customers/by-account + PUT /customers, both of which the gateway
       // rejects with 401 without a token. POST /customers above is the only
@@ -81,16 +89,15 @@ export default function SignupScreen() {
         // The account exists — only the session failed (a realm that requires
         // email verification will refuse the password grant here). Keep the
         // user on this screen; the "Already have an account?" link below is
-        // their way forward once they can sign in.
+        // their way forward once they can sign in — the address onboarding
+        // resumes from the record itself whenever they do.
         setAuthError(
           loginResult.error ??
             'Your account was created, but we could not sign you in. Please log in to continue.'
         );
         return;
       }
-      // Account created and signed in — walk the new user through location
-      // onboarding.
-      router.replace('/location');
+      router.replace(needsAddress ? '/location' : '/(tabs)');
     } catch (error) {
       setAuthError(
         error instanceof Error ? error.message : 'An unexpected error occurred. Please try again.'

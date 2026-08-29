@@ -1,5 +1,4 @@
 import { OrderLineRow, OrderProgress, OrderStatusChip } from '@/components/order';
-import { AnimatedEntrance } from '@/components/ui/animated-entrance';
 import { PressableScale } from '@/components/ui/pressable-scale';
 import { QueryEmpty, QueryError } from '@/components/ui/query-state';
 import { Fonts, FontSize, Palette, Radius, Spacing } from '@/constants/theme';
@@ -106,88 +105,80 @@ export default function CustomerOrderDetailsScreen() {
           />
         }
       >
-        <AnimatedEntrance index={0}>
-          <View style={styles.card}>
-            <Text style={styles.orderReference}>Order {order.reference}</Text>
-            <View style={styles.dateRow}>
-              <CalendarDays size={14} color={Palette.textMuted} />
-              <Text style={styles.dateText}>
-                {formatOrderDateTime(order.createdAt)}
-              </Text>
-            </View>
-            <OrderStatusChip status={order.status} />
-            <View style={styles.restaurantRow}>
-              <Store size={16} color={Palette.textSecondary} />
-              <Text style={styles.restaurantName}>
-                {restaurant?.name ?? order.restaurantName}
-              </Text>
-            </View>
+        <View style={styles.card}>
+          <Text style={styles.orderReference}>Order {order.reference}</Text>
+          <View style={styles.dateRow}>
+            <CalendarDays size={14} color={Palette.textMuted} />
+            <Text style={styles.dateText}>
+              {formatOrderDateTime(order.createdAt)}
+            </Text>
           </View>
-        </AnimatedEntrance>
+          <OrderStatusChip status={order.status} />
+          <View style={styles.restaurantRow}>
+            <Store size={16} color={Palette.textSecondary} />
+            <Text style={styles.restaurantName}>
+              {restaurant?.name ?? order.restaurantName}
+            </Text>
+          </View>
+        </View>
 
         {isActive ? (
-          <AnimatedEntrance index={1}>
-            <View style={styles.card}>
-              <OrderProgress
-                step={orderProgressStep(order)}
-                statusLabel={orderStatusLabel(order.status)}
-              />
-              <Text style={styles.footnote}>
-                Updates as the restaurant and your delivery agent move the order
-                along. Pull down to refresh.
-              </Text>
-            </View>
-          </AnimatedEntrance>
+          <View style={styles.card}>
+            <OrderProgress
+              step={orderProgressStep(order)}
+              statusLabel={orderStatusLabel(order.status)}
+            />
+            <Text style={styles.footnote}>
+              Updates as the restaurant and your delivery agent move the order
+              along. Pull down to refresh.
+            </Text>
+          </View>
         ) : null}
 
-        <AnimatedEntrance index={2}>
-          <View style={styles.card}>
-            <Text style={styles.sectionTitle}>Items</Text>
-            {order.hasLineDetail ? (
-              order.lines.map((line, index) => (
-                <View key={line.id}>
-                  {index > 0 ? <View style={styles.rowDivider} /> : null}
-                  <OrderLineRow line={line} />
-                </View>
-              ))
-            ) : (
-              /*
-                An empty list is NOT an empty order: the backend never sets the
-                `order_item.order_id` back-reference, so the items it accepted
-                do not come back on a re-read (plan §2.2).
-              */
-              <Text style={styles.noDetail}>
-                The server didn’t return the items for this order. The restaurant
-                has them.
-              </Text>
-            )}
-          </View>
-        </AnimatedEntrance>
+        <View style={styles.card}>
+          <Text style={styles.sectionTitle}>Items</Text>
+          {order.hasLineDetail ? (
+            order.lines.map((line, index) => (
+              <View key={line.id}>
+                {index > 0 ? <View style={styles.rowDivider} /> : null}
+                <OrderLineRow line={line} />
+              </View>
+            ))
+          ) : (
+            /*
+              An empty list is NOT an empty order: the backend never sets the
+              `order_item.order_id` back-reference, so the items it accepted
+              do not come back on a re-read (plan §2.2).
+            */
+            <Text style={styles.noDetail}>
+              The server didn’t return the items for this order. The restaurant
+              has them.
+            </Text>
+          )}
+        </View>
 
         {order.paymentLabel || order.note ? (
-          <AnimatedEntrance index={3}>
-            <View style={styles.card}>
-              {order.paymentLabel ? (
-                <>
-                  <Text style={styles.blockLabel}>PAYMENT METHOD</Text>
-                  <View style={styles.paymentRow}>
-                    <View style={styles.paymentIcon}>
-                      <CreditCard size={18} color={Palette.textPrimary} />
-                    </View>
-                    <Text style={styles.blockValue}>{order.paymentLabel}</Text>
+          <View style={styles.card}>
+            {order.paymentLabel ? (
+              <>
+                <Text style={styles.blockLabel}>PAYMENT METHOD</Text>
+                <View style={styles.paymentRow}>
+                  <View style={styles.paymentIcon}>
+                    <CreditCard size={18} color={Palette.textPrimary} />
                   </View>
-                </>
-              ) : null}
+                  <Text style={styles.blockValue}>{order.paymentLabel}</Text>
+                </View>
+              </>
+            ) : null}
 
-              {order.note ? (
-                <>
-                  {order.paymentLabel ? <View style={styles.rowDivider} /> : null}
-                  <Text style={styles.blockLabel}>NOTE</Text>
-                  <Text style={styles.blockValue}>{order.note}</Text>
-                </>
-              ) : null}
-            </View>
-          </AnimatedEntrance>
+            {order.note ? (
+              <>
+                {order.paymentLabel ? <View style={styles.rowDivider} /> : null}
+                <Text style={styles.blockLabel}>NOTE</Text>
+                <Text style={styles.blockValue}>{order.note}</Text>
+              </>
+            ) : null}
+          </View>
         ) : null}
 
         <View style={[styles.actions, { paddingBottom: insets.bottom + Spacing.xl }]}>

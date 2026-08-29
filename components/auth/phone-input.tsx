@@ -1,3 +1,4 @@
+import { Image } from 'expo-image';
 import { StyleSheet, Text, TextInput, View } from 'react-native';
 import Animated, {
   FadeIn,
@@ -8,7 +9,6 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 import { ChevronDown } from 'lucide-react-native';
-import { TunisiaFlag } from './tunisia-flag';
 import { Duration, FontSize, Fonts, Palette, Radius, Spacing } from '@/constants/theme';
 
 interface PhoneInputProps {
@@ -47,7 +47,12 @@ export function PhoneInput({
       <Text style={styles.label}>{label}</Text>
       <View style={styles.inputRow}>
         <View style={styles.countrySelector}>
-          <TunisiaFlag />
+          <Image
+            source={require('@/assets/tunisia-icon.png')}
+            style={styles.flag}
+            contentFit="contain"
+            accessibilityLabel="Tunisia"
+          />
           <Text style={styles.countryCode}>{countryCode}</Text>
           <ChevronDown size={16} color={Palette.ink} />
         </View>
@@ -102,6 +107,12 @@ const styles = StyleSheet.create({
     borderRadius: Radius.lg,
     backgroundColor: Palette.surface,
     gap: Spacing.sm,
+  },
+  // The asset is square (512 x 512), so it is sized square too — the old
+  // inline flag's 24 x 16 box would squash it.
+  flag: {
+    width: 22,
+    height: 22,
   },
   countryCode: {
     fontFamily: Fonts.medium,
