@@ -14,12 +14,15 @@ import { parseOrderComment } from './order-view-model';
  * write anyway (it answers 200 with an empty body and persists nothing) and
  * `updateStatus` is exposed by no endpoint at all.
  *
- * What an order does NOT carry, and must therefore never appear on these
- * screens (plan §3.3, `docs/plans/checkout-order-creation-plan.md`):
+ * What an order does NOT carry (plan §3.3,
+ * `docs/plans/checkout-order-creation-plan.md`):
  *
  *   - **any money.** `Order` and `OrderItem` have no price, fee, amount,
- *     subtotal or total column, and there is no pricing endpoint. A total on an
- *     order screen would be a number the app made up;
+ *     subtotal or total column, and there is no pricing endpoint. Nothing in
+ *     THIS module invents one. Prices reach the order screens from two sources
+ *     that know their own provenance — the receipt this device captured at
+ *     checkout, and today's menu prices, labelled as such — assembled by
+ *     `services/api/order-price-view-model.ts`;
  *   - **a delivery ETA**, for the same reason the checkout screen dropped one;
  *   - **the addons and the per-line note** that were sent — the attribute
  *     populator never persists them and `comment` is per-order, not per-line.
@@ -30,6 +33,13 @@ import { parseOrderComment } from './order-view-model';
 export interface CustomerOrderLine {
   /** The order item's own id, or the product id when the item has none. */
   id: string;
+  /**
+   * The item's `code`, which is the cart line id this app sent on create
+   * (`toOrderInput`). Carried because it is the only EXACT handle back to the
+   * line's price: the same dish ordered twice with different addons shares a
+   * product id but not a code — see `priceOrder`.
+   */
+  code?: string;
   name: string;
   quantity: number;
   /** The product this line was placed for, when the response carries one. */
@@ -74,6 +84,7 @@ export function toCustomerOrder(order: OrderOutput): CustomerOrder {
         // `OrderedProductOutputData.id` is the PRODUCT's id, not the ordered
         // product row's — so the item's own id is preferred as the key.
         id: item.id ?? product?.productId ?? `${order.id}-${index}`,
+        code: item.code ?? undefined,
         name,
         quantity: item.quantity ?? 1,
         productId: product?.productId ?? product?.id ?? undefined,

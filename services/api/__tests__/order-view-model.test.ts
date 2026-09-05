@@ -4,6 +4,7 @@ import {
   checkoutBlockers,
   customerOrderCodePrefix,
   orderCodeFor,
+  orderTotals,
   parseOrderComment,
   parseOrderCodeCustomerId,
   toOrderInput,
@@ -193,6 +194,44 @@ describe('toOrderInput', () => {
     ]) {
       expect(serialised).not.toContain(`"${key}"`);
     }
+  });
+});
+
+describe('orderTotals', () => {
+  it('sums each line at its per-unit price times its quantity', () => {
+    const totals = orderTotals([
+      { unitPrice: 9.68, quantity: 2 },
+      { unitPrice: 4.5, quantity: 1 },
+    ]);
+
+    expect(totals.subtotal).toBeCloseTo(23.86, 5);
+  });
+
+  it('adds the placeholder fees to reach the total', () => {
+    const totals = orderTotals([{ unitPrice: 10, quantity: 1 }]);
+
+    expect(totals.total).toBeCloseTo(
+      totals.subtotal + totals.serviceFee + totals.deliveryFee,
+      5
+    );
+  });
+
+  it('charges nothing at all for an empty cart — not a fee on nothing', () => {
+    expect(orderTotals([])).toEqual({
+      subtotal: 0,
+      serviceFee: 0,
+      deliveryFee: 0,
+      total: 0,
+    });
+  });
+
+  it('prices the addons with the line, because unitPrice already includes them', () => {
+    // The cart stores the per-unit price WITH the chosen addons, so a line at
+    // 9.68 + 2 of cheese is one 11.68 unit, not two numbers to add here.
+    expect(orderTotals([{ unitPrice: 11.68, quantity: 2 }]).subtotal).toBeCloseTo(
+      23.36,
+      5
+    );
   });
 });
 

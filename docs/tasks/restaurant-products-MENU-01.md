@@ -60,10 +60,15 @@ Until the backend exposes `catalogVersionId` on `RestaurantOutputData`, this ret
 ### RESOLVED — the scope no longer waits on the backend (plan §2.3)
 
 `menuScopeOf` returning `null` used to end the story, which left every restaurant showing
-"menu coming soon". It no longer does: `services/api/catalog-service.ts` resolves the
-catalog from the deterministic code the back-office files it under
-(`RESTAURANT-MENU-<restaurantId>-V1`), and `menuScopeOf` is kept as the fast path for the
-day §2.1 lands.
+"menu coming soon". It no longer does: the client resolves the menu from the deterministic
+code the back-office files it under.
+
+**Superseded in detail — see plan §2.3.1.** The back-office now stages every restaurant's
+products in ONE shared catalog version and files each menu as a CATEGORY
+(`RESTAURANT-MENU-<restaurantId>`) whose subcategories are the menu's sections. So
+`services/api/menu-service.ts` resolves that category and its sections, `fetchMenu` reads
+products by `categoryId` one section at a time, and the catalog fast path (`menuScopeOf`,
+`RestaurantDetail.catalogVersionId`) is gone — a shared catalog cannot tell two menus apart.
 
 This does not relax the three DO NOTs above — the code convention is read back from the
 tool that creates the menus, not guessed from product names.

@@ -10,6 +10,7 @@ import {
   groupBySection,
   selectPrice,
   toAddonGroups,
+  toggleAddonSelection,
   toMenuProduct,
   UNBACKED_ADDON_FIELDS,
 } from '@/services/api/product-view-model';
@@ -288,9 +289,45 @@ describe('toAddonGroups', () => {
     expect(groups[0].options[0].price).toBe('+2.00 DT');
   });
 
-  it('defaults type to checkbox — the backend cannot express single-select', () => {
+  it('renders a SINGLE group as a radio group', () => {
     const groups = toAddonGroups(
-      configurable([{ id: 'grp-1', name: 'Size', required: true, attributes: [] }]),
+      configurable([
+        {
+          id: 'grp-1',
+          name: 'Size',
+          required: true,
+          selectionType: 'SINGLE',
+          attributes: [],
+        },
+      ]),
+      NOW
+    );
+
+    expect(groups[0].type).toBe('radio');
+  });
+
+  it('renders a MULTIPLE group as a checkbox group', () => {
+    const groups = toAddonGroups(
+      configurable([
+        {
+          id: 'grp-1',
+          name: 'Toppings',
+          selectionType: 'MULTIPLE',
+          attributes: [],
+        },
+      ]),
+      NOW
+    );
+
+    expect(groups[0].type).toBe('checkbox');
+  });
+
+  it('falls back to checkbox when no selectionType reaches us', () => {
+    // The safe direction: a group whose type never arrived keeps behaving as it
+    // did before the field existed, rather than capping every topping group at
+    // one choice. See `addonGroupType`.
+    const groups = toAddonGroups(
+      configurable([{ id: 'grp-1', name: 'Extras', attributes: [] }]),
       NOW
     );
 
@@ -374,8 +411,50 @@ describe('toAddonGroups', () => {
     expect(toAddonGroups([], NOW)).toEqual([]);
   });
 
-  it('documents exactly the three fields the backend does not carry', () => {
-    expect(UNBACKED_ADDON_FIELDS).toEqual(['type', 'maxSelect', 'isPopular']);
+  it('documents exactly the fields the backend does not carry — `type` no longer among them', () => {
+    expect(UNBACKED_ADDON_FIELDS).toEqual(['maxSelect', 'isPopular']);
+  });
+});
+
+describe('toggleAddonSelection', () => {
+  const MULTI = { type: 'checkbox' as const, required: false };
+  const SINGLE = { type: 'radio' as const, required: false };
+  const SINGLE_REQUIRED = { type: 'radio' as const, required: true };
+
+  it('adds an option to a multi-select group', () => {
+    expect(toggleAddonSelection(MULTI, ['bbq'], 'egg')).toEqual(['bbq', 'egg']);
+  });
+
+  it('removes an already-selected option from a multi-select group', () => {
+    expect(toggleAddonSelection(MULTI, ['bbq', 'egg'], 'bbq')).toEqual(['egg']);
+  });
+
+  it('REPLACES the choice in a single-select group rather than adding to it', () => {
+    // The bug this fixes: picking Large after Small used to leave both in the
+    // cart, at the sum of two sizes.
+    expect(toggleAddonSelection(SINGLE, ['small'], 'large')).toEqual(['large']);
+  });
+
+  it('selects the first option of an empty single-select group', () => {
+    expect(toggleAddonSelection(SINGLE, [], 'small')).toEqual(['small']);
+  });
+
+  it('clears an OPTIONAL single-select group when its selection is tapped again', () => {
+    // Otherwise there is no way back to "no thanks" — and its surcharge stays.
+    expect(toggleAddonSelection(SINGLE, ['small'], 'small')).toEqual([]);
+  });
+
+  it('keeps a REQUIRED single-select group answered when its selection is tapped again', () => {
+    const selected = ['small'];
+
+    // Same array back: an answer is owed, so the tap changes nothing at all.
+    expect(toggleAddonSelection(SINGLE_REQUIRED, selected, 'small')).toBe(selected);
+  });
+
+  it('never lets a single-select group hold two options', () => {
+    // Even from a state that somehow holds several — a stale selection, a group
+    // whose type changed — one tap collapses it to the option tapped.
+    expect(toggleAddonSelection(SINGLE, ['small', 'large'], 'medium')).toEqual(['medium']);
   });
 });
 
@@ -523,6 +602,35 @@ describe('groupBySection', () => {
 
   it('returns an empty list for no products at all', () => {
     expect(groupBySection([], NOW)).toEqual([]);
+  });
+
+  it('ignores a category outside the menu when the menu names its sections', () => {
+    // Categories live in a catalog shared by every restaurant, so a dish also
+    // filed into another restaurant's section must not open one here.
+    const sections = groupBySection(
+      [
+        product('p1', 'Crispy', [
+          category({ id: 'c1', name: 'Classiques' }),
+          category({ id: 'other', name: "Another restaurant's section" }),
+        ]),
+      ],
+      NOW,
+      ['c1']
+    );
+
+    expect(sections.map((s) => s.title)).toEqual(['Classiques']);
+    expect(sections[0].products.map((p) => p.id)).toEqual(['p1']);
+  });
+
+  it('keeps a dish naming no section of this menu, in the untitled group', () => {
+    const sections = groupBySection(
+      [product('p1', 'Crispy', [category({ id: 'other', name: 'Elsewhere' })])],
+      NOW,
+      ['c1']
+    );
+
+    expect(sections.map((s) => s.title)).toEqual(['']);
+    expect(sections[0].products.map((p) => p.name)).toEqual(['Crispy']);
   });
 
   it('carries both subtypes into the same section', () => {

@@ -1,25 +1,29 @@
 import { DeliveryFeeModal, PaymentMethodModal, ServiceFeeModal } from '@/components/checkout';
 import { DeliveryLocationCard, OrderInfoRow, OrderRestaurantRow } from '@/components/order';
 import { PressableScale } from '@/components/ui/pressable-scale';
-import {
-  CHARGED_DELIVERY_FEE,
-  DELIVERY_FEE,
-  DELIVERY_FEE_WAIVED,
-  SERVICE_FEE,
-} from '@/constants/fees';
+import { DELIVERY_FEE, DELIVERY_FEE_WAIVED, SERVICE_FEE } from '@/constants/fees';
 import { paymentMethodLabel } from '@/constants/payment-methods';
 import { Fonts, FontSize, Palette, Radius, Spacing } from '@/constants/theme';
+import { useSaveAddresses } from '@/hooks/use-customer';
 import { formatAddressName, useDeliveryAddress } from '@/hooks/use-delivery-address';
 import { useCreateOrder } from '@/hooks/use-orders';
 import { useStoredImageSource } from '@/hooks/use-restaurant-image';
 import { useRestaurant } from '@/hooks/use-restaurants';
+import { useReverseGeocode } from '@/hooks/use-reverse-geocode';
 import {
   checkoutBlockers,
+  orderTotals,
   toOrderInput,
   type CheckoutBlocker,
 } from '@/services/api/order-view-model';
+import {
+  CUSTOM_ADDRESS_NAME,
+  coordinatesDiffer,
+  toPickedAddress,
+} from '@/services/location/delivery-point';
 import { formatDT, useCartStore } from '@/store/cart-store';
 import { usePaymentMethodStore } from '@/store/payment-method-store';
+import type { LocationCoords } from '@/types/location';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { ArrowLeft, DollarSign, Info, Phone } from 'lucide-react-native';
 import { useMemo, useState } from 'react';
@@ -79,11 +83,33 @@ const ADDRESS_BLOCKERS: CheckoutBlocker[] = ['no-address', 'no-address-coords'];
 export default function OrderDetailsScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { id: restaurantId } = useLocalSearchParams<{ id: string }>();
+  // `pickedLatitude`/`pickedLongitude`/`pickedAddress` are set when the
+  // full-screen picker sent a point back here — see `handleOpenMap`.
+  const {
+    id: restaurantId,
+    pickedLatitude,
+    pickedLongitude,
+    pickedAddress,
+  } = useLocalSearchParams<{
+    id: string;
+    pickedLatitude?: string;
+    pickedLongitude?: string;
+    pickedAddress?: string;
+  }>();
 
   const [feeSheet, setFeeSheet] = useState<'service' | 'delivery' | null>(null);
   const [paymentSheetVisible, setPaymentSheetVisible] = useState(false);
   const [failed, setFailed] = useState(false);
+  /** Where the customer dragged the inline map's pin, if they did. */
+  const [draggedPoint, setDraggedPoint] = useState<LocationCoords | null>(null);
+  /**
+   * A point returned by the picker that has since been cancelled. The params
+   * cannot be un-set from here, so dismissal is remembered by the point's own
+   * identity — a later trip to the picker brings a different one, which is not
+   * dismissed.
+   */
+  const [dismissedPickKey, setDismissedPickKey] = useState<string | null>(null);
+  const [pointError, setPointError] = useState(false);
 
   const allItems = useCartStore((s) => s.items);
   const items = useMemo(
@@ -91,8 +117,10 @@ export default function OrderDetailsScreen() {
     [allItems, restaurantId]
   );
 
-  const { customer, selected: selectedAddress } = useDeliveryAddress();
+  const { customer, selected: selectedAddress, select } = useDeliveryAddress();
   const { data: restaurant } = useRestaurant(restaurantId);
+  const saveAddresses = useSaveAddresses();
+  const pickedName = useReverseGeocode();
   const paymentMethod = usePaymentMethodStore((s) => s.method);
   const setPaymentMethod = usePaymentMethodStore((s) => s.setMethod);
   const toImageSource = useStoredImageSource();
@@ -105,6 +133,133 @@ export default function OrderDetailsScreen() {
   const address = selectedAddress?.details ?? customer?.address ?? null;
   const phone = customer?.contact?.phones?.[0];
 
+  const savedPoint: LocationCoords | null =
+    typeof address?.coordinates?.latitude === 'number' &&
+    typeof address?.coordinates?.longitude === 'number'
+      ? {
+          latitude: address.coordinates.latitude,
+          longitude: address.coordinates.longitude,
+        }
+      : null;
+
+  /**
+   * A point handed back by the full-screen picker, as route params.
+   *
+   * DERIVED, not copied into state by an effect: the params are already the
+   * source of truth, and mirroring them would mean a render showing the old
+   * point before the effect corrected it.
+   */
+  const paramPoint = useMemo((): LocationCoords | null => {
+    if (!pickedLatitude || !pickedLongitude) return null;
+    const latitude = Number(pickedLatitude);
+    const longitude = Number(pickedLongitude);
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
+    return { latitude, longitude };
+  }, [pickedLatitude, pickedLongitude]);
+
+  const pickKey = paramPoint ? `${paramPoint.latitude},${paramPoint.longitude}` : null;
+
+  // A drag beats a point carried in from the picker: it is the more recent
+  // thing the customer did on this screen.
+  const picked = draggedPoint ?? (pickKey !== dismissedPickKey ? paramPoint : null);
+
+  /**
+   * The point awaiting confirmation, or `null` when the pin is effectively on
+   * the saved address.
+   *
+   * Comparing against the saved point — rather than tracking "is something
+   * pending" separately — is what makes confirming self-clearing: once the
+   * save lands, the customer record carries this point and there is nothing
+   * left to confirm.
+   */
+  const pendingPoint = picked && coordinatesDiffer(picked, savedPoint) ? picked : null;
+
+  // What the map looks at: the pending point while there is one, the saved
+  // address otherwise. Cancelling therefore animates the card back.
+  const shownPoint = pendingPoint ?? savedPoint;
+
+  /**
+   * The pending point's label. A dragged point is named by the geocoder here;
+   * one returned by the picker arrives already named, and asking again would
+   * spend a round-trip to be told the same thing.
+   */
+  const pendingText = draggedPoint ? pickedName.text : (pickedAddress ?? null);
+  const isNamingPoint = draggedPoint ? pickedName.isResolving : false;
+
+  /**
+   * The map settled somewhere after a drag.
+   *
+   * A settle that lands back on the saved address drops the pending point
+   * instead of offering to save it — panning away and back is a change of
+   * mind, not a new address.
+   */
+  const handlePointChange = (coords: LocationCoords) => {
+    // The map reports EVERY settle, including the ones it makes arriving where
+    // this screen sent it — after a point comes back from the picker, or after
+    // a cancel animates the camera home. Landing on the point already shown is
+    // not the customer moving anything, and treating it as a drag would throw
+    // away the label the picker resolved and pay for a second lookup.
+    if (!coordinatesDiffer(coords, shownPoint)) return;
+
+    setPointError(false);
+    setDismissedPickKey(pickKey);
+
+    if (!coordinatesDiffer(coords, savedPoint)) {
+      setDraggedPoint(null);
+      pickedName.reset();
+      return;
+    }
+
+    setDraggedPoint(coords);
+    void pickedName.describe(coords);
+  };
+
+  const handleCancelPoint = () => {
+    setDraggedPoint(null);
+    setDismissedPickKey(pickKey);
+    setPointError(false);
+    pickedName.reset();
+  };
+
+  const handleOpenMap = () => {
+    // `checkoutRestaurantId` is what tells the picker to hand its point back
+    // here rather than starting the add-an-address flow.
+    router.push({
+      pathname: '/map-select',
+      params: { checkoutRestaurantId: restaurantId },
+    });
+  };
+
+  /**
+   * Writes the picked point to the customer record.
+   *
+   * It has to be saved to take effect at all: `OrderInput` carries no address,
+   * so the backend delivers to the customer's top-level `address` (see
+   * `services/location/delivery-point.ts`). It lands on its own `custom` entry
+   * and becomes the selected address — never over the customer's saved Home.
+   */
+  const handleConfirmPoint = async () => {
+    const keycloakUserId = customer?.keycloakUserId;
+    if (!pendingPoint || !keycloakUserId || saveAddresses.isPending) return;
+
+    setPointError(false);
+    try {
+      await saveAddresses.mutateAsync({
+        keycloakUserId,
+        addresses: [toPickedAddress(pendingPoint, pendingText ?? '')],
+        defaultIndex: 0,
+      });
+      select(CUSTOM_ADDRESS_NAME);
+      setDraggedPoint(null);
+      setDismissedPickKey(pickKey);
+      pickedName.reset();
+    } catch {
+      // The point stays pending and the row stays open: the customer can tap
+      // again. Nothing about their saved addresses changed.
+      setPointError(true);
+    }
+  };
+
   const restaurantName =
     restaurant?.name ?? items[0]?.restaurantName ?? 'Restaurant';
   const restaurantLogo =
@@ -112,15 +267,14 @@ export default function OrderDetailsScreen() {
     toImageSource(items[0]?.restaurantLogo);
 
   const itemCount = items.reduce((sum, line) => sum + line.quantity, 0);
-  const subtotal = items.reduce(
-    (sum, line) => sum + line.unitPrice * line.quantity,
-    0
-  );
   // Both fees are client-side placeholders — see `constants/fees.ts`. No price,
   // fee or total field exists anywhere on `Order` (plan §3.3), so none of this
   // is sent and none of it is charged.
-  const total =
-    items.length > 0 ? subtotal + SERVICE_FEE + CHARGED_DELIVERY_FEE : 0;
+  //
+  // The arithmetic lives in `orderTotals` because these exact numbers are
+  // captured as the order's receipt when it is placed, and shown back on the
+  // order screen — computing them twice would let the two drift.
+  const totals = orderTotals(items);
 
   const blockers = checkoutBlockers({
     customerId: customer?.id,
@@ -134,11 +288,20 @@ export default function OrderDetailsScreen() {
   const needsAddress = !!blocker && ADDRESS_BLOCKERS.includes(blocker);
 
   const isSubmitting = createOrder.isPending;
-  const canSubmit = blockers.length === 0 && !isSubmitting;
+  // An unconfirmed point blocks the order on purpose: the map is showing one
+  // place and the order would go to another, and which one the customer meant
+  // is exactly what has not been answered yet.
+  const canSubmit = blockers.length === 0 && !isSubmitting && !pendingPoint;
 
   const handleBlockerAction = () => {
     // An address problem routes to the flow that fixes it rather than showing
-    // an error the customer can do nothing about.
+    // an error the customer can do nothing about — and the two problems have
+    // different fixes. An address that exists but has no coordinates needs a
+    // point on the map, not another form.
+    if (blocker === 'no-address-coords') {
+      handleOpenMap();
+      return;
+    }
     router.push('/address-info');
   };
 
@@ -185,15 +348,36 @@ export default function OrderDetailsScreen() {
         contentContainerStyle={[styles.scrollContent, { paddingBottom: 20 }]}
       >
         {address ? (
-          <DeliveryLocationCard
-            addressLabel={
-              selectedAddress ? formatAddressName(selectedAddress.name) : 'Delivery'
-            }
-            addressText={address.formattedAddress ?? 'Address on file'}
-            latitude={address.coordinates?.latitude ?? undefined}
-            longitude={address.coordinates?.longitude ?? undefined}
-            onPress={handleBlockerAction}
-          />
+          <>
+            <DeliveryLocationCard
+              addressLabel={
+                selectedAddress ? formatAddressName(selectedAddress.name) : 'Delivery'
+              }
+              addressText={address.formattedAddress ?? 'Address on file'}
+              latitude={shownPoint?.latitude}
+              longitude={shownPoint?.longitude}
+              onPress={handleBlockerAction}
+              onOpenMap={handleOpenMap}
+              onPointChange={handlePointChange}
+              pending={
+                pendingPoint
+                  ? {
+                      text: pendingText,
+                      isResolving: isNamingPoint,
+                      isSaving: saveAddresses.isPending,
+                    }
+                  : null
+              }
+              onConfirmPending={handleConfirmPoint}
+              onCancelPending={handleCancelPoint}
+            />
+            {pointError ? (
+              <Text style={styles.pointError}>
+                We couldn&apos;t save that delivery point. Your saved addresses
+                are unchanged — tap Deliver here to try again.
+              </Text>
+            ) : null}
+          </>
         ) : null}
 
         <View style={styles.sectionDivider} />
@@ -244,7 +428,7 @@ export default function OrderDetailsScreen() {
         <View style={styles.pricingCard}>
           <View style={styles.priceRow}>
             <Text style={styles.priceLabel}>Subtotal</Text>
-            <Text style={styles.priceValue}>{formatDT(subtotal)}</Text>
+            <Text style={styles.priceValue}>{formatDT(totals.subtotal)}</Text>
           </View>
 
           <View style={styles.priceRow}>
@@ -292,7 +476,7 @@ export default function OrderDetailsScreen() {
             {/* Reads `Total`. The old label said `Delivery Fee` while showing
                 the total, which named the row above it. */}
             <Text style={styles.totalLabel}>Total</Text>
-            <Text style={styles.totalValue}>{formatDT(total)}</Text>
+            <Text style={styles.totalValue}>{formatDT(totals.total)}</Text>
           </View>
         </View>
       </ScrollView>
@@ -307,6 +491,18 @@ export default function OrderDetailsScreen() {
           <Text style={styles.errorText}>
             We couldn&apos;t place your order. Your cart is untouched — tap
             Continue to try again.
+          </Text>
+        ) : null}
+
+        {/*
+          The pin has been moved but not confirmed, so the map and the order
+          disagree about where this is going. Say which tap resolves it rather
+          than leaving a disabled button unexplained.
+        */}
+        {pendingPoint ? (
+          <Text style={styles.blockerText}>
+            Confirm the new delivery point above — tap Deliver here, or Cancel to
+            keep your saved address.
           </Text>
         ) : null}
 
@@ -493,6 +689,14 @@ const styles = StyleSheet.create({
     gap: Spacing.sm,
   },
   errorText: {
+    fontSize: FontSize.sm,
+    fontFamily: Fonts.regular,
+    color: Palette.danger,
+    lineHeight: 18,
+  },
+  pointError: {
+    marginHorizontal: Spacing.xl,
+    marginTop: Spacing.sm,
     fontSize: FontSize.sm,
     fontFamily: Fonts.regular,
     color: Palette.danger,

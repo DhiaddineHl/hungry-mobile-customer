@@ -67,10 +67,10 @@ export default function RestaurantDetailsScreen() {
     refetch,
   } = useRestaurant(restaurantId);
 
-  // The menu is scoped to the restaurant's catalog. No restaurant payload
-  // carries that link yet, so the hook resolves it from the catalog code the
-  // back-office files the menu under; `unavailable` now means the menu was
-  // never created. See menuScopeOf / fetchMenuScope.
+  // The menu is the restaurant's own menu CATEGORY and the sections under it,
+  // resolved from the code the back-office files that category under; the
+  // dishes are then read section by section. `unavailable` means the menu
+  // category was never created. See fetchMenuScope / fetchMenu.
   const {
     data: sections,
     isPending: menuPending,

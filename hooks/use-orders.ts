@@ -5,8 +5,10 @@ import {
   fetchOrderById,
   isUuid,
 } from '@/services/api/order-service';
+import { orderTotals } from '@/services/api/order-view-model';
 import { orderKeys } from '@/services/api/query-keys';
-import { useCartStore } from '@/store/cart-store';
+import { useCartStore, type CartLine } from '@/store/cart-store';
+import { useOrderPriceStore } from '@/store/order-price-store';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 /**
@@ -54,6 +56,14 @@ export function useCreateOrder() {
       const store = useCartStore.getState();
       const cartId = store.remote[restaurantId]?.cartId ?? null;
 
+      // The prices, BEFORE the cart that holds them is cleared. This is the
+      // only moment they exist: the backend stores no price, fee or total on an
+      // order (plan §3.3), so without this the order screen could never say
+      // what the customer paid. Captured here rather than on the checkout
+      // screen for the same reason the cart is cleared here — it must happen
+      // whether or not that screen is still mounted.
+      recordOrderPrices(order.id, store.items.filter((line) => line.restaurantId === restaurantId));
+
       // Local first: it is synchronous and cannot fail, so the customer never
       // sees a cart they have already paid for on delivery.
       store.clearRestaurant(restaurantId);
@@ -75,6 +85,30 @@ export function useCreateOrder() {
     },
 
     // No `onError`: leaving the cart alone IS the error handling.
+  });
+}
+
+/**
+ * Files what this order cost, keyed by the id the server just assigned.
+ *
+ * A cart that priced to nothing is not recorded: an empty receipt would only
+ * shadow the menu-price fallback with a row of zeroes.
+ */
+function recordOrderPrices(orderId: string, lines: CartLine[]): void {
+  if (lines.length === 0) return;
+
+  useOrderPriceStore.getState().record(orderId, {
+    ...orderTotals(lines),
+    lines: lines.map((line) => ({
+      lineId: line.lineId,
+      foodId: line.foodId,
+      name: line.name,
+      quantity: line.quantity,
+      unitPrice: line.unitPrice,
+      basePrice: line.basePrice,
+      addons: line.addons.map((addon) => ({ name: addon.name, price: addon.price })),
+    })),
+    savedAt: new Date().toISOString(),
   });
 }
 

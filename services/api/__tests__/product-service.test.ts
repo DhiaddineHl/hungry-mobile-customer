@@ -16,9 +16,30 @@ jest.mock('@/services/api/client', () => {
 const mockedGet = apiClient.get as jest.MockedFunction<typeof apiClient.get>;
 
 const VALID_UUID = '8f3c1c2e-2f1a-4a1b-9d0e-1c2b3a4d5e6f';
-const CATALOG_VERSION_ID = '11111111-2222-3333-4444-555555555555';
-const CATALOG_ID = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
 const STANDARD_UUID = '99999999-8888-7777-6666-555555555555';
+
+/**
+ * A menu is its restaurant's menu CATEGORY plus the sections under it, and the
+ * sections are the only thing that narrows products to one restaurant — see
+ * `services/api/menu-service.ts`. `fetchMenu` therefore reads one section per
+ * request.
+ */
+const MENU_CATEGORY_ID = '11111111-2222-3333-4444-555555555555';
+const PIZZAS_ID = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+const DRINKS_ID = 'bbbbbbbb-cccc-dddd-eeee-ffffffffffff';
+
+const ONE_SECTION = {
+  menuCategoryId: MENU_CATEGORY_ID,
+  sections: [{ id: PIZZAS_ID, name: 'Pizzas' }],
+};
+
+const TWO_SECTIONS = {
+  menuCategoryId: MENU_CATEGORY_ID,
+  sections: [
+    { id: PIZZAS_ID, name: 'Pizzas' },
+    { id: DRINKS_ID, name: 'Drinks' },
+  ],
+};
 
 /** A standard dish, discriminator 1. */
 const PRODUCT = {
@@ -74,12 +95,26 @@ function queryOf(index: number): Record<string, unknown> {
 }
 
 function lastFilter(): Record<string, unknown> {
-  return JSON.parse(String(lastQuery().filter));
+  return filterOf(0);
 }
 
-/** `fetchMenu` issues one request; `productType` labels the rows. */
+/** The parsed `filter` of the nth call — one call per menu section. */
+function filterOf(index: number): Record<string, unknown> {
+  return JSON.parse(String(queryOf(index).filter));
+}
+
+/** Every section answers the same page; `productType` labels the rows. */
 function mockMenu(products: unknown[]) {
   mockedGet.mockResolvedValue(pageOf(products));
+}
+
+/** Routes each section's request to its own products, by the categoryId sent. */
+function mockSections(bySection: Record<string, unknown[]>) {
+  mockedGet.mockImplementation((_url: string, config?: unknown) => {
+    const params = (config as { params: Record<string, unknown> }).params;
+    const { categoryId } = JSON.parse(String(params.filter));
+    return Promise.resolve(pageOf(bySection[String(categoryId)] ?? []));
+  });
 }
 
 afterEach(() => {
@@ -90,23 +125,101 @@ describe('fetchMenu', () => {
   it('reads the polymorphic /products/all — a menu holds standard dishes too', async () => {
     mockMenu([PRODUCT]);
 
-    await fetchMenu({ catalogVersionId: CATALOG_VERSION_ID });
+    await fetchMenu(ONE_SECTION);
 
     expect(lastUrl()).toBe('/products/all');
   });
 
-  it('costs ONE request — productType labels the rows, so nothing has to be looked up', async () => {
+  it('filters by categoryId as a plain string — the only field that narrows to one menu', async () => {
     mockMenu([PRODUCT]);
 
-    await fetchMenu({ catalogVersionId: CATALOG_VERSION_ID });
+    await fetchMenu(ONE_SECTION);
+
+    expect(lastFilter()).toEqual({ categoryId: PIZZAS_ID });
+  });
+
+  it('NEVER filters on a catalog — every restaurant now shares one', async () => {
+    // A catalogVersionId filter would return the whole platform's dishes.
+    mockMenu([PRODUCT]);
+
+    await fetchMenu(ONE_SECTION);
+
+    const query = JSON.stringify(lastQuery());
+    expect(query).not.toContain('catalogVersionId');
+    expect(query).not.toContain('catalogId');
+  });
+
+  it('costs one request per section, each scoped to its own category', async () => {
+    mockSections({ [PIZZAS_ID]: [PRODUCT], [DRINKS_ID]: [] });
+
+    await fetchMenu(TWO_SECTIONS);
+
+    expect(urls()).toEqual(['/products/all', '/products/all']);
+    expect([filterOf(0).categoryId, filterOf(1).categoryId]).toEqual([
+      PIZZAS_ID,
+      DRINKS_ID,
+    ]);
+  });
+
+  it('merges the sections into one menu', async () => {
+    mockSections({
+      [PIZZAS_ID]: [PRODUCT],
+      [DRINKS_ID]: [{ ...PRODUCT, id: STANDARD_UUID, name: 'Lemonade' }],
+    });
+
+    const page = await fetchMenu(TWO_SECTIONS);
+
+    expect(page.content.map((product) => product.name)).toEqual([
+      'Crispy Chicken',
+      'Lemonade',
+    ]);
+    expect(page.totalElements).toBe(2);
+  });
+
+  it('keeps a dish filed under two sections ONCE — the duplicate is the fan-out, not the menu', async () => {
+    mockSections({ [PIZZAS_ID]: [PRODUCT], [DRINKS_ID]: [PRODUCT] });
+
+    const page = await fetchMenu(TWO_SECTIONS);
+
+    expect(page.content).toHaveLength(1);
+    expect(page.totalElements).toBe(1);
+  });
+
+  it('narrows to a single section when the caller asks for one', async () => {
+    mockSections({ [PIZZAS_ID]: [PRODUCT], [DRINKS_ID]: [] });
+
+    const page = await fetchMenu(TWO_SECTIONS, { categoryId: PIZZAS_ID });
 
     expect(urls()).toEqual(['/products/all']);
+    expect(lastFilter()).toEqual({ categoryId: PIZZAS_ID });
+    expect(page.content).toHaveLength(1);
+  });
+
+  it('reads a categoryId outside the menu as an empty menu, without a request', async () => {
+    // The scope decides which products are this restaurant's; a caller must
+    // not be able to step outside it.
+    mockMenu([PRODUCT]);
+
+    const page = await fetchMenu(TWO_SECTIONS, { categoryId: 'not-a-section-of-this-menu' });
+
+    expect(page.content).toEqual([]);
+    expect(mockedGet).not.toHaveBeenCalled();
+  });
+
+  it('asks for nothing when the menu has no section yet', async () => {
+    mockMenu([PRODUCT]);
+
+    const page = await fetchMenu({ menuCategoryId: MENU_CATEGORY_ID, sections: [] });
+
+    expect(page.content).toEqual([]);
+    expect(page.totalElements).toBe(0);
+    expect(mockedGet).not.toHaveBeenCalled();
   });
 
   it('labels discriminator 2 as configurable', async () => {
     mockMenu([CONFIGURABLE_PRODUCT]);
 
-    const page = await fetchMenu({ catalogVersionId: CATALOG_VERSION_ID });
+    const page = await fetchMenu(ONE_SECTION);
 
     expect(page.content[0].isConfigurable).toBe(true);
   });
@@ -114,7 +227,7 @@ describe('fetchMenu', () => {
   it('labels discriminator 1 as standard', async () => {
     mockMenu([PRODUCT]);
 
-    const page = await fetchMenu({ catalogVersionId: CATALOG_VERSION_ID });
+    const page = await fetchMenu(ONE_SECTION);
 
     expect(page.content[0].isConfigurable).toBe(false);
   });
@@ -127,7 +240,7 @@ describe('fetchMenu', () => {
       { ...PRODUCT, id: STANDARD_UUID, productType: 7 },
     ]);
 
-    const page = await fetchMenu({ catalogVersionId: CATALOG_VERSION_ID });
+    const page = await fetchMenu(ONE_SECTION);
 
     expect(page.content).toHaveLength(2);
     expect(page.content.map((product) => product.isConfigurable)).toEqual([false, false]);
@@ -136,7 +249,7 @@ describe('fetchMenu', () => {
   it('carries both subtypes through in one page — a menu holds standard dishes too', async () => {
     mockMenu([CONFIGURABLE_PRODUCT, { ...PRODUCT, id: STANDARD_UUID, name: 'Plain Fries' }]);
 
-    const page = await fetchMenu({ catalogVersionId: CATALOG_VERSION_ID });
+    const page = await fetchMenu(ONE_SECTION);
 
     expect(page.content.map((product) => product.name)).toEqual([
       'Crispy Chicken',
@@ -145,55 +258,29 @@ describe('fetchMenu', () => {
     expect(page.content.map((product) => product.isConfigurable)).toEqual([true, false]);
   });
 
-  it('sends catalogVersionId as a plain string, not a FilterSpecification', async () => {
+  it('passes the caller paging straight through to each section', async () => {
     mockMenu([PRODUCT]);
 
-    await fetchMenu({ catalogVersionId: CATALOG_VERSION_ID });
-
-    expect(lastFilter()).toEqual({ catalogVersionId: CATALOG_VERSION_ID });
-  });
-
-  it('sends catalogId as a plain string when that is the scope', async () => {
-    mockMenu([PRODUCT]);
-
-    await fetchMenu({ catalogId: CATALOG_ID });
-
-    expect(lastFilter()).toEqual({ catalogId: CATALOG_ID });
-  });
-
-  it('passes the caller paging straight through', async () => {
-    mockMenu([PRODUCT]);
-
-    await fetchMenu({ catalogVersionId: CATALOG_VERSION_ID }, { page: 3, size: 5 });
+    await fetchMenu(ONE_SECTION, { page: 3, size: 5 });
 
     expect(lastQuery()).toMatchObject({ page: 3, size: 5 });
   });
 
-  it('adds categoryId to the same filter object as a plain string', async () => {
+  it('turns nameLike into a names + LIKE specification, per section', async () => {
     mockMenu([PRODUCT]);
 
-    await fetchMenu({ catalogVersionId: CATALOG_VERSION_ID }, { categoryId: 'cat-1' });
-
-    expect(lastFilter()).toEqual({
-      catalogVersionId: CATALOG_VERSION_ID,
-      categoryId: 'cat-1',
-    });
-  });
-
-  it('turns nameLike into a names + LIKE specification', async () => {
-    mockMenu([PRODUCT]);
-
-    await fetchMenu({ catalogVersionId: CATALOG_VERSION_ID }, { nameLike: '  pizza ' });
+    await fetchMenu(ONE_SECTION, { nameLike: '  pizza ' });
 
     expect(lastFilter().names).toEqual([
       { operator: 'LIKE', fieldValue: 'pizza', fieldType: 'STRING' },
     ]);
+    expect(lastFilter().categoryId).toBe(PIZZAS_ID);
   });
 
   it('NEVER emits a keyword filter — the backend answers it with a 500', async () => {
     mockMenu([PRODUCT]);
 
-    await fetchMenu({ catalogVersionId: CATALOG_VERSION_ID }, { nameLike: 'pizza' });
+    await fetchMenu(ONE_SECTION, { nameLike: 'pizza' });
 
     expect(Object.keys(lastFilter())).not.toContain('keyword');
     expect(JSON.stringify(lastQuery())).not.toContain('keyword');
@@ -202,15 +289,15 @@ describe('fetchMenu', () => {
   it('omits an empty nameLike rather than sending a LIKE on nothing', async () => {
     mockMenu([PRODUCT]);
 
-    await fetchMenu({ catalogVersionId: CATALOG_VERSION_ID }, { nameLike: '   ' });
+    await fetchMenu(ONE_SECTION, { nameLike: '   ' });
 
-    expect(lastFilter()).toEqual({ catalogVersionId: CATALOG_VERSION_ID });
+    expect(lastFilter()).toEqual({ categoryId: PIZZAS_ID });
   });
 
   it('sends sort only when asked, and only from the whitelisted union', async () => {
     mockMenu([PRODUCT]);
 
-    await fetchMenu({ catalogVersionId: CATALOG_VERSION_ID }, { sort: 'name' });
+    await fetchMenu(ONE_SECTION, { sort: 'name' });
 
     expect(lastQuery().sort).toBe(JSON.stringify([{ field: 'name', direction: 'ASC' }]));
   });
@@ -218,7 +305,7 @@ describe('fetchMenu', () => {
   it('omits sort entirely when none is given — an unknown field is a 500', async () => {
     mockMenu([PRODUCT]);
 
-    await fetchMenu({ catalogVersionId: CATALOG_VERSION_ID });
+    await fetchMenu(ONE_SECTION);
 
     expect(lastQuery()).not.toHaveProperty('sort');
   });
@@ -226,7 +313,7 @@ describe('fetchMenu', () => {
   it('parses the flat PageImpl envelope down to the five fields the client uses', async () => {
     mockMenu([PRODUCT]);
 
-    const page = await fetchMenu({ catalogVersionId: CATALOG_VERSION_ID });
+    const page = await fetchMenu(ONE_SECTION);
 
     expect(page.content).toHaveLength(1);
     expect(page.content[0].name).toBe('Crispy Chicken');
@@ -238,25 +325,21 @@ describe('fetchMenu', () => {
     mockMenu([
       {
         ...PRODUCT,
-        catalog: { id: CATALOG_ID, code: 'RESTAURANT-MENU-x', name: 'Menu' },
-        catalogVersion: { id: CATALOG_VERSION_ID, code: 'RESTAURANT-MENU-x-V1', name: 'V1' },
+        catalog: { id: 'cat-1', code: 'DEFAULT-CATALOG', name: 'Default Catalog' },
+        catalogVersion: { id: 'ver-1', code: 'DEFAULT-STAGED', name: 'Staged' },
       },
     ]);
 
-    const page = await fetchMenu({ catalogVersionId: CATALOG_VERSION_ID });
+    const page = await fetchMenu(ONE_SECTION);
 
-    expect(page.content[0].catalogVersion?.id).toBe(CATALOG_VERSION_ID);
+    expect(page.content[0].catalogVersion?.id).toBe('ver-1');
   });
 
   it('throws an ApiError naming the offending path when the response does not match', async () => {
     mockMenu([{ name: 'no id here' }]);
 
-    await expect(fetchMenu({ catalogVersionId: CATALOG_VERSION_ID })).rejects.toThrow(
-      ApiError
-    );
-    await expect(fetchMenu({ catalogVersionId: CATALOG_VERSION_ID })).rejects.toThrow(
-      /content\.0\.id/
-    );
+    await expect(fetchMenu(ONE_SECTION)).rejects.toThrow(ApiError);
+    await expect(fetchMenu(ONE_SECTION)).rejects.toThrow(/content\.0\.id/);
   });
 });
 

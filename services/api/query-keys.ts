@@ -27,26 +27,27 @@ export const restaurantKeys = {
 };
 
 /**
- * Catalog cache entries, in the same shape as the factories above.
+ * Menu cache entries, in the same shape as the factories above.
  *
- * Only one leaf: which catalog a restaurant's menu lives in. It is keyed by
- * the RESTAURANT id rather than by a catalog id, because resolving the one
- * from the other is the whole point of the entry (see `fetchMenuScope`) — the
- * caller never has a catalog id to key on.
+ * Only one leaf: which categories a restaurant's menu is made of. It is keyed
+ * by the RESTAURANT id because resolving the sections from it is the whole
+ * point of the entry (see `fetchMenuScope`) — the caller never has a category
+ * id to key on.
  */
-export const catalogKeys = {
-  all: ['catalogs'] as const,
-  scopes: () => [...catalogKeys.all, 'scope'] as const,
-  scope: (restaurantId: string) => [...catalogKeys.scopes(), restaurantId] as const,
+export const menuKeys = {
+  all: ['menu'] as const,
+  scopes: () => [...menuKeys.all, 'scope'] as const,
+  scope: (restaurantId: string) => [...menuKeys.scopes(), restaurantId] as const,
 };
 
 /**
  * Product (menu) cache entries, in the same shape as the two factories above.
  *
- * `list` takes the catalog **scope** as well as the params: products are not
- * addressed by restaurant anywhere in the backend, so the scope is the only
- * thing separating one restaurant's menu from another's. Leaving it out of the
- * key would let two restaurants read each other's cached menu.
+ * `list` takes the menu **scope** as well as the params: products are not
+ * addressed by restaurant anywhere in the backend, so the section ids the
+ * scope carries are the only thing separating one restaurant's menu from
+ * another's. Leaving them out of the key would let two restaurants read each
+ * other's cached menu.
  */
 export const productKeys = {
   all: ['products'] as const,

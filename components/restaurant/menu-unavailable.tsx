@@ -3,8 +3,9 @@ import { UtensilsCrossed } from "lucide-react-native";
 import { StyleSheet, Text, View } from "react-native";
 
 /**
- * Shown when no catalog can be found for a restaurant, so there is no menu to
- * fetch — the restaurant's menu was never created in the back-office. See
+ * Shown when no menu category can be found for a restaurant, so there is no
+ * menu to fetch — it was never created in the back-office. A menu that exists
+ * but holds no dish is NOT this state; it renders the empty-menu message. See
  * `fetchMenuScope` and plan §2.3.
  *
  * Deliberately NOT styled as an error: nothing failed, no retry would help,

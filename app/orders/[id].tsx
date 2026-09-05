@@ -1,23 +1,32 @@
-import { OrderLineRow, OrderProgress, OrderStatusChip } from '@/components/order';
-import { PressableScale } from '@/components/ui/pressable-scale';
-import { QueryEmpty, QueryError } from '@/components/ui/query-state';
-import { Fonts, FontSize, Palette, Radius, Spacing } from '@/constants/theme';
-import { useCustomerOrder } from '@/hooks/use-customer-orders';
-import { useRestaurant } from '@/hooks/use-restaurants';
+import {
+  OrderLineRow,
+  OrderProgress,
+  OrderStatusChip,
+} from "@/components/order";
+import { PressableScale } from "@/components/ui/pressable-scale";
+import { QueryEmpty, QueryError } from "@/components/ui/query-state";
+import { Fonts, FontSize, Palette, Radius, Spacing } from "@/constants/theme";
+import { useCustomerOrder } from "@/hooks/use-customer-orders";
+import { useMenuUnitPrices } from "@/hooks/use-products";
+import { useRestaurant } from "@/hooks/use-restaurants";
 import {
   formatOrderDateTime,
   orderBucket,
   orderProgressStep,
   orderStatusLabel,
-} from '@/services/api/order-list-view-model';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+} from "@/services/api/order-list-view-model";
+import { priceOrder } from "@/services/api/order-price-view-model";
+import { formatDT } from "@/store/cart-store";
+import { useOrderPriceSnapshot } from "@/store/order-price-store";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import {
   ArrowLeft,
   CalendarDays,
   CreditCard,
   RotateCcw,
   Store,
-} from 'lucide-react-native';
+} from "lucide-react-native";
+import { useMemo } from "react";
 import {
   ActivityIndicator,
   RefreshControl,
@@ -26,8 +35,8 @@ import {
   Text,
   TouchableOpacity,
   View,
-} from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+} from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 /**
  * One order, read from `GET /orders/{id}` and polled while it is still in
@@ -38,12 +47,16 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
  * opens the restaurant's menu — it does not re-submit anything, because a
  * create enqueues a real delivery.
  *
- * What is deliberately absent, because no backend field supplies it
- * (plan §3.3, `docs/plans/checkout-order-creation-plan.md`): every price, fee
- * and total; a delivery ETA; the addons and the per-line note that were sent at
- * checkout. The payment line is the one this app wrote into the order's
- * `comment` — the only place a payment choice can be recorded, since the
- * backend has no payment concept at all.
+ * Prices are shown, and they do not come from the order — nothing on `Order` or
+ * `OrderItem` holds money (plan §3.3). They come from the receipt this device
+ * captured when it placed the order, and failing that from today's menu prices,
+ * which the screen labels as such. See `services/api/order-price-view-model.ts`
+ * for why those two are different answers to different questions.
+ *
+ * Still absent, because no source supplies them: a delivery ETA, and the addons
+ * and per-line note that were sent at checkout. The payment line is the one this
+ * app wrote into the order's `comment` — the only place a payment choice can be
+ * recorded, since the backend has no payment concept at all.
  */
 export default function CustomerOrderDetailsScreen() {
   const insets = useSafeAreaInsets();
@@ -53,6 +66,33 @@ export default function CustomerOrderDetailsScreen() {
   const { order, isLoading, isRefetching, isMissing, error, refetch } =
     useCustomerOrder(id);
   const { data: restaurant } = useRestaurant(order?.restaurantId);
+
+  // The receipt captured at checkout, when this device is the one that placed
+  // the order. It is exact, and it costs no request.
+  const snapshot = useOrderPriceSnapshot(order?.id);
+
+  // Only when there is no receipt: one product read per distinct dish, to price
+  // the lines from today's menu. Empty otherwise, so the common case is free.
+  const productIds = useMemo(
+    () =>
+      snapshot
+        ? []
+        : (order?.lines ?? [])
+            .map((line) => line.productId)
+            .filter((productId): productId is string => !!productId),
+    [order?.lines, snapshot],
+  );
+  const menuUnitPrices = useMenuUnitPrices(productIds);
+
+  const pricing = useMemo(
+    () =>
+      priceOrder({
+        lines: order?.lines ?? [],
+        snapshot,
+        menuUnitPrices,
+      }),
+    [order?.lines, snapshot, menuUnitPrices],
+  );
 
   if (isLoading) {
     return (
@@ -86,7 +126,7 @@ export default function CustomerOrderDetailsScreen() {
     );
   }
 
-  const isActive = orderBucket(order) === 'active';
+  const isActive = orderBucket(order) === "active";
 
   return (
     <View style={styles.container}>
@@ -138,12 +178,23 @@ export default function CustomerOrderDetailsScreen() {
         <View style={styles.card}>
           <Text style={styles.sectionTitle}>Items</Text>
           {order.hasLineDetail ? (
-            order.lines.map((line, index) => (
-              <View key={line.id}>
-                {index > 0 ? <View style={styles.rowDivider} /> : null}
-                <OrderLineRow line={line} />
-              </View>
-            ))
+            order.lines.map((line, index) => {
+              const price = pricing.byLine.get(line.id);
+              return (
+                <View key={line.id}>
+                  {index > 0 ? <View style={styles.rowDivider} /> : null}
+                  <OrderLineRow
+                    line={line}
+                    total={
+                      price?.total != null ? formatDT(price.total) : undefined
+                    }
+                    unit={
+                      price?.unit != null ? formatDT(price.unit) : undefined
+                    }
+                  />
+                </View>
+              );
+            })
           ) : (
             /*
               An empty list is NOT an empty order: the backend never sets the
@@ -155,6 +206,69 @@ export default function CustomerOrderDetailsScreen() {
               has them.
             </Text>
           )}
+
+          {/*
+            The receipt this device kept: the numbers the customer agreed to,
+            fees included. Shown even when the item list came back empty (plan
+            §2.2) — what the order cost is true either way.
+          */}
+          {pricing.totals ? (
+            <>
+              <View style={styles.rowDivider} />
+              <View style={styles.priceRow}>
+                <Text style={styles.priceLabel}>Subtotal</Text>
+                <Text style={styles.priceValue}>
+                  {formatDT(pricing.totals.subtotal)}
+                </Text>
+              </View>
+              <View style={styles.priceRow}>
+                <Text style={styles.priceLabel}>Service Fee</Text>
+                <Text style={styles.priceValue}>
+                  {formatDT(pricing.totals.serviceFee)}
+                </Text>
+              </View>
+              <View style={styles.priceRow}>
+                <Text style={styles.priceLabel}>Delivery Fee</Text>
+                <Text style={styles.priceValue}>
+                  {pricing.totals.deliveryFee === 0
+                    ? "Free"
+                    : formatDT(pricing.totals.deliveryFee)}
+                </Text>
+              </View>
+              <View style={styles.rowDivider} />
+              <View style={styles.priceRow}>
+                <Text style={styles.totalLabel}>Total</Text>
+                <Text style={styles.totalValue}>
+                  {formatDT(pricing.totals.total)}
+                </Text>
+              </View>
+            </>
+          ) : null}
+
+          {/*
+            No receipt — these are the CURRENT menu prices of the same dishes,
+            which is not the same claim. Say so rather than letting them read as
+            what was charged, and show a total only when every line resolved.
+          */}
+          {pricing.source === "menu" ? (
+            <>
+              {pricing.itemsTotal != null ? (
+                <>
+                  <View style={styles.rowDivider} />
+                  <View style={styles.priceRow}>
+                    <Text style={styles.totalLabel}>Items total</Text>
+                    <Text style={styles.totalValue}>
+                      {formatDT(pricing.itemsTotal)}
+                    </Text>
+                  </View>
+                </>
+              ) : null}
+              <Text style={styles.footnote}>
+                Today’s menu prices, not a receipt — this order was placed on
+                another device, and the server keeps no prices.
+              </Text>
+            </>
+          ) : null}
         </View>
 
         {order.paymentLabel || order.note ? (
@@ -181,7 +295,12 @@ export default function CustomerOrderDetailsScreen() {
           </View>
         ) : null}
 
-        <View style={[styles.actions, { paddingBottom: insets.bottom + Spacing.xl }]}>
+        <View
+          style={[
+            styles.actions,
+            { paddingBottom: insets.bottom + Spacing.xl },
+          ]}
+        >
           {order.restaurantId ? (
             <PressableScale
               style={styles.action}
@@ -201,7 +320,13 @@ export default function CustomerOrderDetailsScreen() {
   );
 }
 
-function Header({ onBack, insetTop }: { onBack: () => void; insetTop: number }) {
+function Header({
+  onBack,
+  insetTop,
+}: {
+  onBack: () => void;
+  insetTop: number;
+}) {
   return (
     <View style={[styles.header, { paddingTop: insetTop + Spacing.sm }]}>
       <TouchableOpacity onPress={onBack} hitSlop={8}>
@@ -220,13 +345,13 @@ const styles = StyleSheet.create({
   },
   centered: {
     flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
   },
   header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     paddingHorizontal: Spacing.xl,
     paddingBottom: Spacing.lg,
     borderBottomWidth: 1,
@@ -260,8 +385,8 @@ const styles = StyleSheet.create({
     color: Palette.textPrimary,
   },
   dateRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 6,
   },
   dateText: {
@@ -270,8 +395,8 @@ const styles = StyleSheet.create({
     color: Palette.textMuted,
   },
   restaurantRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: Spacing.sm,
     marginTop: Spacing.xs,
   },
@@ -303,6 +428,32 @@ const styles = StyleSheet.create({
     color: Palette.textMuted,
     lineHeight: 20,
   },
+  priceRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: 2,
+  },
+  priceLabel: {
+    fontSize: FontSize.md,
+    fontFamily: Fonts.regular,
+    color: Palette.textSecondary,
+  },
+  priceValue: {
+    fontSize: FontSize.md,
+    fontFamily: Fonts.medium,
+    color: Palette.textPrimary,
+  },
+  totalLabel: {
+    fontSize: FontSize.md,
+    fontFamily: Fonts.semiBold,
+    color: Palette.textPrimary,
+  },
+  totalValue: {
+    fontSize: FontSize.lg,
+    fontFamily: Fonts.bold,
+    color: Palette.textPrimary,
+  },
   blockLabel: {
     fontSize: FontSize.xs,
     fontFamily: Fonts.semiBold,
@@ -315,8 +466,8 @@ const styles = StyleSheet.create({
     color: Palette.textPrimary,
   },
   paymentRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: Spacing.md,
   },
   paymentIcon: {
@@ -324,8 +475,8 @@ const styles = StyleSheet.create({
     height: 32,
     borderRadius: Radius.sm,
     backgroundColor: Palette.surface,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
     borderWidth: 1,
     borderColor: Palette.borderSubtle,
   },
@@ -334,9 +485,9 @@ const styles = StyleSheet.create({
     gap: Spacing.sm,
   },
   action: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
     gap: Spacing.sm,
     paddingVertical: Spacing.lg,
     borderRadius: Radius.pill,

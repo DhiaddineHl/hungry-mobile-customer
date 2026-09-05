@@ -1,7 +1,7 @@
 import { useRestaurantImageSourceFromPath } from '@/hooks/use-restaurant-image';
 import type { Page } from '@/schemas/page';
 import type { AttributeGroup } from '@/schemas/product';
-import { fetchMenuScope } from '@/services/api/catalog-service';
+import { fetchMenuScope, type MenuScope } from '@/services/api/menu-service';
 import { fetchProductConfiguration } from '@/services/api/configuration-service';
 import {
   fetchMenu,
@@ -14,15 +14,12 @@ import {
 import {
   addonAmounts,
   groupBySection,
+  selectPrice,
   toAddonGroups,
   type MenuSectionData,
 } from '@/services/api/product-view-model';
-import { catalogKeys, productKeys } from '@/services/api/query-keys';
-import {
-  menuScopeOf,
-  type MenuScope,
-  type RestaurantDetail,
-} from '@/services/api/restaurant-view-model';
+import { menuKeys, productKeys } from '@/services/api/query-keys';
+import { type RestaurantDetail } from '@/services/api/restaurant-view-model';
 import { useQueries, useQuery, type UseQueryResult } from '@tanstack/react-query';
 import type { ImageSource } from 'expo-image';
 import { useCallback, useMemo } from 'react';
@@ -41,36 +38,45 @@ import { useCallback, useMemo } from 'react';
 // prices are edited occasionally, opening hours effectively per day.
 const MENU_STALE_TIME = 5 * 60 * 1000;
 
-// Which catalog a restaurant's menu lives in is set once, when the back-office
-// creates the menu, and never edited afterwards. It outlives the menu's own
-// staleness window by a wide margin for the same reason artwork does.
+// A menu's sections are edited far less often than the dishes inside them —
+// adding a dish to an existing section changes nothing here — so the scope
+// outlives the menu's own staleness window, for the same reason artwork does.
 const MENU_SCOPE_STALE_TIME = 30 * 60 * 1000;
 
 export function menuQueryOptions(scope: MenuScope | null, params: FetchMenuParams = {}) {
+  // The SECTION IDS are the cache identity, not the whole scope object: the
+  // section names ride along for grouping, and re-fetching a menu because one
+  // was renamed would be churn. A menu with no section keys as an empty list,
+  // which is exactly what it is.
+  const sectionIds = scope?.sections.map((section) => section.id) ?? null;
+
   return {
-    queryKey: productKeys.list(scope, params),
+    queryKey: productKeys.list(sectionIds, params),
     queryFn: (): Promise<Page<MenuProductOutput>> => fetchMenu(scope!, params),
-    // No scope means no catalog, and there is no query that could stand in for
-    // one — see `menuScopeOf` and `fetchMenuScope`. Firing a request would
-    // either 500 or return some other restaurant's products.
+    // No scope means the restaurant has no menu category at all, and there is
+    // no query that could stand in for one — see `fetchMenuScope`. Firing a
+    // request would return some other restaurant's products.
     enabled: scope !== null,
     staleTime: MENU_STALE_TIME,
+    // Grouped against the menu's OWN sections, so a dish also filed into
+    // another restaurant's category cannot open a section here.
     select: (page: Page<MenuProductOutput>): MenuSectionData[] =>
-      groupBySection(page.content, new Date()),
+      groupBySection(page.content, new Date(), sectionIds ?? undefined),
   };
 }
 
 /**
- * Where a restaurant's menu lives, resolved from the deterministic catalog
- * code the back-office files it under. See `services/api/catalog-service.ts`.
+ * Which categories a restaurant's menu is made of, resolved from the
+ * deterministic code the back-office files the menu category under. See
+ * `services/api/menu-service.ts`.
  *
  * Its own query rather than part of the menu query so the answer is cached per
  * restaurant and shared by every menu query against it — a section filter or a
- * search term re-fetches the menu, never the catalog it lives in.
+ * search term re-fetches the dishes, never the sections they hang off.
  */
 export function menuScopeQueryOptions(restaurantId: string | null | undefined) {
   return {
-    queryKey: catalogKeys.scope(restaurantId ?? ''),
+    queryKey: menuKeys.scope(restaurantId ?? ''),
     queryFn: (): Promise<MenuScope | null> => fetchMenuScope(restaurantId!),
     enabled: !!restaurantId,
     staleTime: MENU_SCOPE_STALE_TIME,
@@ -91,24 +97,27 @@ export function productQueryOptions(id: string | null | undefined) {
 /** What `useRestaurantMenu` resolves to when there is nothing to fetch. */
 export interface UnavailableMenu {
   status: 'unavailable';
-  reason: 'no-catalog';
+  reason: 'no-menu';
 }
 
 /**
  * A restaurant's menu, already grouped into sections.
  *
- * The catalog is found in one of two ways. If the restaurant payload carries a
- * catalog link, that wins and costs nothing (`menuScopeOf`). It does not carry
- * one today, so the fallback is what actually runs: resolve the catalog from
- * the deterministic code the back-office files it under (`fetchMenuScope`).
+ * Two steps, because the backend offers no shorter route. The restaurant's
+ * menu CATEGORY is resolved from the deterministic code the back-office files
+ * it under, together with its sections (`fetchMenuScope`); the dishes are then
+ * read section by section (`fetchMenu`). The restaurant payload carries no
+ * shortcut past that — it names no catalog, and a catalog would not identify a
+ * menu anyway now that every restaurant's dishes are staged in the same one.
  *
  * Returns a discriminated `{ status: 'unavailable' }` when that resolution
  * comes back empty — a restaurant whose menu was never created. Callers must
  * handle it explicitly rather than reading an empty list, because "this
  * restaurant has no menu connected" and "this restaurant's menu is empty" are
- * different things to tell a customer.
+ * different things to tell a customer. A menu category that exists with NO
+ * section is the second of those: it resolves to a scope and an empty list.
  *
- * `isPending` deliberately covers the catalog lookup as well as the menu
+ * `isPending` deliberately covers the section lookup as well as the dish
  * fetch, and `unavailable` stays null until that lookup has actually settled.
  * Otherwise every restaurant would flash "no menu" for the duration of one
  * round-trip, since callers check `unavailable` before `isPending` — it is the
@@ -118,18 +127,11 @@ export function useRestaurantMenu(
   restaurant: RestaurantDetail | null | undefined,
   params: FetchMenuParams = {}
 ) {
-  const declaredScope = useMemo(
-    () => (restaurant ? menuScopeOf(restaurant) : null),
-    [restaurant]
-  );
+  // Skipped while the restaurant itself is still loading — its id is what the
+  // menu category's code is built from.
+  const scopeQuery = useQuery(menuScopeQueryOptions(restaurant ? restaurant.id : null));
 
-  // Skipped entirely when the payload already answers the question, and while
-  // the restaurant itself is still loading.
-  const scopeQuery = useQuery(
-    menuScopeQueryOptions(restaurant && !declaredScope ? restaurant.id : null)
-  );
-
-  const scope = declaredScope ?? scopeQuery.data ?? null;
+  const scope = scopeQuery.data ?? null;
 
   const query = useQuery(menuQueryOptions(scope, params));
 
@@ -141,11 +143,11 @@ export function useRestaurantMenu(
   // has not resolved which restaurant this is yet.
   const unavailable: UnavailableMenu | null =
     restaurant && scope === null && !resolvingScope && !scopeQuery.isError
-      ? { status: 'unavailable', reason: 'no-catalog' }
+      ? { status: 'unavailable', reason: 'no-menu' }
       : null;
 
   const refetch = useCallback(() => {
-    // The catalog lookup is refetched first: when IT is what failed, the menu
+    // The section lookup is refetched first: when IT is what failed, the menu
     // query is still disabled and retrying it alone would do nothing.
     void scopeQuery.refetch();
     return query.refetch();
@@ -270,6 +272,56 @@ export function useProductImageUrl(id: string | null | undefined) {
 
 /** Stable identity so an empty menu does not re-run the memos below. */
 const EMPTY_IDS: string[] = [];
+
+/**
+ * Flattens per-product results to the product (or `null`) each id resolved to.
+ *
+ * Module-level for the identity reason `collectImagePaths` documents:
+ * `useQueries` re-runs `combine` whenever the function itself is new.
+ */
+function collectProducts(
+  results: UseQueryResult<MenuProductOutput | null, Error>[]
+): (MenuProductOutput | null)[] {
+  return results.map((result) => result.data ?? null);
+}
+
+/**
+ * Today's unit price for each product, keyed by product id.
+ *
+ * **This is the menu price NOW, not the price anyone paid.** It exists for one
+ * caller: a placed order whose prices this device never captured (see
+ * `store/order-price-store.ts`). The backend keeps no price on an order and no
+ * history on a `Price`, so a dish repriced since resolves to its new amount —
+ * which is why every screen using this must say the number is a menu price.
+ *
+ * `null` for a product that could not be resolved, or that has no applicable
+ * price right now: unknown, never free. Ids are de-duplicated, so a dish
+ * ordered on two lines costs one request, and each answer is the same cache
+ * entry the menu and the dish screen already use.
+ *
+ * Pass an empty list to fetch nothing — which is what the order screen does
+ * whenever it has a receipt to read instead.
+ */
+export function useMenuUnitPrices(productIds: string[] = EMPTY_IDS) {
+  const ids = useMemo(
+    () => Array.from(new Set(productIds.filter(isUuid))),
+    [productIds]
+  );
+
+  const products = useQueries({
+    queries: ids.map((id) => productQueryOptions(id)),
+    combine: collectProducts,
+  });
+
+  return useMemo(() => {
+    const now = new Date();
+    const prices = new Map<string, number | null>();
+    products.forEach((product, index) => {
+      prices.set(ids[index], product ? (selectPrice(product.prices, now)?.amount ?? null) : null);
+    });
+    return prices;
+  }, [ids, products]);
+}
 
 /**
  * Flattens the per-product results to one path (or `null`) per id, in the

@@ -1,3 +1,4 @@
+import { CHARGED_DELIVERY_FEE, SERVICE_FEE } from '@/constants/fees';
 import {
   paymentMethodLabel,
   type PaymentMethodId,
@@ -227,6 +228,54 @@ export function toOrderInput(args: ToOrderInputArgs): OrderInput {
     customerId,
     comment: buildOrderComment(paymentMethod, cartComment),
     items,
+  };
+}
+
+// --- Totals ---------------------------------------------------------------
+
+/** What a cart costs, as the checkout screen and the order snapshot both read it. */
+export interface OrderTotals {
+  subtotal: number;
+  serviceFee: number;
+  /** What is actually charged for delivery right now — 0 while it is waived. */
+  deliveryFee: number;
+  total: number;
+}
+
+/**
+ * The arithmetic behind the price block, in ONE place.
+ *
+ * It is shared by the checkout screen and by the snapshot written when an order
+ * is placed, and those two must agree by construction: the snapshot is what the
+ * order screen shows back to the customer afterwards, so a total computed
+ * slightly differently there would read as a changed price.
+ *
+ * `unitPrice` is per-unit INCLUDING the addons chosen for that line — the cart
+ * stores it that way — so the subtotal is a plain sum.
+ *
+ * Every fee here is a client-side placeholder (`constants/fees.ts`): no fee,
+ * price or total field exists on `Order` (plan §3.3), so none of this is sent
+ * and none of it is charged by the backend.
+ */
+export function orderTotals(
+  lines: Pick<CartLine, 'unitPrice' | 'quantity'>[]
+): OrderTotals {
+  const subtotal = lines.reduce(
+    (sum, line) => sum + line.unitPrice * line.quantity,
+    0
+  );
+
+  // An empty cart costs nothing at all — fees on nothing would be a bill for
+  // an order that cannot be placed.
+  if (lines.length === 0) {
+    return { subtotal: 0, serviceFee: 0, deliveryFee: 0, total: 0 };
+  }
+
+  return {
+    subtotal,
+    serviceFee: SERVICE_FEE,
+    deliveryFee: CHARGED_DELIVERY_FEE,
+    total: subtotal + SERVICE_FEE + CHARGED_DELIVERY_FEE,
   };
 }
 

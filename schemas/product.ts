@@ -75,11 +75,28 @@ export const attributeSchema = z.object({
 });
 
 /**
+ * How many options of a group a customer may pick.
+ *
+ * `SINGLE` means one choice replaces the previous one (pizza size); `MULTIPLE`
+ * means they add up (toppings). Mirrors the backend `SelectionType` enum, which
+ * the back-office writes on every group it creates
+ * (`hungry-frontend/src/hooks/useRestaurantMenu.ts` sends
+ * `selectionType ?? 'SINGLE'`).
+ */
+export const selectionTypeSchema = z.enum(['SINGLE', 'MULTIPLE']);
+
+/**
  * A set of addons offered together, e.g. "Add some sauce".
  *
- * `required` is the ONLY selection rule the backend carries: there is no field
- * saying whether the group is single- or multi-select, and none capping the
- * number of choices — see `UNBACKED_ADDON_FIELDS`.
+ * `required` says whether the customer MUST answer; `selectionType` says how
+ * many answers are allowed. Neither caps the number of choices in a MULTIPLE
+ * group — there is still no `maxSelect` anywhere in the backend, see
+ * `UNBACKED_ADDON_FIELDS`.
+ *
+ * `selectionType` is `.catch(null)` rather than a bare enum so a value this
+ * app does not know — a third member added server-side — reaches the client as
+ * "unspecified" instead of failing the parse and blanking the whole sheet. The
+ * same reasoning as `productTypeSchema`.
  *
  * `attributes` is populated by ONE route only: `/attribute-groups`, which
  * projects each group's options inline with their prices. Everywhere else the
@@ -97,6 +114,7 @@ export const attributeGroupSchema = z.object({
   name: z.string().nullish(),
   description: z.string().nullish(),
   required: z.boolean().nullish(),
+  selectionType: selectionTypeSchema.nullish().catch(null),
   attributes: z.array(attributeSchema).catch([]),
 });
 
@@ -216,6 +234,7 @@ export type TimeRestriction = z.infer<typeof timeRestrictionSchema>;
 export type PriceCategory = z.infer<typeof priceCategorySchema>;
 export type Price = z.infer<typeof priceSchema>;
 export type Attribute = z.infer<typeof attributeSchema>;
+export type SelectionType = z.infer<typeof selectionTypeSchema>;
 export type AttributeGroup = z.infer<typeof attributeGroupSchema>;
 export type ProductConfiguration = z.infer<typeof productConfigurationSchema>;
 export type CatalogRef = z.infer<typeof catalogRefSchema>;

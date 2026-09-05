@@ -160,17 +160,36 @@ export function selectPrice(prices: Price[], now: Date): AppliedPrice | null {
 /**
  * Addon fields the UI wants that NO backend field currently supplies.
  *
- * `type` in particular: `AttributeGroup` carries `required`, but nothing that
- * says whether the group is single- or multi-select, so a radio group is
- * indistinguishable from a checkbox group today. Guessing from the group name
- * would be wrong more often than right, so every group renders as a checkbox
- * until the backend models the distinction.
+ * `type` is no longer among them: `AttributeGroup.selectionType` says whether a
+ * group is single- or multi-select, and {@link addonGroupType} maps it. What is
+ * still missing is a CAP on a multi-select group — nothing anywhere says "pick
+ * up to three" — and any notion of a popular option.
  */
-export const UNBACKED_ADDON_FIELDS = ['type', 'maxSelect', 'isPopular'] as const;
+export const UNBACKED_ADDON_FIELDS = ['maxSelect', 'isPopular'] as const;
+
+/**
+ * How a group is rendered and how selecting inside it behaves.
+ *
+ * `SINGLE` is a radio group: one option at a time, a new pick replacing the
+ * last. Everything else is a checkbox group.
+ *
+ * **An unspecified `selectionType` renders as a checkbox**, which is the
+ * deliberate direction to be wrong in. The back-office writes the field on
+ * every group it creates, so `null` here does not mean "the restaurant did not
+ * choose" — it means the value did not reach us at all (a projection that
+ * omits it, a member this app does not know). Reading that silence as SINGLE
+ * would cap every topping group in the app at one choice; reading it as
+ * MULTIPLE keeps the group behaving as it did before the field existed, and the
+ * cost is a group that permits a second choice it should not.
+ */
+export function addonGroupType(group: AttributeGroup): 'checkbox' | 'radio' {
+  return group.selectionType === 'SINGLE' ? 'radio' : 'checkbox';
+}
 
 /**
  * A configurable product's attribute groups become the addon groups the food
- * screen renders.
+ * screen renders, each carrying whether it is a single- or multi-select group
+ * (see {@link addonGroupType}).
  *
  * Takes the GROUPS rather than the product: no product payload carries them
  * (see `attributeGroupSchema`), so they are assembled by
@@ -203,9 +222,9 @@ export function toAddonGroups(groups: AttributeGroup[], now: Date): AddonGroupDa
         id: group.id!,
         title: group.name ?? '',
         subtitle: group.description ?? undefined,
-        // See UNBACKED_ADDON_FIELDS: `type` has no backend source, and
-        // `maxSelect` / `isPopular` stay undefined for the same reason.
-        type: 'checkbox' as const,
+        type: addonGroupType(group),
+        // See UNBACKED_ADDON_FIELDS: `maxSelect` and `isPopular` have no
+        // backend source and stay undefined.
         required: group.required === true,
         options,
       };
@@ -234,6 +253,43 @@ export function addonAmounts(groups: AttributeGroup[], now: Date): Map<string, n
   }
 
   return amounts;
+}
+
+/**
+ * The selection a group holds after the customer taps one of its options.
+ *
+ * Pure, and the single place the single/multi rule lives — the food screen
+ * applies it, and it is unit-tested here rather than through a rendered sheet.
+ *
+ *   MULTIPLE  toggles: tapping an unselected option adds it, tapping a
+ *             selected one removes it.
+ *   SINGLE    replaces: tapping an option makes it the only selection.
+ *
+ * The one subtlety is tapping the option a SINGLE group already holds. In a
+ * REQUIRED group that is a no-op — an answer is owed, and clearing it could
+ * only put the customer back in front of the validation error they just
+ * cleared. In an OPTIONAL group it clears the selection, because there is
+ * otherwise no way back to "no thanks" once an option (and its surcharge) has
+ * been picked.
+ *
+ * Returns the array unchanged when nothing changes, so a caller storing it in
+ * state does not re-render for a no-op tap.
+ */
+export function toggleAddonSelection(
+  group: Pick<AddonGroupData, 'type' | 'required'>,
+  selectedIds: string[],
+  optionId: string
+): string[] {
+  const isSelected = selectedIds.includes(optionId);
+
+  if (group.type === 'radio') {
+    if (!isSelected) return [optionId];
+    return group.required ? selectedIds : [];
+  }
+
+  return isSelected
+    ? selectedIds.filter((each) => each !== optionId)
+    : [...selectedIds, optionId];
 }
 
 // --- Menu sections ---------------------------------------------------------
@@ -302,18 +358,36 @@ function isDisplayable(category: Category): boolean {
  * invisible. Standard and configurable dishes sit side by side in a section —
  * the subtype changes how a dish is ordered, not where it belongs on the menu.
  *
+ * `sectionIds`, when given, is the menu's OWN sections (`MenuScope.sections`),
+ * and any other category a product names is ignored. Dishes are fetched one
+ * section at a time, so a product's `subcategories` is normally exactly the
+ * sections it was fetched under — but the categories live in a catalog shared
+ * by every restaurant, and a dish filed into a foreign one must not open a
+ * section on this restaurant's menu. Omitting it groups by whatever the
+ * products name, which is what the unit tests do.
+ *
  * `now` is threaded through for price selection, for the same testability
  * reason as {@link selectPrice}.
  */
-export function groupBySection(products: MenuProductOutput[], now: Date): MenuSectionData[] {
+export function groupBySection(
+  products: MenuProductOutput[],
+  now: Date,
+  sectionIds?: readonly string[]
+): MenuSectionData[] {
   const sections = new Map<string, MenuSectionData>();
   const uncategorised: MenuProduct[] = [];
+  const menuSections = sectionIds ? new Set(sectionIds) : null;
 
   for (const product of products) {
     const menuProduct = toMenuProduct(product, now);
 
     const categories = product.subcategories.filter(
-      (category) => isDisplayable(category) && (category.id ?? category.name)
+      (category) =>
+        isDisplayable(category) &&
+        (category.id ?? category.name) &&
+        // A category with no id cannot be one of the menu's sections, so it is
+        // only groupable when the caller did not name them.
+        (!menuSections || (!!category.id && menuSections.has(category.id)))
     );
 
     if (categories.length === 0) {

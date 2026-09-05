@@ -7,7 +7,7 @@ import {
 } from '@/schemas/product';
 import { z } from 'zod';
 import { ApiError, apiClient, isApiError } from './client';
-import type { MenuScope } from './restaurant-view-model';
+import type { MenuScope } from './menu-service';
 
 /**
  * Product reads against the gateway.
@@ -93,10 +93,14 @@ function parseOrThrow<T extends z.ZodType>(schema: T, data: unknown, what: strin
 }
 
 export interface FetchMenuParams {
-  /** Narrows to one menu section. A plain UUID string, like the scope keys. */
+  /**
+   * Narrows to one menu section — a plain UUID, and one of the section ids the
+   * scope carries. Anything else reads as an empty menu.
+   */
   categoryId?: string;
   /** Substring match on the product name, applied server-side via LIKE. */
   nameLike?: string;
+  /** Applied to EACH section's request, not to the merged menu. */
   page?: number;
   size?: number;
   sort?: ProductSortField;
@@ -107,10 +111,14 @@ export interface FetchMenuParams {
  * `ids`/`codes`/`names` take a `FilterSpecification[]`, while `catalogId`,
  * `catalogVersionId` and `categoryId` take a plain UUID string. Wrapping the
  * latter in a specification object does not filter — it fails.
+ *
+ * `catalogId` / `catalogVersionId` are deliberately NOT modelled here any
+ * more. Every restaurant now stages its menu in the same platform catalog
+ * version, so filtering on one returns the whole platform's dishes — see the
+ * header of `services/api/menu-service.ts`. `categoryId` is the only field
+ * that actually narrows to one restaurant.
  */
 interface ProductFilter {
-  catalogId?: string;
-  catalogVersionId?: string;
   categoryId?: string;
   names?: { operator: string; fieldValue: string; fieldType: string }[];
 }
@@ -133,35 +141,21 @@ export interface MenuProductOutput extends ConfigurableProductOutput {
   isConfigurable: boolean;
 }
 
-/** The catalog scope as `ProductFilter` wants it — see the interface above. */
-function scopeFilter(scope: MenuScope): ProductFilter {
-  return 'catalogVersionId' in scope
-    ? { catalogVersionId: scope.catalogVersionId }
-    : { catalogId: scope.catalogId };
-}
-
 /**
- * One page of a restaurant's menu, standard and configurable dishes alike.
- *
- * ONE request. `/products/all` is polymorphic, so nothing is missing from it,
- * and `productType` labels every row — see the endpoint note at the top of
- * this module. Neither subtype's addons are readable from a list endpoint at
- * all, so there is nothing a second request could usefully add here; the food
- * screen resolves them per dish.
- *
- * The scope comes from `menuScopeOf` or `fetchMenuScope`, so a caller cannot
- * reach this function without a catalog and there is no "fetch everything and
- * guess which products belong to this restaurant" path.
+ * Products per section request. A section holds far fewer dishes than this;
+ * the size is high because the menu screen renders every section at once and
+ * has no "load more" affordance to page one with.
  */
-export async function fetchMenu(
-  scope: MenuScope,
-  params: FetchMenuParams = {}
+const SECTION_PAGE_SIZE = 100;
+
+/** One section's page of dishes, already labelled with their subtype. */
+async function fetchSection(
+  categoryId: string,
+  params: FetchMenuParams
 ): Promise<Page<MenuProductOutput>> {
-  const { categoryId, nameLike, page = 0, size = 20, sort } = params;
+  const { nameLike, page = 0, size = SECTION_PAGE_SIZE, sort } = params;
 
-  const filter: ProductFilter = scopeFilter(scope);
-
-  if (categoryId) filter.categoryId = categoryId;
+  const filter: ProductFilter = { categoryId };
 
   // Product search goes through `names` + LIKE, exactly as restaurant search
   // does. The free-text alternative 500s — see the module header and plan §3.3.
@@ -190,6 +184,75 @@ export async function fetchMenu(
       ...product,
       isConfigurable: isConfigurableType(product.productType),
     })),
+  };
+}
+
+/** The envelope for a menu with no section to read — never a request. */
+function emptyPage(page: number): Page<MenuProductOutput> {
+  return { content: [], number: page, totalPages: 0, totalElements: 0, last: true };
+}
+
+/**
+ * A restaurant's menu, standard and configurable dishes alike.
+ *
+ * **One request per SECTION**, run in parallel. Products are not addressable
+ * by restaurant and no longer by catalog either — every restaurant stages its
+ * menu in the same platform catalog version, so a `catalogVersionId` filter
+ * returns the whole platform's dishes. The section categories resolved by
+ * `fetchMenuScope` are the only thing that narrows to one restaurant, and
+ * `ProductFilter.categoryId` takes exactly one of them, so the fan-out is what
+ * the backend's filter shape leaves available. Sections are few (a menu has a
+ * handful), the requests are independent, and the whole set is cached as one
+ * menu query.
+ *
+ * `/products/all` is polymorphic, so each of those requests returns standard
+ * AND configurable dishes, and `productType` labels every row — see the
+ * endpoint note at the top of this module. Neither subtype's addons are
+ * readable from a list endpoint at all, so there is nothing a further request
+ * could usefully add here; the food screen resolves them per dish.
+ *
+ * A dish filed under two sections comes back from both and is kept ONCE: the
+ * duplicate is an artifact of the fan-out, not of the menu. Which sections it
+ * belongs to is read off its own `subcategories` when the menu is grouped, so
+ * de-duplicating here loses nothing.
+ */
+export async function fetchMenu(
+  scope: MenuScope,
+  params: FetchMenuParams = {}
+): Promise<Page<MenuProductOutput>> {
+  const { categoryId, page = 0 } = params;
+
+  // A section filter narrows the fan-out to one request. An id that is not one
+  // of this menu's sections reads as an empty menu rather than as another
+  // restaurant's section — the scope is what decides which products are this
+  // restaurant's, so a caller must not be able to step outside it.
+  const sections = categoryId
+    ? scope.sections.filter((section) => section.id === categoryId)
+    : scope.sections;
+
+  if (sections.length === 0) return emptyPage(page);
+
+  const pages = await Promise.all(
+    sections.map((section) => fetchSection(section.id, params))
+  );
+
+  const products = new Map<string, MenuProductOutput>();
+  for (const sectionPage of pages) {
+    for (const product of sectionPage.content) {
+      if (!products.has(product.id)) products.set(product.id, product);
+    }
+  }
+
+  return {
+    content: [...products.values()],
+    number: page,
+    // The envelope describes the MERGED menu, so `totalElements` counts the
+    // dishes actually returned rather than summing the sections — a dish in
+    // two sections would otherwise be counted twice. `last` is false as soon
+    // as any one section has more to give.
+    totalPages: Math.max(...pages.map((sectionPage) => sectionPage.totalPages ?? 1)),
+    totalElements: products.size,
+    last: pages.every((sectionPage) => sectionPage.last !== false),
   };
 }
 

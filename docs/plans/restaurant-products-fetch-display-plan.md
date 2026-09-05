@@ -80,11 +80,38 @@ a dish, so every menu that exists was filed under them. The codes resolve throug
 endpoint's `codes` filter, because `read(identifier)` parses its argument as a UUID and
 cannot look anything up by code.
 
-`services/api/catalog-service.ts` implements this. `menuScopeOf` is kept as the fast path:
-the day §2.1 lands, the fallback request stops being issued and nothing else changes.
-
-`{ status: 'unavailable', reason: 'no-catalog' }` therefore now means what it says — the
+`{ status: 'unavailable', reason: 'no-menu' }` therefore now means what it says — the
 menu was never created — rather than "the backend cannot tell us yet".
+
+### 2.3.1 SUPERSEDED — a menu is a CATEGORY, not a catalog
+
+The back-office changed the convention, and the client follows it
+(`hungry-frontend/src/hooks/useRestaurantMenu.ts`, `menuCategoryCode` /
+`ensureMenuSection` / `loadRestaurantMenu`). The whole platform now stages its products in
+ONE catalog and ONE catalog version — resolved from `VITE_DEFAULT_CATALOG_VERSION_CODE` —
+and a restaurant's menu is a category inside them:
+
+```
+menu category            RESTAURANT-MENU-<restaurantId>   (one per restaurant)
+  └── section categories Pizzas, Drinks, …                (supercategory = the menu)
+        └── products
+```
+
+Two consequences for the client, both implemented in `services/api/menu-service.ts` and
+`fetchMenu`:
+
+- **The catalog scope is no longer a scope.** Every restaurant shares that catalog version,
+  so `filter={"catalogVersionId":"…"}` returns the whole platform's dishes. The client no
+  longer sends either catalog field, and `menuScopeOf` — the §2.1 fast path — is gone along
+  with `catalogId` / `catalogVersionId` on `RestaurantDetail`: a restaurant-level catalog
+  link could not identify a menu even if the backend served one.
+- **Products are read section by section.** `ProductFilter.categoryId` takes one category,
+  so a menu costs one request per section, run in parallel and merged (a dish filed under
+  two sections is kept once). Sections come from `supercategoryId` = the menu category.
+
+`RESTAURANT-MENU-<restaurantId>` survives as the code, but it now names the menu CATEGORY.
+A menu category with no section is an EMPTY menu, not a missing one — only a missing
+category is `unavailable`.
 
 ### 2.4 Both product subtypes must be fetched
 
@@ -309,14 +336,26 @@ The groups do NOT arrive with the product — see §2.5 for where each piece is 
 | `required` | `AttributeGroup.required` ✅ |
 | `options[].id`, `.name` | `Attribute.id`, `.name` |
 | `options[].price` | `Attribute.prices` via §3.6, rendered as `"+2 DT"` |
-| `type` (`checkbox`\|`radio`) | ❌ **no backend field** |
+| `type` (`checkbox`\|`radio`) | `AttributeGroup.selectionType` ✅ — see the update below |
 | `maxSelect` | ❌ **no backend field** |
 | `options[].isPopular` | ❌ **no backend field** |
 
-Default `type: 'checkbox'` and leave `maxSelect`/`isPopular` undefined, collected in an
-`UNBACKED_ADDON_FIELDS` constant mirroring RESTO-01's `UNBACKED_FIELDS`. A single-select
-group cannot be distinguished from a multi-select one today — say so in a comment rather
-than guessing from the group name.
+Leave `maxSelect`/`isPopular` undefined, collected in an `UNBACKED_ADDON_FIELDS` constant
+mirroring RESTO-01's `UNBACKED_FIELDS`.
+
+#### UPDATE — `selectionType` ships, so `type` is backed
+
+`AttributeGroupOutputData` carries `selectionType` (`SINGLE` | `MULTIPLE`), and the
+back-office writes it on every group it creates (`selectionType ?? 'SINGLE'`). `SINGLE`
+maps to a radio group, everything else to a checkbox group (`addonGroupType`), and the
+tap rule that follows from it — replace vs. toggle — is `toggleAddonSelection`, which the
+food screen applies.
+
+An unspecified value renders as a CHECKBOX. `null` does not mean "the restaurant did not
+choose", since the back-office always sends one; it means the value never reached us. That
+silence must not cap every topping group at one choice, whereas the opposite error only
+permits a second choice the group should not take. There is still no `maxSelect`, so a
+multi-select group remains uncapped.
 
 ### 3.8 Menu sections
 
@@ -355,15 +394,15 @@ handling in `services/api/client.ts`, and the query-key factory style in `query-
 | `services/api/product-view-model.ts` | Price selection, currency formatting, addon mapping, section grouping |
 | `hooks/use-products.ts` | `useRestaurantMenu`, `useProduct` |
 | `components/restaurant/menu-section-skeleton.tsx` | Loading placeholder |
-| `components/restaurant/menu-unavailable.tsx` | The §2.2 "no catalog link" state |
+| `components/restaurant/menu-unavailable.tsx` | The §2.3.1 "no menu category" state |
 
 **Modified**
 
 | File | Change |
 | --- | --- |
-| `schemas/restaurant.ts` | Add the optional `catalogVersionId` / `catalogId` the backend will expose |
-| `services/api/restaurant-view-model.ts` | Add `menuScopeOf()` |
-| `services/api/query-keys.ts` | Add `productKeys` |
+| `schemas/restaurant.ts` | No catalog link — see §2.3.1; the menu is found through its category |
+| `services/api/menu-service.ts` | Resolve the menu category + its sections (§2.3.1) |
+| `services/api/query-keys.ts` | Add `productKeys` and `menuKeys` |
 | `components/restaurant/product-card.tsx` | `image: any` → typed; price/rating props optional |
 | `components/restaurant/menu-section.tsx` | Accept the view-model product type |
 | `components/restaurant/menu-filter-tabs.tsx` | Tabs from categories, not hardcoded |
@@ -383,10 +422,11 @@ The harness exists after RESTO-01 Phase 1 — do not reinstall it. Priorities:
    currency falling back safely.
 3. **Addon mapping** — group with `required: true`; empty attribute list; an attribute whose
    prices are all restricted out; `type` defaulting to `checkbox`.
-4. **Menu scope** — `menuScopeOf` returns `null` when the restaurant carries no catalog
-   link, and a scope when it does.
-5. **Service layer** — filter JSON for `catalogVersionId` + `categoryId`; that no `keyword`
-   filter is ever emitted; 500-on-valid-UUID → not-found; schema-invalid response throws.
+4. **Menu scope** — `fetchMenuScope` returns `null` when the restaurant has no menu
+   category, and a scope (sections included, possibly empty) when it does.
+5. **Service layer** — filter JSON for `categoryId` and nothing else that scopes; one
+   request per section, merged and de-duplicated; that no `keyword` filter is ever emitted;
+   500-on-valid-UUID → not-found; schema-invalid response throws.
 6. **Component smoke tests** — a product card with no price renders without crashing and
    without an add-to-cart affordance.
 

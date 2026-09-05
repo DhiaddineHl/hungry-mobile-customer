@@ -1,4 +1,5 @@
 import {
+  attributeGroupSchema,
   configurableProductOutputSchema,
   productOutputSchema,
 } from '@/schemas/product';
@@ -65,6 +66,7 @@ const FULL_PAYLOAD = {
         name: 'Add some sauce',
         description: 'Pick your sauces',
         required: true,
+        selectionType: 'MULTIPLE',
         attributes: [
           {
             id: 'attr-1',
@@ -89,6 +91,7 @@ describe('configurableProductOutputSchema', () => {
     expect(parsed.prices[0].restriction?.effectiveTo).toBeNull();
     expect(parsed.subcategories[0].visible).toBe(true);
     expect(parsed.configuration?.attributes[0].required).toBe(true);
+    expect(parsed.configuration?.attributes[0].selectionType).toBe('MULTIPLE');
     expect(parsed.configuration?.attributes[0].attributes[0].prices[0].amount).toBe(2);
   });
 
@@ -190,5 +193,32 @@ describe('productType — the product_type discriminator', () => {
     // A new subtype appearing server-side must not blank the whole menu; the
     // client decides what an unknown number means, it does not reject it.
     expect(productOutputSchema.parse({ ...FULL_PAYLOAD, productType: 7 }).productType).toBe(7);
+  });
+});
+
+describe('selectionType — how many options a group takes', () => {
+  const GROUP = { id: 'grp-1', name: 'Size', attributes: [] };
+
+  it('parses both members the backend defines', () => {
+    expect(attributeGroupSchema.parse({ ...GROUP, selectionType: 'SINGLE' }).selectionType).toBe(
+      'SINGLE'
+    );
+    expect(
+      attributeGroupSchema.parse({ ...GROUP, selectionType: 'MULTIPLE' }).selectionType
+    ).toBe('MULTIPLE');
+  });
+
+  it('accepts a group that does not carry it', () => {
+    expect(attributeGroupSchema.parse(GROUP).selectionType).toBeUndefined();
+    expect(attributeGroupSchema.parse({ ...GROUP, selectionType: null }).selectionType).toBeNull();
+  });
+
+  it('reads an unrecognised member as unspecified instead of failing the parse', () => {
+    // A third member added server-side must not blank the whole options sheet;
+    // `addonGroupType` then renders the group as multi-select.
+    const parsed = attributeGroupSchema.parse({ ...GROUP, selectionType: 'EXACTLY_TWO' });
+
+    expect(parsed.selectionType).toBeNull();
+    expect(parsed.name).toBe('Size');
   });
 });

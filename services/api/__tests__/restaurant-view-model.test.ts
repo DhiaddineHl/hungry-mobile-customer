@@ -2,7 +2,6 @@ import type { RestaurantOutput, WorkingDay } from '@/schemas/restaurant';
 import { apiClient } from '@/services/api/client';
 import {
   isRestaurantOpen,
-  menuScopeOf,
   toRestaurantDetail,
   toRestaurantSummary,
   UNBACKED_FIELDS,
@@ -266,54 +265,5 @@ describe('toRestaurantDetail', () => {
     expect(detail.isOpen).toBe(true);
 
     expect(toRestaurantDetail(restaurant(), MONDAY(12, 0)).phones).toEqual([]);
-  });
-});
-
-describe('menuScopeOf', () => {
-  const CATALOG_VERSION_ID = '11111111-2222-3333-4444-555555555555';
-  const CATALOG_ID = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
-
-  it('returns null when the restaurant carries no catalog link at all', () => {
-    // This is the expected answer for EVERY restaurant today: the backend has
-    // no relation between a restaurant and its products (plan §2).
-    const detail = toRestaurantDetail(restaurant(), MONDAY(12, 0));
-
-    expect(menuScopeOf(detail)).toBeNull();
-  });
-
-  it('returns a version scope when catalogVersionId is present', () => {
-    const detail = toRestaurantDetail(
-      restaurant({ catalogVersionId: CATALOG_VERSION_ID }),
-      MONDAY(12, 0)
-    );
-
-    expect(menuScopeOf(detail)).toEqual({ catalogVersionId: CATALOG_VERSION_ID });
-  });
-
-  it('falls back to the catalog when only catalogId is present', () => {
-    const detail = toRestaurantDetail(
-      restaurant({ catalogId: CATALOG_ID }),
-      MONDAY(12, 0)
-    );
-
-    expect(menuScopeOf(detail)).toEqual({ catalogId: CATALOG_ID });
-  });
-
-  it('prefers the version over the catalog — a catalog holds several versions', () => {
-    const detail = toRestaurantDetail(
-      restaurant({ catalogId: CATALOG_ID, catalogVersionId: CATALOG_VERSION_ID }),
-      MONDAY(12, 0)
-    );
-
-    expect(menuScopeOf(detail)).toEqual({ catalogVersionId: CATALOG_VERSION_ID });
-  });
-
-  it('treats a blank catalog link as no link rather than filtering on ""', () => {
-    const detail = toRestaurantDetail(
-      restaurant({ catalogVersionId: '   ', catalogId: '' }),
-      MONDAY(12, 0)
-    );
-
-    expect(menuScopeOf(detail)).toBeNull();
   });
 });

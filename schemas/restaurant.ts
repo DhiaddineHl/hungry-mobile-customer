@@ -92,15 +92,12 @@ export const restaurantOutputSchema = z.object({
   coverImageUrl: z.string().nullish(),
   days: z.array(workingDaySchema).catch([]),
   enabled: z.boolean().nullish(),
-  /**
-   * The catalog a restaurant's menu lives in. NEITHER field is served today —
-   * the backend has no link at all between a restaurant and its products (see
-   * docs/plans/restaurant-products-fetch-display-plan.md §2). They are modelled
-   * ahead of the §2.1 backend change so `menuScopeOf` starts returning a real
-   * scope the moment the field appears, with no schema edit.
-   */
-  catalogId: z.string().nullish(),
-  catalogVersionId: z.string().nullish(),
+  // No catalog link is modelled here on purpose. The backend has none (see
+  // docs/plans/restaurant-products-fetch-display-plan.md §2), and one would no
+  // longer help: every restaurant's menu is now staged in the SAME platform
+  // catalog version, so that link could not tell two menus apart. The menu is
+  // found through the restaurant's own menu category instead — see
+  // services/api/menu-service.ts.
 });
 
 export type RestaurantGeoCoordinates = z.infer<typeof geoCoordinatesSchema>;

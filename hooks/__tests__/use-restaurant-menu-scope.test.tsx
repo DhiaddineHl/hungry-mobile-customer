@@ -1,5 +1,5 @@
 import { useRestaurantMenu } from '@/hooks/use-products';
-import * as catalogService from '@/services/api/catalog-service';
+import * as menuService from '@/services/api/menu-service';
 import * as productService from '@/services/api/product-service';
 import type { RestaurantDetail } from '@/services/api/restaurant-view-model';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -7,25 +7,33 @@ import { render, screen, waitFor } from '@testing-library/react-native';
 import { Text } from 'react-native';
 
 /**
- * The menu reaches the screen through a catalog the restaurant payload does
- * not name: no `RestaurantOutputData` carries a catalog link, so the scope is
- * resolved from the code the back-office files the menu under.
+ * The menu reaches the screen through categories the restaurant payload does
+ * not name: no `RestaurantOutputData` links a restaurant to its products, so
+ * the menu category — and the sections under it — are resolved from the code
+ * the back-office files that category under.
  *
  * One rendered test per file, for the reason
  * `use-create-order-success.test.tsx` documents.
  *
- * What this proves: the resolved scope is what the menu is actually fetched
- * with — the regression that left every restaurant showing an empty menu.
+ * What this proves: the resolved sections are what the menu is actually
+ * fetched with — the regression that left every restaurant showing an empty
+ * menu.
  */
 
-jest.mock('@/services/api/catalog-service');
+jest.mock('@/services/api/menu-service');
 jest.mock('@/services/api/product-service');
 
-const mockedCatalogService = jest.mocked(catalogService);
+const mockedMenuService = jest.mocked(menuService);
 const mockedProductService = jest.mocked(productService);
 
 const RESTAURANT_ID = '7c9e6679-7425-40de-944b-e07fc1f90ae7';
-const VERSION_ID = '11111111-2222-3333-4444-555555555555';
+const MENU_CATEGORY_ID = '11111111-2222-3333-4444-555555555555';
+const PIZZAS_ID = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+
+const SCOPE = {
+  menuCategoryId: MENU_CATEGORY_ID,
+  sections: [{ id: PIZZAS_ID, name: 'Pizzas' }],
+};
 
 const RESTAURANT: RestaurantDetail = {
   id: RESTAURANT_ID,
@@ -34,16 +42,16 @@ const RESTAURANT: RestaurantDetail = {
   isOpen: true,
   phones: [],
   days: [],
-  // Deliberately absent: the backend serves no catalog link today.
-  catalogVersionId: null,
-  catalogId: null,
 };
 
 function menuProduct(id: string, name: string, isConfigurable: boolean) {
   return {
     id,
     name,
-    subcategories: [],
+    // Filed under the one section this menu has, which is how the grouping
+    // places it: a dish naming no section of THIS menu falls to the untitled
+    // group instead.
+    subcategories: [{ id: PIZZAS_ID, name: 'Pizzas', keywords: [] }],
     subclassifications: [],
     keywords: [],
     prices: [],
@@ -67,8 +75,8 @@ function Probe() {
   );
 }
 
-it('fetches the menu with the scope resolved from the catalog code', async () => {
-  mockedCatalogService.fetchMenuScope.mockResolvedValue({ catalogVersionId: VERSION_ID });
+it('fetches the menu with the sections resolved from the menu category code', async () => {
+  mockedMenuService.fetchMenuScope.mockResolvedValue(SCOPE);
   mockedProductService.fetchMenu.mockResolvedValue({
     content: [
       menuProduct('p1', 'Plain Fries', false),
@@ -106,11 +114,8 @@ it('fetches the menu with the scope resolved from the catalog code', async () =>
     ).toBeTruthy()
   );
 
-  expect(mockedCatalogService.fetchMenuScope).toHaveBeenCalledWith(RESTAURANT_ID);
-  expect(mockedProductService.fetchMenu).toHaveBeenCalledWith(
-    { catalogVersionId: VERSION_ID },
-    {}
-  );
+  expect(mockedMenuService.fetchMenuScope).toHaveBeenCalledWith(RESTAURANT_ID);
+  expect(mockedProductService.fetchMenu).toHaveBeenCalledWith(SCOPE, {});
 
   client.clear();
 });

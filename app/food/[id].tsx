@@ -16,7 +16,11 @@ import {
 } from "@/hooks/use-products";
 import { useRestaurantImageSourceFromPath } from "@/hooks/use-restaurant-image";
 import { useRestaurant } from "@/hooks/use-restaurants";
-import { formatAmount, selectPrice } from "@/services/api/product-view-model";
+import {
+  formatAmount,
+  selectPrice,
+  toggleAddonSelection,
+} from "@/services/api/product-view-model";
 import { type CartAddon, useCartStore } from "@/store/cart-store";
 import { useFavoritesStore, useIsFavorite } from "@/store/favorites-store";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -72,7 +76,6 @@ export default function FoodDetailsScreen() {
 
   const [quantity, setQuantity] = useState(1);
   const [specialNote, setSpecialNote] = useState("");
-  const [validated, setValidated] = useState(false);
   const [showSticky, setShowSticky] = useState(false);
   const [selections, setSelections] = useState<Record<string, string[]>>({});
 
@@ -111,22 +114,42 @@ export default function FoodDetailsScreen() {
     [product],
   );
 
-  const handleToggle = useCallback((groupId: string, optionId: string) => {
-    setSelections((prev) => {
-      const current = prev[groupId] ?? [];
-      // Every group is multi-select: the backend cannot express a
-      // single-select group today (see UNBACKED_ADDON_FIELDS), and there is
-      // no maxSelect to enforce either.
-      return current.includes(optionId)
-        ? { ...prev, [groupId]: current.filter((each) => each !== optionId) }
-        : { ...prev, [groupId]: [...current, optionId] };
-    });
-  }, []);
+  /**
+   * Applies the tap to the group it happened in, under that group's own
+   * selection rule: a SINGLE group replaces its choice, a MULTIPLE one adds to
+   * it. The rule itself lives in `toggleAddonSelection`, which is where it is
+   * documented and tested; this only routes the tap to the right group.
+   *
+   * A tap in a group that is not on screen is ignored rather than guessed at:
+   * without the group there is no rule to apply, and defaulting to "add" would
+   * put two sizes in the cart.
+   */
+  const handleToggle = useCallback(
+    (groupId: string, optionId: string) => {
+      const group = addonGroups.find((each) => each.id === groupId);
+      if (!group) return;
 
-  const requiredGroups = addonGroups.filter((group) => group.required);
-  const allRequiredSatisfied = requiredGroups.every(
-    (group) => (selections[group.id] ?? []).length > 0,
+      setSelections((prev) => {
+        const current = prev[groupId] ?? [];
+        const next = toggleAddonSelection(group, current, optionId);
+        return next === current ? prev : { ...prev, [groupId]: next };
+      });
+    },
+    [addonGroups],
   );
+
+  /**
+   * Whether every required group has an answer.
+   *
+   * This gates the Add button rather than being checked when it is pressed:
+   * the customer sees the dish is not ready to order while they are still
+   * choosing, instead of finding out by tapping. Each group's own badge says
+   * WHICH one is still owed, and the bar carries the reason for the disabled
+   * button.
+   */
+  const allRequiredSatisfied = addonGroups
+    .filter((group) => group.required)
+    .every((group) => (selections[group.id] ?? []).length > 0);
 
   /**
    * A configurable dish whose groups have not arrived yet renders with NONE,
@@ -166,7 +189,9 @@ export default function FoodDetailsScreen() {
       : router.push("/(tabs)/cart");
 
   const handleAddToCart = () => {
-    setValidated(true);
+    // The button is already disabled in both of these states; they are checked
+    // again because what reaches the cart must never depend on a control's
+    // enabled-ness alone.
     if (!allRequiredSatisfied) return;
     // No applicable price, or no restaurant resolved from the route: the line
     // could not be priced or attributed, so it must not reach the cart.
@@ -289,23 +314,9 @@ export default function FoodDetailsScreen() {
             key={group.id}
             group={group}
             selectedIds={selections[group.id] ?? []}
-            isValidated={validated}
             onToggle={handleToggle}
           />
         ))}
-
-        {/*
-          Shown only after a rejected attempt: the per-group Required badges
-          already turn red, but they can be scrolled off-screen, and the bar the
-          customer just tapped is not where the reason lives.
-        */}
-        {validated && !allRequiredSatisfied ? (
-          <View style={styles.validationNotice}>
-            <Text style={styles.validationNoticeText}>
-              Choose an option in every required section to continue.
-            </Text>
-          </View>
-        ) : null}
 
         <SpecialInstructions
           value={specialNote}
@@ -362,6 +373,12 @@ export default function FoodDetailsScreen() {
           onDecrement={() => setQuantity((q) => Math.max(1, q - 1))}
           onIncrement={() => setQuantity((q) => q + 1)}
           onAddToCart={handleAddToCart}
+          disabled={!allRequiredSatisfied}
+          hint={
+            allRequiredSatisfied
+              ? undefined
+              : "Choose an option in every required section to continue."
+          }
         />
       ) : (
         // Unorderable rather than free: either no price applies right now, or
@@ -424,15 +441,6 @@ const styles = StyleSheet.create({
     fontSize: FontSize.md,
     fontFamily: Fonts.medium,
     color: Palette.textMuted,
-  },
-  validationNotice: {
-    paddingHorizontal: Spacing.xl,
-    paddingTop: Spacing.md,
-  },
-  validationNoticeText: {
-    fontSize: FontSize.md,
-    fontFamily: Fonts.medium,
-    color: Palette.danger,
   },
   unorderableText: {
     fontSize: FontSize.md,

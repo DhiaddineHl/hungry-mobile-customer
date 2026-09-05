@@ -10,7 +10,7 @@ import {
   Platform,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { ArrowLeft, Search, Crosshair, MapPin } from 'lucide-react-native';
 import * as Location from 'expo-location';
 import type MapView from 'react-native-maps';
@@ -25,6 +25,7 @@ import {
   getPlaceLocation,
   newPlacesSessionToken,
 } from '@/services/api/places-service';
+import { describeCoordinates } from '@/services/location/delivery-point';
 
 const DEFAULT_REGION: Region = {
   latitude: 35.8256,
@@ -39,6 +40,15 @@ export default function MapSelectScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const mapRef = useRef<MapView | null>(null);
+
+  /**
+   * Set when checkout sent the customer here to pick a delivery point for an
+   * order in progress. It changes what "Deliver to this point" means: the point
+   * goes BACK to that checkout for confirmation, instead of starting the
+   * add-an-address flow, which ends on the tabs and would strand a half-placed
+   * order.
+   */
+  const { checkoutRestaurantId } = useLocalSearchParams<{ checkoutRestaurantId?: string }>();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearching, setIsSearching] = useState(false);
@@ -67,18 +77,14 @@ export default function MapSelectScreen() {
   const reverseGeocode = async (lat: number, lng: number) => {
     const requestId = ++geocodeIdRef.current;
     setIsLoadingAddress(true);
-    try {
-      const results = await Location.reverseGeocodeAsync({ latitude: lat, longitude: lng });
-      if (requestId !== geocodeIdRef.current) return;
-      const r = results[0];
-      const parts = r ? [r.name, r.city, r.country].filter(Boolean) : [];
-      setAddressText(parts.length > 0 ? parts.join(', ') : `${lat.toFixed(4)}, ${lng.toFixed(4)}`);
-    } catch {
-      if (requestId !== geocodeIdRef.current) return;
-      setAddressText(`${lat.toFixed(4)}, ${lng.toFixed(4)}`);
-    } finally {
-      if (requestId === geocodeIdRef.current) setIsLoadingAddress(false);
-    }
+    // Naming and the coordinate fallback live in `describeCoordinates`, which
+    // the checkout card resolves its own dragged points through — one answer to
+    // "what is this point called" for both maps. The race guard stays here:
+    // only this screen knows which request is still the current one.
+    const described = await describeCoordinates({ latitude: lat, longitude: lng });
+    if (requestId !== geocodeIdRef.current) return;
+    setAddressText(described);
+    setIsLoadingAddress(false);
   };
 
   // Resolve the starting point: the default region's address right away, and
@@ -216,6 +222,20 @@ export default function MapSelectScreen() {
   };
 
   const handleDeliverHere = () => {
+    if (checkoutRestaurantId) {
+      // `replace`, not `push`: this screen was opened FROM that checkout, so
+      // returning to it must not leave a map underneath for Back to fall into.
+      router.replace({
+        pathname: '/order-details/[id]',
+        params: {
+          id: checkoutRestaurantId,
+          pickedLatitude: selectedCoords.latitude.toString(),
+          pickedLongitude: selectedCoords.longitude.toString(),
+          pickedAddress: addressText,
+        },
+      });
+      return;
+    }
     setBottomSheet('address-type');
   };
 

@@ -28,6 +28,11 @@ export function AddonItem({
       style={[styles.row, isDisabled && styles.rowDisabled]}
       onPress={() => !isDisabled && onToggle(id)}
       activeOpacity={isDisabled ? 1 : 0.7}
+      // The control's own semantics, so a screen reader announces "one of
+      // these" for a single-select group rather than treating every row as an
+      // independent toggle.
+      accessibilityRole={type === 'radio' ? 'radio' : 'checkbox'}
+      accessibilityState={{ checked: isSelected, disabled: !!isDisabled }}
     >
       <View style={styles.left}>
         <Text style={[styles.name, isDisabled && styles.textDisabled]}>{name}</Text>
