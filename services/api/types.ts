@@ -75,6 +75,35 @@ export interface Customer {
 }
 
 // ---------------------------------------------------------------------------
+// E-mail verification (CustomerVerificationService)
+// ---------------------------------------------------------------------------
+
+/**
+ * Answer to `POST /customers/verification/send`: everything the code screen
+ * needs to draw itself. `codeLength` is authoritative — the backend decides how
+ * many digits it generates, so the screen renders that many boxes rather than
+ * assuming a number.
+ */
+export interface VerificationChallenge {
+  email: string;
+  codeLength: number;
+  expiresInSeconds: number;
+  /** Seconds the Resend button stays disabled after this send. */
+  resendAvailableInSeconds: number;
+  /** The address was already confirmed; nothing was sent and the app may move on. */
+  alreadyVerified: boolean;
+  /** False when the backend has no mail transport (dev) and only logged the code. */
+  delivered: boolean;
+}
+
+/** Answer to `POST /customers/verification/confirm`. */
+export interface VerificationResult {
+  email: string;
+  keycloakUserId: string;
+  verified: boolean;
+}
+
+// ---------------------------------------------------------------------------
 // Restaurants
 //
 // These types are INFERRED from the zod schemas in `schemas/restaurant.ts`,

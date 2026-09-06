@@ -34,7 +34,7 @@ export const unstable_settings = {
 function RootNavigator() {
   const router = useRouter();
   const segments = useSegments();
-  const { isAuthenticated, isLoading, isCustomerResolved } = useAuth();
+  const { isAuthenticated, isLoading, isCustomerResolved, user } = useAuth();
   const { data: customer } = useCurrentCustomer();
 
   useEffect(() => {
@@ -49,9 +49,10 @@ function RootNavigator() {
       segments[0] === "verification" ||
       segments[0] === "auth";
 
-    // Post-sign-up onboarding screens are reachable before the user has a
-    // session (sign up → location → map → address → login), so they must not
-    // be bounced back to /login while unauthenticated.
+    // Address onboarding. Normally reached with a session (verification signs
+    // the new account in before handing over), but kept out of the /login
+    // bounce below so a mid-flow token refresh cannot eject the user from a
+    // half-entered address.
     const inOnboarding =
       segments[0] === "location" ||
       segments[0] === "map-select" ||
@@ -63,6 +64,19 @@ function RootNavigator() {
     // in-app registration, password login, and a Google sign-in (whose record
     // the app creates itself, addressless, right after the token exchange).
     if (isAuthenticated) {
+      // An unverified email outranks even the address rule: the account exists
+      // but has not proved it owns the address, so it goes back to the code
+      // screen — whichever way it got a session. Keycloak is the source of
+      // truth here (`email_verified` is a claim on the token), and a claim the
+      // realm does not emit reads as undefined, which deliberately does not
+      // gate anyone.
+      if (user?.email_verified === false) {
+        if (segments[0] !== "verification") {
+          router.replace("/verification");
+        }
+        return;
+      }
+
       // Route nothing until the record is known, or a new account flashes the
       // tabs on its way to the onboarding.
       if (!isCustomerResolved) return;
@@ -82,7 +96,7 @@ function RootNavigator() {
     } else if (!isAuthenticated && !inAuthGroup && !inOnboarding) {
       router.replace("/login");
     }
-  }, [isAuthenticated, isLoading, segments, isCustomerResolved, customer]);
+  }, [isAuthenticated, isLoading, segments, isCustomerResolved, customer, user]);
 
   return (
     <>

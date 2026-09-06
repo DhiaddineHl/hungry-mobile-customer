@@ -24,7 +24,7 @@ import {
 import { formatDT, useCartStore } from '@/store/cart-store';
 import { usePaymentMethodStore } from '@/store/payment-method-store';
 import type { LocationCoords } from '@/types/location';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import { ArrowLeft, DollarSign, Info, Phone } from 'lucide-react-native';
 import { useMemo, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
@@ -80,9 +80,26 @@ const BLOCKER_COPY: Record<CheckoutBlocker, { message: string; action?: string }
 /** The blockers whose fix is the address flow rather than an error message. */
 const ADDRESS_BLOCKERS: CheckoutBlocker[] = ['no-address', 'no-address-coords'];
 
+/**
+ * The slice of the navigation object `goToPlacedOrder` needs: one stack reset,
+ * with a nested state for the tab navigator underneath.
+ */
+type ResettableNavigation = {
+  reset: (state: {
+    index: number;
+    routes: { name: string; state?: { index: number; routes: { name: string }[] } }[];
+  }) => void;
+};
+
 export default function OrderDetailsScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  // The root stack, for the post-checkout reset in `goToPlacedOrder`; `router`
+  // has no equivalent of a reset. Typed structurally for the one method used:
+  // the default generic keys route names off `ReactNavigation.RootParamList`,
+  // which this app never augments, so `keyof` it is `never` and every name is
+  // rejected.
+  const navigation = useNavigation<ResettableNavigation>();
   // `pickedLatitude`/`pickedLongitude`/`pickedAddress` are set when the
   // full-screen picker sent a point back here — see `handleOpenMap`.
   const {
@@ -305,6 +322,36 @@ export default function OrderDetailsScreen() {
     router.push('/address-info');
   };
 
+  /**
+   * Where the customer lands once the order exists: My Orders, sitting on the
+   * Home tab.
+   *
+   * Placing the order empties the cart, which turns every screen behind this
+   * one into a dead end — Back from My Orders used to reach the cart page for
+   * a cart that no longer had anything in it. So the whole checkout branch is
+   * discarded rather than navigated away from, and Home takes its place
+   * underneath: it is where someone who just ordered would go next.
+   *
+   * One `reset` rather than a dismissAll/replace/push sequence, because those
+   * are resolved against expo-router's store state, which does not update
+   * between dispatches in the same tick — the second call would compute its
+   * target from the stack as it was before the first one landed. The route
+   * names come straight from the Stack/Tabs declarations in the layouts.
+   *
+   * `navigation.reset`, not a dispatched CommonActions.reset: as of SDK 56
+   * expo-router vendors React Navigation and the bundler rejects importing
+   * `@react-navigation/*` directly. The whole navigation API is on this object.
+   */
+  const goToPlacedOrder = () => {
+    navigation.reset({
+      index: 1,
+      routes: [
+        { name: '(tabs)', state: { index: 0, routes: [{ name: 'index' }] } },
+        { name: 'orders/index' },
+      ],
+    });
+  };
+
   const handleContinueCheckout = () => {
     if (!canSubmit || !customer?.id) return;
 
@@ -326,7 +373,7 @@ export default function OrderDetailsScreen() {
         // here: it must happen whether or not this screen is still mounted.
         // The customer lands on My Orders, where the order they just placed is
         // now the top card — the emptied cart would show them nothing.
-        onSuccess: () => router.replace('/orders'),
+        onSuccess: goToPlacedOrder,
         onError: () => setFailed(true),
       }
     );

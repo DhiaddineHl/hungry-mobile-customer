@@ -1,6 +1,12 @@
 import { AddressData } from '@/types/location';
 import { apiClient } from './client';
-import { Customer, CustomerAddress, CustomerInput } from './types';
+import {
+  Customer,
+  CustomerAddress,
+  CustomerInput,
+  VerificationChallenge,
+  VerificationResult,
+} from './types';
 
 export interface CustomerRegistration {
   firstName: string;
@@ -26,6 +32,42 @@ export async function registerCustomer(registration: CustomerRegistration): Prom
     password: registration.password,
   };
   const { data } = await apiClient.post<Customer>('/customers', input);
+  return data;
+}
+
+/**
+ * Asks the backend to mail a one-time code to a registered address — the first
+ * step of the verification gate that sits between sign-up and the address
+ * onboarding. Also the "Resend" action.
+ *
+ * Runs unauthenticated: it happens before the user's first login, so there is
+ * no token to send. Rejected with 429 inside the resend cool-down, whose
+ * remaining seconds come back in the ProblemDetail.
+ */
+export async function sendVerificationCode(email: string): Promise<VerificationChallenge> {
+  const { data } = await apiClient.post<VerificationChallenge>('/customers/verification/send', {
+    email,
+  });
+  return data;
+}
+
+/**
+ * Redeems the code. On success the backend flips the Keycloak account's
+ * `emailVerified` flag, which is what every later token reports in its
+ * `email_verified` claim.
+ *
+ * Throws ApiError(400) for a wrong code, 410 for an expired one and 429 once
+ * the attempts are used up — the screen tells those apart to decide whether to
+ * push the user towards "Resend".
+ */
+export async function confirmVerificationCode(
+  email: string,
+  code: string
+): Promise<VerificationResult> {
+  const { data } = await apiClient.post<VerificationResult>('/customers/verification/confirm', {
+    email,
+    code,
+  });
   return data;
 }
 

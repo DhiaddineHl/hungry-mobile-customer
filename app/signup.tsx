@@ -28,19 +28,20 @@ import { AnimatedEntrance } from '@/components/ui/animated-entrance';
 import { useAuth } from '@/contexts/auth-context';
 import { useRegisterCustomer } from '@/hooks/use-customer';
 import { hasDeliveryAddress } from '@/services/api/customer-service';
+import { usePendingVerificationStore } from '@/store/pending-verification-store';
 import { SignupFormData, signupSchema } from '@/schemas/auth';
 import { Duration, FontSize, Fonts, Palette, Radius, Shadows, Spacing } from '@/constants/theme';
 
 export default function SignupScreen() {
   const router = useRouter();
-  const { login, loginWithGoogle } = useAuth();
+  const { loginWithGoogle } = useAuth();
   const insets = useSafeAreaInsets();
   const registerCustomer = useRegisterCustomer();
+  const startVerification = usePendingVerificationStore((state) => state.start);
   const [countryCode] = useState('+216');
   const [authError, setAuthError] = useState<string | null>(null);
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
-  const [isSigningIn, setIsSigningIn] = useState(false);
-  const isSubmitting = registerCustomer.isPending || isSigningIn;
+  const isSubmitting = registerCustomer.isPending;
 
   const wasCancelled = (error?: string) => !!error && error.toLowerCase().includes('cancel');
 
@@ -64,7 +65,8 @@ export default function SignupScreen() {
     setAuthError(null);
     try {
       // One backend call creates the Keycloak login account and the Customer
-      // entity in sync (same flow as employees in the back-office app).
+      // entity in sync (same flow as employees in the back-office app), and
+      // mails the one-time code the next screen asks for.
       const customer = await registerCustomer.mutateAsync({
         firstName: data.firstName,
         lastName: data.lastName,
@@ -73,37 +75,29 @@ export default function SignupScreen() {
         phoneNumber: `${countryCode}${data.phoneNumber}`,
       });
 
-      // An account with nowhere to deliver to has to pick an address before it
-      // reaches the app. The root navigator enforces the same rule from the
-      // customer record, for every way in; deciding here too just skips the
-      // extra hop through the tabs.
-      const needsAddress = !hasDeliveryAddress(customer);
+      // No sign-in here any more: the account exists but its e-mail is
+      // unproven, and a realm that gates login on verification would refuse
+      // the password grant anyway. The verification screen signs in once the
+      // code is accepted — which is why it needs the password, handed over in
+      // memory rather than through route params.
+      //
+      // An account with nowhere to deliver to still has to pick an address
+      // before it reaches the app; that decision is carried through so the
+      // verification screen knows where to send the user next. The root
+      // navigator enforces the same rule from the customer record, for every
+      // way in — deciding here too just skips the extra hop through the tabs.
+      startVerification({
+        email: data.email,
+        password: data.password,
+        firstName: data.firstName,
+        needsAddress: !hasDeliveryAddress(customer),
+      });
 
-      // Sign in immediately: the onboarding that follows saves the address via
-      // GET /customers/by-account + PUT /customers, both of which the gateway
-      // rejects with 401 without a token. POST /customers above is the only
-      // endpoint it lets through unauthenticated.
-      setIsSigningIn(true);
-      const loginResult = await login(data.email, data.password);
-      if (!loginResult.success) {
-        // The account exists — only the session failed (a realm that requires
-        // email verification will refuse the password grant here). Keep the
-        // user on this screen; the "Already have an account?" link below is
-        // their way forward once they can sign in — the address onboarding
-        // resumes from the record itself whenever they do.
-        setAuthError(
-          loginResult.error ??
-            'Your account was created, but we could not sign you in. Please log in to continue.'
-        );
-        return;
-      }
-      router.replace(needsAddress ? '/location' : '/(tabs)');
+      router.push('/verification');
     } catch (error) {
       setAuthError(
         error instanceof Error ? error.message : 'An unexpected error occurred. Please try again.'
       );
-    } finally {
-      setIsSigningIn(false);
     }
   };
 
