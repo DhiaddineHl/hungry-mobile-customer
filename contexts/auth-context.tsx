@@ -11,6 +11,7 @@ import {
 import { keycloakConfig } from '@/services/keycloak/config';
 import { clearTokens, getTokens } from '@/services/keycloak/token-storage';
 import { ensureCustomerForAccount } from '@/hooks/use-customer';
+import { clearPushRegistration } from '@/services/notifications/push-service';
 import { useCustomerStore } from '@/store/customer-store';
 import { useDeliveryAddressStore } from '@/store/delivery-address-store';
 import { useQueryClient } from '@tanstack/react-query';
@@ -238,6 +239,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const logoutFn = useCallback(async () => {
+    // Before the tokens go: unregistering is an authenticated call, and once
+    // the session is cleared the backend can no longer tell whose device this
+    // is. Skipping it would leave this account's order notifications landing on
+    // the lock screen of whoever signs in here next.
+    await clearPushRegistration();
     await keycloakLogout();
     // Drop everything tied to this account so the next login starts clean.
     useCustomerStore.getState().clear();

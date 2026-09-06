@@ -2,6 +2,7 @@ import { Palette } from "@/constants/theme";
 import { AuthProvider, useAuth } from "@/contexts/auth-context";
 import { useFrameworkReady } from "@/hooks/useFrameworkReady";
 import { useCurrentCustomer } from "@/hooks/use-delivery-address";
+import { usePushNotifications } from "@/hooks/use-push-notifications";
 import { hasDeliveryAddress } from "@/services/api/customer-service";
 import { queryClient, wireAppFocus } from "@/services/api/query-client";
 import {
@@ -36,6 +37,11 @@ function RootNavigator() {
   const segments = useSegments();
   const { isAuthenticated, isLoading, isCustomerResolved, user } = useAuth();
   const { data: customer } = useCurrentCustomer();
+
+  // Registers this device and handles taps. Mounted here rather than in
+  // RootLayout because it reads the auth context and drives the router, both of
+  // which only exist inside this component.
+  usePushNotifications();
 
   useEffect(() => {
     if (isLoading) return;

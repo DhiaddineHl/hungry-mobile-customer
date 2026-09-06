@@ -29,10 +29,15 @@ import { useCurrentCustomer } from './use-delivery-address';
 /**
  * How often an in-progress list re-reads itself.
  *
- * This is the whole tracking mechanism: there are no push notifications and no
- * websocket, so a status set by the restaurant reaches the customer on the next
- * poll. Only runs while at least one order is still in progress, so a customer
- * with nothing pending sends no traffic.
+ * Still the backstop for every status change, and the ONLY mechanism for most
+ * of them: a push is sent on confirmation alone (see the backend's
+ * `OrderNotificationListener`), so PREPARING, READY and the delivery statuses
+ * reach the customer on the next poll. A confirmation that does arrive by push
+ * invalidates this query immediately — see `hooks/use-push-notifications.ts` —
+ * which is why the interval below does not need shortening.
+ *
+ * Only runs while at least one order is still in progress, so a customer with
+ * nothing pending sends no traffic.
  */
 const IN_PROGRESS_POLL_MS = 20_000;
 

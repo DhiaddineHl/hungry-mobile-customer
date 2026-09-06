@@ -47,6 +47,14 @@
           "locationAlwaysAndWhenInUsePermission": "Allow Hungry to use your location."
         }
       ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/android-icon-monochrome.png",
+          "color": "#F5A623",
+          "defaultChannel": "orders"
+        }
+      ],
       "expo-secure-store",
       "expo-font",
       "expo-image",
