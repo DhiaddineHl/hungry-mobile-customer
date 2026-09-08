@@ -35,7 +35,7 @@ export const unstable_settings = {
 function RootNavigator() {
   const router = useRouter();
   const segments = useSegments();
-  const { isAuthenticated, isLoading, isCustomerResolved, user } = useAuth();
+  const { isAuthenticated, isLoading, isCustomerResolved, user, authMethod } = useAuth();
   const { data: customer } = useCurrentCustomer();
 
   // Registers this device and handles taps. Mounted here rather than in
@@ -51,8 +51,15 @@ function RootNavigator() {
     // the token exchange is still in flight.
     const inAuthGroup =
       segments[0] === "login" ||
+      segments[0] === "password" ||
       segments[0] === "signup" ||
       segments[0] === "verification" ||
+      // The forgotten-password reset: three screens reached from /password,
+      // all of them without a session — the user is here precisely because
+      // they cannot get one.
+      segments[0] === "forgot-password" ||
+      segments[0] === "reset-code" ||
+      segments[0] === "new-password" ||
       segments[0] === "auth";
 
     // Address onboarding. Normally reached with a session (verification signs
@@ -60,23 +67,29 @@ function RootNavigator() {
     // bounce below so a mid-flow token refresh cannot eject the user from a
     // half-entered address.
     const inOnboarding =
+      segments[0] === "complete-profile" ||
       segments[0] === "location" ||
       segments[0] === "map-select" ||
       segments[0] === "address-info";
 
-    // An account with a valid session but nowhere to deliver to is held in the
-    // address onboarding — it outranks the rules below. This is keyed off the
-    // customer record rather than a local flag so it covers every way in:
-    // in-app registration, password login, and a Google sign-in (whose record
-    // the app creates itself, addressless, right after the token exchange).
+    // A signed-in account is held in whichever step it has not finished yet,
+    // in order: prove the e-mail, have a customer record, have somewhere to
+    // deliver to. All three are keyed off server state rather than a local
+    // flag, so they cover every way in — in-app registration, password login
+    // and Google — and survive a reinstall.
     if (isAuthenticated) {
-      // An unverified email outranks even the address rule: the account exists
-      // but has not proved it owns the address, so it goes back to the code
-      // screen — whichever way it got a session. Keycloak is the source of
-      // truth here (`email_verified` is a claim on the token), and a claim the
-      // realm does not emit reads as undefined, which deliberately does not
-      // gate anyone.
-      if (user?.email_verified === false) {
+      // An unverified email outranks the rules below: the account exists but
+      // has not proved it owns the address, so it goes back to the code
+      // screen. Keycloak is the source of truth (`email_verified` is a claim
+      // on the token), and a claim the realm does not emit reads as undefined,
+      // which deliberately gates nobody.
+      //
+      // Social logins are exempt outright: Google proved the address, and no
+      // code was ever mailed for it — sending them to /verification would ask
+      // for a code that does not exist. (Keycloak may still mark the brokered
+      // account unverified when the Google IdP has "Trust Email" off, which is
+      // exactly the case this guard covers.)
+      if (authMethod !== "google" && user?.email_verified === false) {
         if (segments[0] !== "verification") {
           router.replace("/verification");
         }
@@ -86,9 +99,21 @@ function RootNavigator() {
       // Route nothing until the record is known, or a new account flashes the
       // tabs on its way to the onboarding.
       if (!isCustomerResolved) return;
-      // A null record means the lookup finished and found none (or its
-      // creation failed). Sending the user to an onboarding that has nothing
-      // to save against would strand them, so let them through instead.
+
+      // A null record — the lookup finished and the backend has none — is a
+      // Google account on its first sign-in: Keycloak provisioned it while
+      // brokering, so nothing ever registered it here. It needs a name and a
+      // phone number before there is a record to hang an address off.
+      // `undefined` is different and deliberately not caught: the lookup
+      // failed, and stranding the user in a form that cannot save is worse
+      // than letting them through.
+      if (customer === null) {
+        if (segments[0] !== "complete-profile") {
+          router.replace("/complete-profile");
+        }
+        return;
+      }
+
       if (customer && !hasDeliveryAddress(customer)) {
         if (!inOnboarding) {
           router.replace("/location");
@@ -102,7 +127,7 @@ function RootNavigator() {
     } else if (!isAuthenticated && !inAuthGroup && !inOnboarding) {
       router.replace("/login");
     }
-  }, [isAuthenticated, isLoading, segments, isCustomerResolved, customer, user]);
+  }, [isAuthenticated, isLoading, segments, isCustomerResolved, customer, user, authMethod]);
 
   return (
     <>
@@ -127,7 +152,29 @@ function RootNavigator() {
           }}
         />
         <Stack.Screen
+          name="password"
+          options={{
+            animation: "fade",
+            contentStyle: { backgroundColor: Palette.navy },
+          }}
+        />
+        <Stack.Screen
           name="signup"
+          options={{
+            animation: "fade",
+            contentStyle: { backgroundColor: Palette.navy },
+          }}
+        />
+        <Stack.Screen
+          name="forgot-password"
+          options={{
+            animation: "fade",
+            contentStyle: { backgroundColor: Palette.navy },
+          }}
+        />
+        <Stack.Screen name="reset-code" options={{ animation: "fade" }} />
+        <Stack.Screen
+          name="new-password"
           options={{
             animation: "fade",
             contentStyle: { backgroundColor: Palette.navy },
@@ -144,6 +191,13 @@ function RootNavigator() {
         <Stack.Screen
           name="account-settings"
           options={{ animation: "slide_from_right" }}
+        />
+        <Stack.Screen
+          name="complete-profile"
+          options={{
+            animation: "fade",
+            contentStyle: { backgroundColor: Palette.navy },
+          }}
         />
         <Stack.Screen name="location" />
         <Stack.Screen

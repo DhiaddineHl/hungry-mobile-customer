@@ -256,8 +256,14 @@ export default function MapSelectScreen() {
       setSuggestions([]);
     } else if (bottomSheet === 'address-type') {
       setBottomSheet('deliver');
-    } else {
+    } else if (router.canGoBack()) {
       router.back();
+    } else {
+      // Reached by a `replace` with nothing beneath it — the profile-completion
+      // screen hands over that way, because going back to a form whose record
+      // is already created makes no sense. Fall back to the address
+      // onboarding's own entry point rather than leaving a dead button.
+      router.replace('/location');
     }
   };
 

@@ -1,9 +1,12 @@
 import { AddressData } from '@/types/location';
 import { apiClient } from './client';
 import {
+  AccountLookup,
   Customer,
   CustomerAddress,
   CustomerInput,
+  PasswordResetResult,
+  PasswordResetTicket,
   VerificationChallenge,
   VerificationResult,
 } from './types';
@@ -32,6 +35,21 @@ export async function registerCustomer(registration: CustomerRegistration): Prom
     password: registration.password,
   };
   const { data } = await apiClient.post<Customer>('/customers', input);
+  return data;
+}
+
+/**
+ * The identification step: one address in, and the answer decides which screen
+ * comes next — the password field for an address that already has an account,
+ * the sign-up form for one that does not.
+ *
+ * Runs unauthenticated, like the two calls below: it is the very first thing
+ * the app asks, before any session exists.
+ */
+export async function lookupAccount(email: string): Promise<AccountLookup> {
+  const { data } = await apiClient.post<AccountLookup>('/customers/verification/lookup', {
+    email,
+  });
   return data;
 }
 
@@ -72,6 +90,61 @@ export async function confirmVerificationCode(
 }
 
 /**
+ * Step one of a forgotten-password reset: mails a one-time code to a
+ * registered address. Also the "Resend" action.
+ *
+ * Answers the same `VerificationChallenge` as the sign-up code — same boxes,
+ * same cool-down — but it is a different code entirely: the backend keeps the
+ * two flows in separate rows, so one can never be spent on the other. Throws
+ * ApiError(404) when no customer is registered under the address, and 429
+ * inside the resend cool-down.
+ */
+export async function sendPasswordResetCode(email: string): Promise<VerificationChallenge> {
+  const { data } = await apiClient.post<VerificationChallenge>('/customers/password-reset/send', {
+    email,
+  });
+  return data;
+}
+
+/**
+ * Step two: spends the mailed code and returns the ticket that authorizes the
+ * password change. The code dies here, whether or not the reset is finished.
+ *
+ * Throws ApiError(400) for a wrong code, 410 for an expired one and 429 once
+ * the attempts are used up — the same statuses as the sign-up code, so the
+ * screen can branch on them identically.
+ */
+export async function verifyPasswordResetCode(
+  email: string,
+  code: string
+): Promise<PasswordResetTicket> {
+  const { data } = await apiClient.post<PasswordResetTicket>('/customers/password-reset/verify', {
+    email,
+    code,
+  });
+  return data;
+}
+
+/**
+ * Step three: spends the ticket and writes the new password. Throws
+ * ApiError(400) for a spent or unknown ticket (and for a password the realm
+ * refuses) and 410 once the ticket has expired — both mean the reset has to be
+ * started again.
+ */
+export async function confirmPasswordReset(
+  email: string,
+  ticket: string,
+  newPassword: string
+): Promise<PasswordResetResult> {
+  const { data } = await apiClient.post<PasswordResetResult>('/customers/password-reset/confirm', {
+    email,
+    ticket,
+    newPassword,
+  });
+  return data;
+}
+
+/**
  * Creates the customer record for the account the current access token belongs
  * to, and returns the existing one if there already is one (the endpoint is
  * idempotent).
@@ -85,7 +158,7 @@ export async function confirmVerificationCode(
  * extras below are ours to send.
  */
 export async function createCustomerForAccount(
-  extras: Pick<CustomerInput, 'name' | 'contact'> = {}
+  extras: Pick<CustomerInput, 'name' | 'fullname' | 'contact'> = {}
 ): Promise<Customer> {
   const { data } = await apiClient.post<Customer>('/customers/me', extras);
   return data;

@@ -9,8 +9,8 @@ import {
   refreshAccessToken,
 } from '@/services/keycloak/auth-service';
 import { keycloakConfig } from '@/services/keycloak/config';
-import { clearTokens, getTokens } from '@/services/keycloak/token-storage';
-import { ensureCustomerForAccount } from '@/hooks/use-customer';
+import { AuthMethod, clearTokens, getAuthMethod, getTokens } from '@/services/keycloak/token-storage';
+import { resolveCustomerForAccount } from '@/hooks/use-customer';
 import { clearPushRegistration } from '@/services/notifications/push-service';
 import { useCustomerStore } from '@/store/customer-store';
 import { useDeliveryAddressStore } from '@/store/delivery-address-store';
@@ -22,18 +22,24 @@ interface AuthState {
   isAuthenticated: boolean;
   isLoading: boolean;
   user: KeycloakUserInfo | null;
+  /**
+   * How this session was established, restored from storage on boot. `null`
+   * only for a session that predates this being recorded (or the bypass user).
+   * The router reads it to skip the e-mail verification gate for Google.
+   */
+  authMethod: AuthMethod | null;
 }
 
 interface AuthContextValue extends AuthState {
   /**
    * Whether the customer record behind the current session has been resolved
-   * (read from the backend, or created for an account the app never
-   * registered — see `ensureCustomerForAccount`). The router waits on this
-   * before choosing between the app and the address onboarding, so a new
-   * account never flashes the tabs on its way to picking an address.
+   * (read from the backend — see `resolveCustomerForAccount`). The router
+   * waits on this before choosing between the app, the profile completion and
+   * the address onboarding, so a new account never flashes the tabs on its way
+   * through them.
    *
-   * `true` with no record simply means the lookup finished and there is none;
-   * the router treats that as "cannot decide" and lets the user through.
+   * `true` with a `null` record means the lookup finished and the backend has
+   * none: a Google account that has not filled in its profile yet.
    */
   isCustomerResolved: boolean;
   login: (email: string, password: string) => Promise<AuthResult>;
@@ -86,12 +92,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     isAuthenticated: BYPASS_AUTH,
     isLoading: !BYPASS_AUTH,
     user: BYPASS_AUTH ? GUEST_USER : null,
+    authMethod: null,
   });
   const [isCustomerResolved, setIsCustomerResolved] = useState(BYPASS_AUTH);
 
+  // `native` is required, not decorative. Without it makeRedirectUri falls
+  // through to Linking.createURL, which splices Constants.expoConfig.hostUri —
+  // the METRO DEV SERVER host — into the URL, because a LAN/localhost host is
+  // not "Expo hosted" and so never gets stripped. On an emulator that yields
+  // hungrycustomer://localhost:8081/auth/callback, and the browser is left
+  // sitting on a dead localhost:8081 after Keycloak redirects. Passing `native`
+  // short-circuits all of that in dev/standalone builds (not Expo Go).
   const redirectUri = AuthSession.makeRedirectUri({
     scheme: 'hungrycustomer',
     path: 'auth/callback',
+    native: 'hungrycustomer://auth/callback',
   });
 
   // The exact value below must be listed in the Keycloak client's
@@ -124,22 +139,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // Warm the customer record into the query cache as soon as we have an
   // account id, so it is ready across the app right after login/session
-  // restore instead of only when a screen first reads it — creating the record
-  // first when the account has none, which is the normal state of a Google
-  // sign-in (Keycloak provisions those accounts itself, so nothing ever
-  // registered them with the backend).
+  // restore instead of only when a screen first reads it. No record is created
+  // here: a Google account without one is sent to the profile-completion
+  // screen, which is what creates it (see `resolveCustomerForAccount`).
   //
   // Fire-and-forget on purpose: the session is already valid, so a backend
   // hiccup here must not block the user out of the app. The screens that need
   // the record refetch it through `useCustomer`.
-  const ensureCustomer = useCallback(
+  const resolveCustomer = useCallback(
     (sub?: string | null) => {
       if (!sub) {
         setIsCustomerResolved(true);
         return;
       }
       setIsCustomerResolved(false);
-      ensureCustomerForAccount(queryClient, sub)
+      resolveCustomerForAccount(queryClient, sub)
         .catch((error) => {
           console.warn('[Auth] Could not resolve the customer record:', error);
         })
@@ -168,8 +182,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           );
           if (tokenResult.success) {
             const userInfo = await fetchUserInfo();
-            setState({ isAuthenticated: true, isLoading: false, user: userInfo });
-            ensureCustomer(userInfo?.sub);
+            setState({
+              isAuthenticated: true,
+              isLoading: false,
+              user: userInfo,
+              authMethod: 'google',
+            });
+            resolveCustomer(userInfo?.sub);
           }
           return tokenResult;
         }
@@ -181,7 +200,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return { success: false, error: 'Authentication failed. Please try again.' };
       }
     },
-    [redirectUri, ensureCustomer]
+    [redirectUri, resolveCustomer]
   );
 
   useEffect(() => {
@@ -190,7 +209,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       try {
         const tokens = await getTokens();
         if (!tokens) {
-          setState({ isAuthenticated: false, isLoading: false, user: null });
+          setState({ isAuthenticated: false, isLoading: false, user: null, authMethod: null });
           setIsCustomerResolved(true);
           return;
         }
@@ -199,16 +218,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           const result = await refreshAccessToken();
           if (!result.success) {
             await clearTokens();
-            setState({ isAuthenticated: false, isLoading: false, user: null });
+            setState({ isAuthenticated: false, isLoading: false, user: null, authMethod: null });
             return;
           }
         }
 
-        const userInfo = await fetchUserInfo();
-        setState({ isAuthenticated: true, isLoading: false, user: userInfo });
-        ensureCustomer(userInfo?.sub);
+        const [userInfo, authMethod] = await Promise.all([fetchUserInfo(), getAuthMethod()]);
+        setState({ isAuthenticated: true, isLoading: false, user: userInfo, authMethod });
+        resolveCustomer(userInfo?.sub);
       } catch {
-        setState({ isAuthenticated: false, isLoading: false, user: null });
+        setState({ isAuthenticated: false, isLoading: false, user: null, authMethod: null });
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -218,11 +237,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const result = await loginWithPassword(email, password);
     if (result.success) {
       const userInfo = await fetchUserInfo();
-      setState({ isAuthenticated: true, isLoading: false, user: userInfo });
-      ensureCustomer(userInfo?.sub);
+      setState({
+        isAuthenticated: true,
+        isLoading: false,
+        user: userInfo,
+        authMethod: 'password',
+      });
+      resolveCustomer(userInfo?.sub);
     }
     return result;
-  }, [ensureCustomer]);
+  }, [resolveCustomer]);
 
   const loginWithGoogleFn = useCallback(
     (): Promise<AuthResult> => runBrowserAuth(googleRequest, promptGoogleAsync),
@@ -249,13 +273,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     useCustomerStore.getState().clear();
     useDeliveryAddressStore.getState().clear();
     queryClient.clear();
-    setState({ isAuthenticated: false, isLoading: false, user: null });
+    setState({ isAuthenticated: false, isLoading: false, user: null, authMethod: null });
   }, [queryClient]);
 
   const refreshSession = useCallback(async (): Promise<boolean> => {
     const result = await refreshAccessToken();
     if (!result.success) {
-      setState({ isAuthenticated: false, isLoading: false, user: null });
+      setState({ isAuthenticated: false, isLoading: false, user: null, authMethod: null });
     }
     return result.success;
   }, []);

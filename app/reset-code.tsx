@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -8,68 +8,51 @@ import {
   Text,
   View,
 } from 'react-native';
-import { router, useLocalSearchParams } from 'expo-router';
+import { router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import Animated, { FadeInDown, ReduceMotion } from 'react-native-reanimated';
 import VerificationUpperSection from '@/assets/verification-upper-section.svg';
 import { AuthButton, OtpInput, OtpInputHandle } from '@/components/auth';
 import { AnimatedEntrance } from '@/components/ui/animated-entrance';
 import { PressableScale } from '@/components/ui/pressable-scale';
-import { useAuth } from '@/contexts/auth-context';
 import { isApiError } from '@/services/api/client';
-import { confirmVerificationCode, sendVerificationCode } from '@/services/api/customer-service';
-import { usePendingVerificationStore } from '@/store/pending-verification-store';
+import {
+  sendPasswordResetCode,
+  verifyPasswordResetCode,
+} from '@/services/api/customer-service';
+import { usePasswordResetStore } from '@/store/password-reset-store';
 import { Duration, FontSize, Fonts, Palette, Radius, Spacing } from '@/constants/theme';
 
 /**
  * Boxes drawn before the backend has said otherwise. Must match
- * `hungry.customer.verification.code-length` (default 6) in the backend
- * properties; a resend answers with the authoritative `codeLength`, which
- * replaces this.
+ * `hungry.customer.password-reset.code-length` (default 6); a resend answers
+ * with the authoritative `codeLength`, which replaces this.
  */
 const DEFAULT_CODE_LENGTH = 6;
 
 /**
- * Seconds the Resend button stays asleep after a code goes out. Mirrors
- * `hungry.customer.verification.resend-cooldown-seconds`; the backend is the
- * one that enforces it, this only keeps the button from being pressed into a
+ * Mirrors `hungry.customer.password-reset.resend-cooldown-seconds`. The
+ * backend enforces it; this only keeps the button from being pressed into a
  * guaranteed 429.
  */
 const DEFAULT_RESEND_COOLDOWN = 60;
 
-export default function VerificationScreen() {
-  const params = useLocalSearchParams<{ email?: string }>();
-  const { user, isAuthenticated, login, reloadUser } = useAuth();
-  const pending = usePendingVerificationStore();
-  const clearPending = pending.clear;
-
-  /**
-   * Two ways in, one screen:
-   *  - straight from sign-up, where the store holds the address and the
-   *    password the confirmation will sign in with, and registration has
-   *    already mailed a code;
-   *  - from a session that is authenticated but unverified (an account that
-   *    abandoned this step earlier and logged back in), where the address
-   *    comes from the token and nothing has been sent yet.
-   */
-  const derivedEmail = pending.email ?? params.email ?? user?.email ?? null;
-  const codeAlreadySent = !!pending.email;
-
-  // Held in state rather than read straight from the store: clearing the
-  // pending registration (which happens the moment a code is accepted) would
-  // otherwise pull the address out from under a screen that is still on
-  // display — and the screen has nothing to say without one.
-  const [email, setEmail] = useState(derivedEmail);
-  if (derivedEmail && derivedEmail !== email) {
-    // Adjusting own state during render, the pattern React documents for
-    // "derived from props, but sticky": it re-renders immediately with the new
-    // value and never commits the intermediate one, unlike an effect.
-    setEmail(derivedEmail);
-  }
+/**
+ * Step two of a forgotten-password reset: the code that proves the mailbox is
+ * theirs.
+ *
+ * Only ever reached from `/forgot-password`, which has already sent a code —
+ * so unlike the sign-up verification screen this one never sends on arrival,
+ * and Resend is the single way another code goes out. An accepted code buys a
+ * ticket, and the ticket is what the last screen spends.
+ */
+export default function ResetCodeScreen() {
+  const email = usePasswordResetStore((state) => state.email);
+  const setTicket = usePasswordResetStore((state) => state.setTicket);
 
   const [codeLength, setCodeLength] = useState(DEFAULT_CODE_LENGTH);
   const [code, setCode] = useState<string[]>(() => Array(DEFAULT_CODE_LENGTH).fill(''));
-  const [timer, setTimer] = useState(codeAlreadySent ? DEFAULT_RESEND_COOLDOWN : 0);
+  const [timer, setTimer] = useState(DEFAULT_RESEND_COOLDOWN);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [isVerifying, setIsVerifying] = useState(false);
@@ -79,8 +62,18 @@ export default function VerificationScreen() {
   const fullCode = code.join('');
   const isComplete = fullCode.length === codeLength;
 
-  const applyChallenge = useCallback(
-    (challenge: { codeLength: number; resendAvailableInSeconds: number; delivered: boolean }) => {
+  useEffect(() => {
+    if (timer <= 0) return;
+    const interval = setInterval(() => setTimer((prev) => (prev > 0 ? prev - 1 : 0)), 1000);
+    return () => clearInterval(interval);
+  }, [timer]);
+
+  const handleResend = useCallback(async () => {
+    if (!email || timer > 0 || isResending) return;
+    setError(null);
+    setIsResending(true);
+    try {
+      const challenge = await sendPasswordResetCode(email);
       setCodeLength(challenge.codeLength);
       setCode(Array(challenge.codeLength).fill(''));
       setTimer(challenge.resendAvailableInSeconds || DEFAULT_RESEND_COOLDOWN);
@@ -92,66 +85,23 @@ export default function VerificationScreen() {
           ? null
           : 'The server has no mail transport configured — the code is in its logs.'
       );
-    },
-    []
-  );
-
-  const requestCode = useCallback(
-    async (address: string) => {
-      setError(null);
-      setIsResending(true);
-      try {
-        const challenge = await sendVerificationCode(address);
-        if (challenge.alreadyVerified) {
-          setNotice('This email is already verified. You can sign in.');
-          setTimer(0);
-          return;
-        }
-        applyChallenge(challenge);
-        otpRef.current?.focusFirst();
-      } catch (err) {
-        // 429 is the cool-down, and it tells us exactly how long is left —
-        // adopt that instead of guessing, so the button and the server agree.
-        if (isApiError(err, 429)) {
-          const retryAfter = err.data?.retryAfterSeconds;
-          if (typeof retryAfter === 'number') setTimer(Math.ceil(retryAfter));
-        }
-        setError(err instanceof Error ? err.message : 'Could not send the code. Please try again.');
-      } finally {
-        setIsResending(false);
+      otpRef.current?.focusFirst();
+    } catch (err) {
+      // 429 is the cool-down, and it tells us exactly how long is left —
+      // adopt that instead of guessing, so the button and the server agree.
+      if (isApiError(err, 429)) {
+        const retryAfter = err.data?.retryAfterSeconds;
+        if (typeof retryAfter === 'number') setTimer(Math.ceil(retryAfter));
       }
-    },
-    [applyChallenge]
-  );
-
-  // Arriving with a session but no code in flight (the abandoned-verification
-  // case): send one, once.
-  //
-  // Seeded from codeAlreadySent, not false: on the sign-up path registration
-  // has already mailed a code, and clearing the pending store after a
-  // successful confirmation would otherwise make this look like a fresh
-  // arrival and fire off a pointless new code on the way out.
-  const autoSent = useRef(codeAlreadySent);
-  useEffect(() => {
-    if (codeAlreadySent || !email || autoSent.current) return;
-    autoSent.current = true;
-    requestCode(email);
-  }, [codeAlreadySent, email, requestCode]);
-
-  useEffect(() => {
-    if (timer <= 0) return;
-    const interval = setInterval(() => setTimer((prev) => (prev > 0 ? prev - 1 : 0)), 1000);
-    return () => clearInterval(interval);
-  }, [timer]);
+      setError(err instanceof Error ? err.message : 'Could not send the code. Please try again.');
+    } finally {
+      setIsResending(false);
+    }
+  }, [email, timer, isResending]);
 
   const handleCodeChange = (next: string[]) => {
     setCode(next);
     setError(null);
-  };
-
-  const handleResend = () => {
-    if (timer > 0 || isResending || !email) return;
-    requestCode(email);
   };
 
   const handleVerify = async () => {
@@ -160,34 +110,9 @@ export default function VerificationScreen() {
     setNotice(null);
     setIsVerifying(true);
     try {
-      await confirmVerificationCode(email, fullCode);
-
-      // Verified — but the app still needs a session. Signing in only happens
-      // on the sign-up path; an already-authenticated user just needs their
-      // userinfo re-read so `email_verified` stops sending them back here.
-      if (pending.password) {
-        const result = await login(email, pending.password);
-        if (!result.success) {
-          // The address is confirmed and the credentials are gone from memory
-          // the moment we leave; the honest move is to send them to /login
-          // rather than pretend the flow can continue.
-          clearPending();
-          setError(
-            `${result.error ?? 'Sign-in failed'} — your email is verified, please log in to continue.`
-          );
-          return;
-        }
-        const destination = pending.needsAddress ? '/location' : '/(tabs)';
-        clearPending();
-        router.replace(destination);
-        return;
-      }
-
-      await reloadUser({ email_verified: true });
-      clearPending();
-      // The root navigator owns where a verified session belongs (tabs, or the
-      // address onboarding when the record has nowhere to deliver to).
-      router.replace('/(tabs)');
+      const { ticket } = await verifyPasswordResetCode(email, fullCode);
+      setTicket(ticket);
+      router.push('/new-password');
     } catch (err) {
       // 410 (expired) and 429 (attempts used up) both mean the code is dead:
       // point at Resend instead of letting the user retype a corpse.
@@ -201,31 +126,19 @@ export default function VerificationScreen() {
     }
   };
 
-  const handleChangeEmail = () => {
-    clearPending();
-    // Back to identification, not straight to sign-up: a different address may
-    // well already have an account, and that screen is what decides.
-    router.replace('/login');
-  };
-
-  const greeting = useMemo(
-    () => (pending.firstName ? `Almost there, ${pending.firstName}!` : 'We sent a code to your email'),
-    [pending.firstName]
-  );
-
-  // Nothing to verify — the store was cleared (app restart mid-flow) and no
-  // session or param supplied an address.
+  // The store was cleared (an app restart mid-flow), so there is no address to
+  // check a code against and nothing was ever sent.
   if (!email) {
     return (
       <View style={styles.emptyState}>
         <StatusBar style="dark" />
-        <Text style={styles.emptyTitle}>Nothing to verify</Text>
+        <Text style={styles.emptyTitle}>Nothing to reset</Text>
         <Text style={styles.emptyBody}>
-          We do not know which email to confirm. Sign in and we will pick the verification back up.
+          We do not know which account to reset. Start again and we will email you a new code.
         </Text>
         <AuthButton
-          title="GO TO LOGIN"
-          onPress={() => router.replace('/login')}
+          title="START AGAIN"
+          onPress={() => router.replace('/forgot-password')}
           color={Palette.primaryDeep}
           shape="rounded"
           style={styles.emptyButton}
@@ -253,8 +166,8 @@ export default function VerificationScreen() {
             preserveAspectRatio="xMidYMid slice"
           />
           <View style={styles.headerContent}>
-            <Text style={styles.headerTitle}>Verification</Text>
-            <Text style={styles.headerSubtitle}>{greeting}</Text>
+            <Text style={styles.headerTitle}>Reset password</Text>
+            <Text style={styles.headerSubtitle}>We sent a code to</Text>
             <Text style={styles.headerEmail}>{email}</Text>
           </View>
         </View>
@@ -297,7 +210,7 @@ export default function VerificationScreen() {
                 onPress={handleResend}
                 disabled={timer > 0}
                 scaleTo={0.94}
-                accessibilityLabel="Resend the verification code"
+                accessibilityLabel="Resend the reset code"
               >
                 <Text style={styles.resendLine}>
                   <Text style={[styles.resendText, timer === 0 && styles.resendTextActive]}>
@@ -310,7 +223,7 @@ export default function VerificationScreen() {
           </View>
 
           <AuthButton
-            title="VERIFY"
+            title="CONTINUE"
             onPress={handleVerify}
             loading={isVerifying}
             disabled={!isComplete || isResending}
@@ -319,24 +232,13 @@ export default function VerificationScreen() {
             style={styles.verifyButton}
           />
 
-          {/* Only meaningful before a session exists: once signed in, the
-              address is the account and cannot be swapped from here. */}
-          {!isAuthenticated ? (
-            <PressableScale
-              onPress={handleChangeEmail}
-              scaleTo={0.96}
-              accessibilityLabel="Use a different email"
-            >
-              <Text style={styles.changeEmail}>Wrong email? Sign up again</Text>
-            </PressableScale>
-          ) : null}
-
-          <Text style={styles.termsText}>
-            By continuing, you automatically accept our{' '}
-            <Text style={styles.termsLink}>Terms & Conditions</Text>,{' '}
-            <Text style={styles.termsLink}>Privacy Policy</Text> and{' '}
-            <Text style={styles.termsLink}>Cookies policy</Text>.
-          </Text>
+          <PressableScale
+            onPress={() => (router.canGoBack() ? router.back() : router.replace('/login'))}
+            scaleTo={0.96}
+            accessibilityLabel="Use a different email"
+          >
+            <Text style={styles.changeEmail}>Wrong email? Go back</Text>
+          </PressableScale>
         </View>
       </ScrollView>
     </KeyboardAvoidingView>
@@ -459,18 +361,6 @@ const styles = StyleSheet.create({
     fontSize: FontSize.md,
     color: Palette.textSecondary,
     textAlign: 'center',
-    textDecorationLine: 'underline',
-  },
-  termsText: {
-    fontFamily: Fonts.regular,
-    fontSize: FontSize.sm,
-    color: Palette.textMuted,
-    textAlign: 'center',
-    lineHeight: 18,
-    marginTop: Spacing.xl,
-  },
-  termsLink: {
-    color: Palette.primary,
     textDecorationLine: 'underline',
   },
   emptyState: {

@@ -1,5 +1,4 @@
 import { StyleSheet, Text, View } from 'react-native';
-import { PressableScale } from '@/components/ui/pressable-scale';
 import { FontSize, Fonts, Palette, Spacing } from '@/constants/theme';
 
 /** Centred title + subtitle block at the top of the auth card. */
@@ -8,26 +7,6 @@ export function AuthHeading({ title, subtitle }: { title: string; subtitle: stri
     <View style={styles.heading}>
       <Text style={styles.title}>{title}</Text>
       <Text style={styles.subtitle}>{subtitle}</Text>
-    </View>
-  );
-}
-
-/** "Don't have an account? SIGN UP" style cross-link between the auth screens. */
-export function AuthSwitchLink({
-  prompt,
-  action,
-  onPress,
-}: {
-  prompt: string;
-  action: string;
-  onPress: () => void;
-}) {
-  return (
-    <View style={styles.switchRow}>
-      <Text style={styles.switchText}>{prompt}</Text>
-      <PressableScale onPress={onPress} scaleTo={0.94} accessibilityLabel={action}>
-        <Text style={styles.switchAction}>{action}</Text>
-      </PressableScale>
     </View>
   );
 }
@@ -66,24 +45,6 @@ const styles = StyleSheet.create({
     fontFamily: Fonts.regular,
     fontSize: FontSize.md,
     color: Palette.textSecondary,
-  },
-  switchRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: Spacing.xs,
-    marginBottom: Spacing.md,
-  },
-  switchText: {
-    fontFamily: Fonts.regular,
-    fontSize: FontSize.md,
-    color: Palette.textSecondary,
-  },
-  switchAction: {
-    fontFamily: Fonts.bold,
-    fontSize: FontSize.md,
-    color: Palette.primaryDeep,
   },
   divider: {
     alignItems: 'center',

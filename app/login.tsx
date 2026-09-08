@@ -29,14 +29,13 @@ import {
   AuthButton,
   AuthHeading,
   AuthInput,
-  AuthSwitchLink,
   GoogleButton,
   OrDivider,
   TermsFooter,
 } from '@/components/auth';
 import { AnimatedEntrance } from '@/components/ui/animated-entrance';
-import { PressableScale } from '@/components/ui/pressable-scale';
-import { loginSchema, LoginFormData } from '@/schemas/auth';
+import { identificationSchema, IdentificationFormData } from '@/schemas/auth';
+import { lookupAccount } from '@/services/api/customer-service';
 import { useAuth } from '@/contexts/auth-context';
 import { Duration, FontSize, Fonts, Palette, Radius, Shadows, Spacing } from '@/constants/theme';
 
@@ -51,9 +50,19 @@ const INTRO_DELAY = 420;
 /** Content starts arriving once the card is most of the way up. */
 const CONTENT_DELAY = INTRO_DELAY + Math.round(Duration.reveal * 0.5);
 
-export default function LoginScreen() {
+/**
+ * Identification — the single door into the app.
+ *
+ * There is no "log in or sign up?" choice to make any more: the user types an
+ * address, the backend says whether an account already stands behind it, and
+ * that answer picks the next screen (the password field, or the sign-up form
+ * with the address already settled). Which is why the cross-links to the other
+ * auth screen are gone from here and from the screens it leads to — every one
+ * of them is reachable only through this one.
+ */
+export default function IdentificationScreen() {
   const router = useRouter();
-  const { login, loginWithGoogle } = useAuth();
+  const { loginWithGoogle } = useAuth();
   const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const [authError, setAuthError] = useState<string | null>(null);
@@ -103,22 +112,32 @@ export default function LoginScreen() {
     control,
     handleSubmit,
     formState: { errors },
-  } = useForm<LoginFormData>({
-    resolver: zodResolver(loginSchema),
+  } = useForm<IdentificationFormData>({
+    resolver: zodResolver(identificationSchema),
     defaultValues: {
       email: '',
-      password: '',
     },
   });
 
-  const onSubmit = async (data: LoginFormData) => {
+  const onSubmit = async (data: IdentificationFormData) => {
     setAuthError(null);
     setIsSubmitting(true);
     try {
-      const result = await login(data.email, data.password);
-      if (!result.success) {
-        setAuthError(result.error ?? 'Login failed');
-      }
+      const email = data.email.trim().toLowerCase();
+      const lookup = await lookupAccount(email);
+      // The address travels as a route param rather than in a store: it is not
+      // a secret (unlike the password, which never leaves memory), and a param
+      // survives the screen being remounted by a reload.
+      router.push({
+        pathname: lookup.registered ? '/password' : '/signup',
+        params: { email },
+      });
+    } catch (error) {
+      setAuthError(
+        error instanceof Error
+          ? error.message
+          : 'We could not reach the server. Please try again.'
+      );
     } finally {
       setIsSubmitting(false);
     }
@@ -185,42 +204,16 @@ export default function LoginScreen() {
                     autoCapitalize="none"
                     autoComplete="email"
                     textContentType="emailAddress"
+                    returnKeyType="next"
+                    onSubmitEditing={() => handleSubmit(onSubmit)()}
                   />
                 )}
               />
             </AnimatedEntrance>
 
             <AnimatedEntrance delay={contentDelay} index={2}>
-              <Controller
-                control={control}
-                name="password"
-                render={({ field: { onChange, onBlur, value } }) => (
-                  <AuthInput
-                    label="Password"
-                    placeholder="Password"
-                    value={value}
-                    onChangeText={onChange}
-                    onBlur={onBlur}
-                    error={errors.password?.message}
-                    autoComplete="password"
-                    textContentType="password"
-                    isPassword
-                  />
-                )}
-              />
-            </AnimatedEntrance>
-
-            <AnimatedEntrance delay={contentDelay} index={3}>
-              <PressableScale
-                style={styles.forgotPassword}
-                scaleTo={0.94}
-                accessibilityLabel="Forgot Password"
-              >
-                <Text style={styles.forgotPasswordText}>Forgot Password</Text>
-              </PressableScale>
-
               <AuthButton
-                title="LOG IN"
+                title="CONTINUE"
                 onPress={handleSubmit(onSubmit)}
                 loading={isSubmitting}
                 disabled={isSubmitting || isGoogleLoading}
@@ -230,13 +223,7 @@ export default function LoginScreen() {
               />
             </AnimatedEntrance>
 
-            <AnimatedEntrance delay={contentDelay} index={4}>
-              <AuthSwitchLink
-                prompt="Don't have an account?"
-                action="SIGN UP"
-                onPress={() => router.push('/signup')}
-              />
-
+            <AnimatedEntrance delay={contentDelay} index={3}>
               <OrDivider />
 
               <GoogleButton
@@ -294,16 +281,8 @@ const styles = StyleSheet.create({
     fontSize: FontSize.md,
     textAlign: 'center',
   },
-  forgotPassword: {
-    alignSelf: 'flex-end',
-    marginBottom: Spacing.xxl,
-  },
-  forgotPasswordText: {
-    fontFamily: Fonts.semiBold,
-    fontSize: FontSize.md,
-    color: Palette.navy,
-  },
   submitButton: {
+    marginTop: Spacing.lg,
     marginBottom: Spacing.xl,
   },
 });

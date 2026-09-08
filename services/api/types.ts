@@ -103,6 +103,32 @@ export interface VerificationResult {
   verified: boolean;
 }
 
+/** Answer to `POST /customers/password-reset/verify`. */
+export interface PasswordResetTicket {
+  email: string;
+  /**
+   * The single-use secret that authorizes the password change. Held in memory
+   * for one screen and never persisted — see `store/password-reset-store.ts`.
+   */
+  ticket: string;
+  expiresInSeconds: number;
+}
+
+/** Answer to `POST /customers/password-reset/confirm`. */
+export interface PasswordResetResult {
+  email: string;
+  updated: boolean;
+}
+
+/** Answer to `POST /customers/verification/lookup`. */
+export interface AccountLookup {
+  email: string;
+  /** A customer is registered under this address — ask for a password. */
+  registered: boolean;
+  /** That account has already confirmed the address. */
+  emailVerified: boolean;
+}
+
 // ---------------------------------------------------------------------------
 // Restaurants
 //
