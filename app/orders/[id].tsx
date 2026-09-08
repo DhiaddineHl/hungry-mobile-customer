@@ -1,4 +1,5 @@
 import {
+  DriverInfoCard,
   OrderLineRow,
   OrderProgress,
   OrderStatusChip,
@@ -7,6 +8,7 @@ import { PressableScale } from "@/components/ui/pressable-scale";
 import { QueryEmpty, QueryError } from "@/components/ui/query-state";
 import { Fonts, FontSize, Palette, Radius, Spacing } from "@/constants/theme";
 import { useCustomerOrder } from "@/hooks/use-customer-orders";
+import { useOrderDelivery } from "@/hooks/use-order-delivery";
 import { useMenuUnitPrices } from "@/hooks/use-products";
 import { useRestaurant } from "@/hooks/use-restaurants";
 import {
@@ -66,6 +68,7 @@ export default function CustomerOrderDetailsScreen() {
   const { order, isLoading, isRefetching, isMissing, error, refetch } =
     useCustomerOrder(id);
   const { data: restaurant } = useRestaurant(order?.restaurantId);
+  const { delivery } = useOrderDelivery(order?.id);
 
   // The receipt captured at checkout, when this device is the one that placed
   // the order. It is exact, and it costs no request.
@@ -172,6 +175,16 @@ export default function CustomerOrderDetailsScreen() {
               Updates as the restaurant and your delivery agent move the order
               along. Pull down to refresh.
             </Text>
+          </View>
+        ) : null}
+
+        {isActive && order.status !== "CREATED" ? (
+          <View style={styles.card}>
+            <DriverInfoCard
+              status={delivery?.status ?? null}
+              driverName={delivery?.driverName ?? null}
+              driverRating={delivery?.driverRating ?? null}
+            />
           </View>
         ) : null}
 

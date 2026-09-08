@@ -108,3 +108,15 @@ export const orderKeys = {
   /** Keyed by the order's UUID — the backend resolves by id only, never by code. */
   detail: (id: string) => [...orderKeys.details(), id] as const,
 };
+
+/**
+ * Delivery cache entries — "who's delivering this order, and what's its
+ * status." One leaf only: `GET /orders/{id}/delivery` is the only read this
+ * app does, so there is no `list`/`lists()` pair here.
+ */
+export const deliveryKeys = {
+  all: ['deliveries'] as const,
+  details: () => [...deliveryKeys.all, 'detail'] as const,
+  /** Keyed by the ORDER's UUID, not the delivery's — that's how the endpoint addresses it. */
+  detail: (orderId: string) => [...deliveryKeys.details(), orderId] as const,
+};

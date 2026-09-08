@@ -1,4 +1,5 @@
 export { DeliveryLocationCard } from './delivery-location-card';
+export { DriverInfoCard } from './driver-info-card';
 export { OrderInfoRow } from './order-info-row';
 export { OrderRestaurantRow } from './order-restaurant-row';
 export { ActiveOrderCard } from './active-order-card';
