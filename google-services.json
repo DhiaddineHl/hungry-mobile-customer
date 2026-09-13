@@ -1,0 +1,67 @@
+{
+  "project_info": {
+    "project_number": "931362211793",
+    "project_id": "hungry-delivery-app-869c6",
+    "storage_bucket": "hungry-delivery-app-869c6.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:931362211793:android:e7e863449e6b1efcb802f0",
+        "android_client_info": {
+          "package_name": "com.hungry.customer"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBX3a_k3BTry1AFaSoBUW-LIircYbLvgp8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:931362211793:android:50c5fb625589837db802f0",
+        "android_client_info": {
+          "package_name": "com.hungry.deliverer"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBX3a_k3BTry1AFaSoBUW-LIircYbLvgp8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:931362211793:android:27c5badbb8262c50b802f0",
+        "android_client_info": {
+          "package_name": "com.hungry.driver"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBX3a_k3BTry1AFaSoBUW-LIircYbLvgp8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

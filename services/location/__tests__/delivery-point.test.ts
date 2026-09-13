@@ -1,12 +1,10 @@
 import {
-  CUSTOM_ADDRESS_NAME,
   coordinatesDiffer,
   describeCoordinates,
   distanceBetween,
   formatCoordinates,
-  toPickedAddress,
+  toOrderDeliveryAddress,
 } from '@/services/location/delivery-point';
-import { toCustomerAddress } from '@/services/api/customer-service';
 import * as Location from 'expo-location';
 
 jest.mock('expo-location', () => ({ reverseGeocodeAsync: jest.fn() }));
@@ -129,24 +127,22 @@ describe('describeCoordinates', () => {
   });
 });
 
-describe('toPickedAddress', () => {
-  it('files the point under the dedicated custom entry, never over a saved one', () => {
-    const entry = toCustomerAddress(toPickedAddress(SOUSSE, 'Rue de Paris, Sousse'));
+describe('toOrderDeliveryAddress', () => {
+  it('carries the point and its label, and nothing a saved address would', () => {
+    const address = toOrderDeliveryAddress(SOUSSE, 'Rue de Paris, Sousse');
 
-    expect(entry.name).toBe(CUSTOM_ADDRESS_NAME);
-    expect(entry.details.coordinates).toEqual(SOUSSE);
-    expect(entry.details.formattedAddress).toBe('Rue de Paris, Sousse');
+    expect(address).toEqual({
+      formattedAddress: 'Rue de Paris, Sousse',
+      coordinates: SOUSSE,
+    });
+    // Exactly these two keys: no floor, door, building or label — a point
+    // tapped on a map has none, and the order is the only place it goes.
+    expect(Object.keys(address).sort()).toEqual(['coordinates', 'formattedAddress']);
   });
 
   it('labels a nameless point with its own coordinates', () => {
-    expect(toPickedAddress(SOUSSE, '   ').addressText).toBe('35.8256, 10.6369');
-  });
-
-  it('invents no floor, door or building for a point tapped on a map', () => {
-    const entry = toCustomerAddress(toPickedAddress(SOUSSE, 'Somewhere'));
-
-    expect(entry.details.floor).toBeUndefined();
-    expect(entry.details.streetNumber).toBeUndefined();
-    expect(entry.details.buildingName).toBeUndefined();
+    expect(toOrderDeliveryAddress(SOUSSE, '   ').formattedAddress).toBe(
+      '35.8256, 10.6369'
+    );
   });
 });

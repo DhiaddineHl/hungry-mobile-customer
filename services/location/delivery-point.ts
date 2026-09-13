@@ -1,35 +1,24 @@
-import type { AddressData, LocationCoords } from '@/types/location';
+import type { OrderDeliveryAddressInput } from '@/schemas/order';
+import type { LocationCoords } from '@/types/location';
 import * as Location from 'expo-location';
 
 /**
- * Picking a delivery point on a map, and turning it into something the
- * customer record can hold.
+ * Picking a delivery point on a map, and turning it into something an order
+ * can carry.
  *
  * Pure except for {@link describeCoordinates}, which asks the platform's
  * geocoder — everything else is arithmetic and mapping, so the rules below are
  * unit-tested rather than only observable by dragging a map.
  *
- * ## Why a re-pinned point is SAVED at all
+ * ## Why a re-pinned point is NOT saved
  *
- * `OrderInput` carries no address (see `services/api/order-view-model.ts`): the
- * backend delivers to whatever sits on the customer's top-level `address`, and
- * dereferences its coordinates without a null guard. A point picked at
- * checkout therefore has to reach the customer record to mean anything — there
- * is no per-order address field to put it in.
- *
- * It is written to a DEDICATED entry ({@link CUSTOM_ADDRESS_NAME}) rather than
- * over the selected one: nudging the pin at checkout must not silently move
- * the customer's saved "Home". The entry is reused on every re-pin, so this
- * grows the saved list by one at most.
+ * A point picked at checkout is where THIS order goes, not a new address the
+ * customer wants to keep. It travels on the order itself as
+ * `OrderInput.deliveryAddress` (see {@link toOrderDeliveryAddress}) and the
+ * backend files it on the order alone — the customer's saved addresses are
+ * never touched, so nudging the pin for one delivery cannot move "Home" or
+ * grow the saved list.
  */
-
-/**
- * The name the checkout's re-pinned address is filed under.
- *
- * Deliberately the same name every time: a customer who re-pins on three
- * orders should end up with one extra address, not three.
- */
-export const CUSTOM_ADDRESS_NAME = 'custom';
 
 /**
  * How far the map has to settle from the saved point before it counts as a
@@ -112,22 +101,19 @@ export async function describeCoordinates(coords: LocationCoords): Promise<strin
 }
 
 /**
- * The picked point as an address the customer record can hold.
+ * The picked point as the one-off delivery address of an order.
  *
- * `label: 'custom'` + `customLabel` is what `toCustomerAddress` turns into the
- * entry's `name`, so this lands on {@link CUSTOM_ADDRESS_NAME} and replaces the
- * previous re-pin rather than accumulating.
- *
- * No floor, door or building is set: those belong to an address the customer
- * typed, and inventing blanks for them would overwrite details a saved address
- * already carries.
+ * Coordinates and a readable line, nothing more: no floor, door or building —
+ * those belong to an address the customer typed and saved, and a point tapped
+ * on a map has none. A blank label falls back to the coordinates so the order
+ * never carries an empty dropoff line.
  */
-export function toPickedAddress(coords: LocationCoords, addressText: string): AddressData {
+export function toOrderDeliveryAddress(
+  coords: LocationCoords,
+  addressText: string
+): OrderDeliveryAddressInput {
   return {
-    coords,
-    addressText: addressText.trim() || formatCoordinates(coords),
-    addressType: 'other',
-    label: 'custom',
-    customLabel: CUSTOM_ADDRESS_NAME,
+    formattedAddress: addressText.trim() || formatCoordinates(coords),
+    coordinates: { latitude: coords.latitude, longitude: coords.longitude },
   };
 }

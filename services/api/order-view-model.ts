@@ -4,6 +4,7 @@ import {
   type PaymentMethodId,
 } from '@/constants/payment-methods';
 import type {
+  OrderDeliveryAddressInput,
   OrderInput,
   OrderItemInput,
   OrderedProductAttributeInput,
@@ -171,6 +172,12 @@ export interface ToOrderInputArgs {
   lines: CartLine[];
   paymentMethod: PaymentMethodId;
   cartComment?: string;
+  /**
+   * A point picked at checkout instead of a saved address. Sent as the order's
+   * own `deliveryAddress`; left out, the backend delivers to the customer's
+   * default. Never written to the customer record from here.
+   */
+  deliveryAddress?: OrderDeliveryAddressInput | null;
   /** Injected in tests so the generated `code` is deterministic. */
   now?: number;
 }
@@ -205,6 +212,7 @@ export function toOrderInput(args: ToOrderInputArgs): OrderInput {
     lines,
     paymentMethod,
     cartComment,
+    deliveryAddress,
     now,
   } = args;
 
@@ -228,6 +236,9 @@ export function toOrderInput(args: ToOrderInputArgs): OrderInput {
     customerId,
     comment: buildOrderComment(paymentMethod, cartComment),
     items,
+    // Only present when there is one: an explicit `undefined` key would still
+    // serialise away, but the payload reads more honestly without it.
+    ...(deliveryAddress ? { deliveryAddress } : {}),
   };
 }
 
@@ -305,14 +316,17 @@ export type CheckoutBlocker =
 export interface CheckoutBlockerArgs {
   /** The resolved backend customer id, or null/undefined while it loads. */
   customerId?: string | null;
-  /** The customer's default address (`Customer.address`). */
-  address?: BackendAddress | null;
+  /**
+   * Where this order would be delivered: the selected saved address, or the
+   * one-off point picked at checkout. Only its coordinates are examined.
+   */
+  address?: BackendAddress | OrderDeliveryAddressInput | null;
   restaurantId?: string | null;
   restaurantCoordinates?: { latitude: number; longitude: number } | null;
   lines: CartLine[];
 }
 
-function hasCoordinates(address: BackendAddress): boolean {
+function hasCoordinates(address: BackendAddress | OrderDeliveryAddressInput): boolean {
   const { latitude, longitude } = address.coordinates ?? {};
   return typeof latitude === 'number' && typeof longitude === 'number';
 }

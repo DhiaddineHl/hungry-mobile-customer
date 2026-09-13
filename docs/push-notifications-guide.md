@@ -77,30 +77,62 @@ Two strings must agree, and nothing will fail loudly if they stop agreeing:
 
 ## Setup required before this works on a device
 
-The code is complete, but a push token cannot be minted without two pieces of
-project configuration that are not in the repo:
+The code is complete. What follows is project configuration; the state of each
+item as of 2026-09-13 is noted.
 
-1. **An EAS project id.** Run `eas init` in `hungry-customer`. It writes
-   `extra.eas.projectId` into `app.json`, which `getExpoPushTokenAsync` needs.
-   Until then `ensurePushRegistration` returns
-   `{ status: 'unsupported' }` and logs exactly that.
+1. **An EAS project id — DONE.** `eas init` wrote
+   `extra.eas.projectId = eb77a000-b8ff-4398-83c3-90b0cfb4f5b5` into `app.json`,
+   which `getExpoPushTokenAsync` needs. Without it `ensurePushRegistration`
+   returns `{ status: 'unsupported' }` and logs exactly that.
 
-2. **Android FCM credentials.** Create a Firebase project, download
-   `google-services.json`, and either place it at `android/app/` +
-   `expo.android.googleServicesFile` in `app.json`, or upload the FCM v1 service
-   account key with `eas credentials`. iOS needs an Apple push key, which EAS
-   generates during `eas build` if you let it.
+2. **Firebase app config — DONE.** `google-services.json` (Firebase project
+   `hungry-delivery-app-869c6`) sits at the repo root and is referenced by
+   `expo.android.googleServicesFile`. Its Android client is registered under
+   the package **`com.hungry.customer`**, so `expo.android.package` was changed
+   to that (it was `com.dhiaddinehlaoui.hungrycustomer`, which the Google
+   Services Gradle plugin would have refused with *"No matching client found
+   for package name"*). It matches the sibling apps (`com.hungry.deliverer`).
 
-3. **Rebuild the native app.** `expo-notifications` is a native module and this
-   project has a committed `android/` directory, so Metro alone will not pick it
-   up:
+   The file is not tracked by git. An **EAS cloud build** therefore cannot see
+   it: either commit it (Firebase does not treat it as a secret — the keys in
+   it are restricted by package + certificate) or upload it as an EAS file
+   environment variable and point `googleServicesFile` at that path.
+
+3. **FCM V1 server credential on EAS — STILL TO DO, and it is the last one.**
+   `google-services.json` lets the *app* obtain an FCM device token; it does
+   NOT let *Expo's push service* talk to FCM on the backend's behalf. That needs
+   the Firebase service-account key uploaded to the EAS project:
 
    ```
-   npx expo prebuild --clean
+   eas credentials --platform android
+   # → select the build profile → "Push Notifications: Manage your FCM V1 API key"
+   #   → upload the JSON from Firebase console:
+   #     Project settings → Service accounts → Generate new private key
+   ```
+
+   Until this is done every send answers a `DeviceNotRegistered` /
+   `InvalidCredentials` ticket from exp.host and the backend logs it as a
+   failed push — nothing arrives on the phone, nothing else looks wrong.
+
+   iOS needs an Apple push key instead; EAS generates one during `eas build`
+   if you let it.
+
+4. **Rebuild the native app.** `expo-notifications` and Firebase are native, so
+   Metro alone will not pick any of this up. `android/` is gitignored and is
+   regenerated from `app.json`:
+
+   ```
+   npx expo prebuild --platform android --clean
    npx expo run:android      # or: eas build --profile development
    ```
 
-4. **Emulator vs. device.** An **Android emulator works**, provided the AVD uses
+   A correct prebuild leaves `android/app/google-services.json` in place,
+   `apply plugin: 'com.google.gms.google-services'` in `android/app/build.gradle`,
+   `applicationId 'com.hungry.customer'`, and the `orders` channel as
+   `com.google.firebase.messaging.default_notification_channel_id` in the
+   manifest.
+
+5. **Emulator vs. device.** An **Android emulator works**, provided the AVD uses
    a system image labelled *Google Play* or *Google APIs* — FCM needs Google Play
    services, not real hardware. A bare AOSP image has none and fails at
    `getExpoPushTokenAsync`. The **iOS Simulator never works**: it has no APNs

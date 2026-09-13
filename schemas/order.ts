@@ -117,6 +117,8 @@ export const orderOutputSchema = z.object({
   customerFullName: z.string().nullish(),
   dropoffLatitude: z.number().nullish(),
   dropoffLongitude: z.number().nullish(),
+  /** The dropoff's readable line — the order's own, not the customer's default. */
+  dropoffAddress: z.string().nullish(),
   status: orderStatusSchema.nullish().catch(null),
   comment: z.string().nullish(),
   items: z.array(orderItemOutputSchema).catch([]),
@@ -173,6 +175,19 @@ export interface OrderItemInput {
   orderedProduct: OrderedProductInput;
 }
 
+/**
+ * A one-off delivery point for ONE order — `Order.deliveryAddress` on the
+ * backend, an embedded `Address` whose other fields are left unset.
+ *
+ * Sent only when the customer picked somewhere other than a saved address at
+ * checkout. The backend stores it on the order alone: it is never added to the
+ * customer's saved addresses, which is the whole point of the field.
+ */
+export interface OrderDeliveryAddressInput {
+  formattedAddress: string;
+  coordinates: { latitude: number; longitude: number };
+}
+
 export interface OrderInput {
   /**
    * REQUIRED in practice, for the same reason as `CartInput.code`: nothing on
@@ -185,4 +200,9 @@ export interface OrderInput {
   customerId: string;
   comment?: string;
   items: OrderItemInput[];
+  /**
+   * Where to deliver THIS order, when not the customer's default address.
+   * Omitted → the backend snapshots the customer's default at create time.
+   */
+  deliveryAddress?: OrderDeliveryAddressInput;
 }

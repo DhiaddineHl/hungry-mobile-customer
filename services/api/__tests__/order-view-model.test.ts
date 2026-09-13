@@ -195,6 +195,26 @@ describe('toOrderInput', () => {
       expect(serialised).not.toContain(`"${key}"`);
     }
   });
+
+  it('omits deliveryAddress entirely when the order goes to a saved address', () => {
+    // Absent, not null: the backend snapshots the customer's default for an
+    // order that sends nothing, and a null key would read as "deliver nowhere".
+    expect('deliveryAddress' in input([line({ foodId: PIZZA })])).toBe(false);
+    expect(
+      'deliveryAddress' in input([line({ foodId: PIZZA })], { deliveryAddress: null })
+    ).toBe(false);
+  });
+
+  it("carries a custom point as the order's own deliveryAddress", () => {
+    const deliveryAddress = {
+      formattedAddress: 'Rue de Paris, Sousse',
+      coordinates: { latitude: 35.8256, longitude: 10.6369 },
+    };
+
+    expect(input([line({ foodId: PIZZA })], { deliveryAddress }).deliveryAddress).toEqual(
+      deliveryAddress
+    );
+  });
 });
 
 describe('orderTotals', () => {
@@ -256,6 +276,20 @@ describe('checkoutBlockers', () => {
 
   it('reports no-address on its own', () => {
     expect(checkoutBlockers({ ...VALID, address: null })).toEqual(['no-address']);
+  });
+
+  it('accepts a custom delivery point in place of a saved address', () => {
+    // The order carries the point itself, so a customer with no saved address
+    // at all can still be delivered to.
+    expect(
+      checkoutBlockers({
+        ...VALID,
+        address: {
+          formattedAddress: 'Rue de Paris, Sousse',
+          coordinates: { latitude: 35.8256, longitude: 10.6369 },
+        },
+      })
+    ).toEqual([]);
   });
 
   it('reports no-address-coords, not no-address, for an address without coordinates', () => {

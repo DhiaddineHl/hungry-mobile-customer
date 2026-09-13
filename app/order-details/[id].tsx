@@ -4,7 +4,6 @@ import { PressableScale } from '@/components/ui/pressable-scale';
 import { DELIVERY_FEE, DELIVERY_FEE_WAIVED, SERVICE_FEE } from '@/constants/fees';
 import { paymentMethodLabel } from '@/constants/payment-methods';
 import { Fonts, FontSize, Palette, Radius, Spacing } from '@/constants/theme';
-import { useSaveAddresses } from '@/hooks/use-customer';
 import { formatAddressName, useDeliveryAddress } from '@/hooks/use-delivery-address';
 import { useCreateOrder } from '@/hooks/use-orders';
 import { useStoredImageSource } from '@/hooks/use-restaurant-image';
@@ -17,9 +16,8 @@ import {
   type CheckoutBlocker,
 } from '@/services/api/order-view-model';
 import {
-  CUSTOM_ADDRESS_NAME,
   coordinatesDiffer,
-  toPickedAddress,
+  toOrderDeliveryAddress,
 } from '@/services/location/delivery-point';
 import { formatDT, useCartStore } from '@/store/cart-store';
 import { usePaymentMethodStore } from '@/store/payment-method-store';
@@ -117,6 +115,16 @@ export default function OrderDetailsScreen() {
   const [feeSheet, setFeeSheet] = useState<'service' | 'delivery' | null>(null);
   const [paymentSheetVisible, setPaymentSheetVisible] = useState(false);
   const [failed, setFailed] = useState(false);
+  /**
+   * A delivery point the customer confirmed for THIS order — dragged or picked,
+   * then "Deliver here". Screen state only: it is sent with the order as its
+   * own `deliveryAddress` and is never written to the customer's saved
+   * addresses. Leaving the screen forgets it, which is right for a one-off.
+   */
+  const [customPoint, setCustomPoint] = useState<{
+    coords: LocationCoords;
+    text: string;
+  } | null>(null);
   /** Where the customer dragged the inline map's pin, if they did. */
   const [draggedPoint, setDraggedPoint] = useState<LocationCoords | null>(null);
   /**
@@ -126,7 +134,6 @@ export default function OrderDetailsScreen() {
    * dismissed.
    */
   const [dismissedPickKey, setDismissedPickKey] = useState<string | null>(null);
-  const [pointError, setPointError] = useState(false);
 
   const allItems = useCartStore((s) => s.items);
   const items = useMemo(
@@ -134,9 +141,8 @@ export default function OrderDetailsScreen() {
     [allItems, restaurantId]
   );
 
-  const { customer, selected: selectedAddress, select } = useDeliveryAddress();
+  const { customer, selected: selectedAddress } = useDeliveryAddress();
   const { data: restaurant } = useRestaurant(restaurantId);
-  const saveAddresses = useSaveAddresses();
   const pickedName = useReverseGeocode();
   const paymentMethod = usePaymentMethodStore((s) => s.method);
   const setPaymentMethod = usePaymentMethodStore((s) => s.setMethod);
@@ -144,9 +150,10 @@ export default function OrderDetailsScreen() {
 
   const createOrder = useCreateOrder();
 
-  // The address actually delivered to. `useDeliveryAddress` resolves the
-  // selected entry, falling back to the customer's default (top-level
-  // `address`) — which is the field the backend's populators dereference.
+  // The saved address this order would go to by default. `useDeliveryAddress`
+  // resolves the selected entry, falling back to the customer's default
+  // (top-level `address`) — which is what the backend snapshots onto the order
+  // when no `deliveryAddress` is sent.
   const address = selectedAddress?.details ?? customer?.address ?? null;
   const phone = customer?.contact?.phones?.[0];
 
@@ -158,6 +165,17 @@ export default function OrderDetailsScreen() {
           longitude: address.coordinates.longitude,
         }
       : null;
+
+  /**
+   * Where the order goes as things stand: the confirmed custom point if there
+   * is one, the saved address otherwise. Everything below — the map, the
+   * pending comparison, the blockers, the payload — reads THIS, so a confirmed
+   * custom point behaves exactly like a saved address would, minus the saving.
+   */
+  const basePoint = customPoint?.coords ?? savedPoint;
+  const deliveryAddress = customPoint
+    ? toOrderDeliveryAddress(customPoint.coords, customPoint.text)
+    : null;
 
   /**
    * A point handed back by the full-screen picker, as route params.
@@ -182,18 +200,17 @@ export default function OrderDetailsScreen() {
 
   /**
    * The point awaiting confirmation, or `null` when the pin is effectively on
-   * the saved address.
+   * the current delivery point.
    *
-   * Comparing against the saved point — rather than tracking "is something
-   * pending" separately — is what makes confirming self-clearing: once the
-   * save lands, the customer record carries this point and there is nothing
-   * left to confirm.
+   * Comparing against the base point — rather than tracking "is something
+   * pending" separately — is what makes confirming self-clearing: once
+   * confirmed, the point IS the base and there is nothing left to confirm.
    */
-  const pendingPoint = picked && coordinatesDiffer(picked, savedPoint) ? picked : null;
+  const pendingPoint = picked && coordinatesDiffer(picked, basePoint) ? picked : null;
 
-  // What the map looks at: the pending point while there is one, the saved
-  // address otherwise. Cancelling therefore animates the card back.
-  const shownPoint = pendingPoint ?? savedPoint;
+  // What the map looks at: the pending point while there is one, the current
+  // delivery point otherwise. Cancelling therefore animates the card back.
+  const shownPoint = pendingPoint ?? basePoint;
 
   /**
    * The pending point's label. A dragged point is named by the geocoder here;
@@ -206,9 +223,11 @@ export default function OrderDetailsScreen() {
   /**
    * The map settled somewhere after a drag.
    *
-   * A settle that lands back on the saved address drops the pending point
-   * instead of offering to save it — panning away and back is a change of
-   * mind, not a new address.
+   * A settle that lands back on the current delivery point drops the pending
+   * point instead of offering to confirm it — panning away and back is a
+   * change of mind, not a new address. Landing back on the SAVED address while
+   * a custom point is confirmed reverts to the saved address outright: that is
+   * the customer putting the pin back where it started.
    */
   const handlePointChange = (coords: LocationCoords) => {
     // The map reports EVERY settle, including the ones it makes arriving where
@@ -218,10 +237,16 @@ export default function OrderDetailsScreen() {
     // away the label the picker resolved and pay for a second lookup.
     if (!coordinatesDiffer(coords, shownPoint)) return;
 
-    setPointError(false);
     setDismissedPickKey(pickKey);
 
     if (!coordinatesDiffer(coords, savedPoint)) {
+      setCustomPoint(null);
+      setDraggedPoint(null);
+      pickedName.reset();
+      return;
+    }
+
+    if (!coordinatesDiffer(coords, basePoint)) {
       setDraggedPoint(null);
       pickedName.reset();
       return;
@@ -234,7 +259,6 @@ export default function OrderDetailsScreen() {
   const handleCancelPoint = () => {
     setDraggedPoint(null);
     setDismissedPickKey(pickKey);
-    setPointError(false);
     pickedName.reset();
   };
 
@@ -248,33 +272,26 @@ export default function OrderDetailsScreen() {
   };
 
   /**
-   * Writes the picked point to the customer record.
+   * Makes the picked point THIS order's delivery address.
    *
-   * It has to be saved to take effect at all: `OrderInput` carries no address,
-   * so the backend delivers to the customer's top-level `address` (see
-   * `services/location/delivery-point.ts`). It lands on its own `custom` entry
-   * and becomes the selected address — never over the customer's saved Home.
+   * Nothing is written anywhere: the point is held on this screen and sent
+   * with the order as its own `deliveryAddress`. The customer's saved
+   * addresses are untouched — a one-off delivery point is not a new "Home",
+   * and this is exactly why the order carries an address of its own.
    */
-  const handleConfirmPoint = async () => {
-    const keycloakUserId = customer?.keycloakUserId;
-    if (!pendingPoint || !keycloakUserId || saveAddresses.isPending) return;
+  const handleConfirmPoint = () => {
+    if (!pendingPoint) return;
 
-    setPointError(false);
-    try {
-      await saveAddresses.mutateAsync({
-        keycloakUserId,
-        addresses: [toPickedAddress(pendingPoint, pendingText ?? '')],
-        defaultIndex: 0,
-      });
-      select(CUSTOM_ADDRESS_NAME);
-      setDraggedPoint(null);
-      setDismissedPickKey(pickKey);
-      pickedName.reset();
-    } catch {
-      // The point stays pending and the row stays open: the customer can tap
-      // again. Nothing about their saved addresses changed.
-      setPointError(true);
-    }
+    // Confirming a point that sits on the saved address is a return to it, not
+    // a custom point that happens to coincide with it.
+    setCustomPoint(
+      coordinatesDiffer(pendingPoint, savedPoint)
+        ? { coords: pendingPoint, text: pendingText ?? '' }
+        : null
+    );
+    setDraggedPoint(null);
+    setDismissedPickKey(pickKey);
+    pickedName.reset();
   };
 
   const restaurantName =
@@ -295,7 +312,9 @@ export default function OrderDetailsScreen() {
 
   const blockers = checkoutBlockers({
     customerId: customer?.id,
-    address,
+    // A confirmed custom point satisfies the address preflight on its own: the
+    // order carries it, so no saved address is needed to place the order.
+    address: deliveryAddress ?? address,
     restaurantId,
     restaurantCoordinates: restaurant?.coordinates ?? null,
     lines: items,
@@ -365,6 +384,7 @@ export default function OrderDetailsScreen() {
           restaurantName,
           lines: items,
           paymentMethod,
+          deliveryAddress,
         }),
         restaurantId,
       },
@@ -394,37 +414,37 @@ export default function OrderDetailsScreen() {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={[styles.scrollContent, { paddingBottom: 20 }]}
       >
-        {address ? (
-          <>
-            <DeliveryLocationCard
-              addressLabel={
-                selectedAddress ? formatAddressName(selectedAddress.name) : 'Delivery'
-              }
-              addressText={address.formattedAddress ?? 'Address on file'}
-              latitude={shownPoint?.latitude}
-              longitude={shownPoint?.longitude}
-              onPress={handleBlockerAction}
-              onOpenMap={handleOpenMap}
-              onPointChange={handlePointChange}
-              pending={
-                pendingPoint
-                  ? {
-                      text: pendingText,
-                      isResolving: isNamingPoint,
-                      isSaving: saveAddresses.isPending,
-                    }
-                  : null
-              }
-              onConfirmPending={handleConfirmPoint}
-              onCancelPending={handleCancelPoint}
-            />
-            {pointError ? (
-              <Text style={styles.pointError}>
-                We couldn&apos;t save that delivery point. Your saved addresses
-                are unchanged — tap Deliver here to try again.
-              </Text>
-            ) : null}
-          </>
+        {address || customPoint ? (
+          <DeliveryLocationCard
+            addressLabel={
+              customPoint
+                ? 'Custom location'
+                : selectedAddress
+                  ? formatAddressName(selectedAddress.name)
+                  : 'Delivery'
+            }
+            addressText={
+              customPoint
+                ? deliveryAddress!.formattedAddress
+                : (address?.formattedAddress ?? 'Address on file')
+            }
+            latitude={shownPoint?.latitude}
+            longitude={shownPoint?.longitude}
+            onPress={handleBlockerAction}
+            onOpenMap={handleOpenMap}
+            onPointChange={handlePointChange}
+            pending={
+              pendingPoint
+                ? {
+                    text: pendingText,
+                    isResolving: isNamingPoint,
+                    isSaving: false,
+                  }
+                : null
+            }
+            onConfirmPending={handleConfirmPoint}
+            onCancelPending={handleCancelPoint}
+          />
         ) : null}
 
         <View style={styles.sectionDivider} />
@@ -549,7 +569,19 @@ export default function OrderDetailsScreen() {
         {pendingPoint ? (
           <Text style={styles.blockerText}>
             Confirm the new delivery point above — tap Deliver here, or Cancel to
-            keep your saved address.
+            keep the current one.
+          </Text>
+        ) : null}
+
+        {/*
+          Said once, where the decision is made: a custom point is for this
+          order only. Otherwise a customer who expected it under their saved
+          addresses next time would think the app lost it.
+        */}
+        {customPoint && !pendingPoint ? (
+          <Text style={styles.blockerText}>
+            This order will be delivered to the custom location above. It
+            won&apos;t be added to your saved addresses.
           </Text>
         ) : null}
 
@@ -736,14 +768,6 @@ const styles = StyleSheet.create({
     gap: Spacing.sm,
   },
   errorText: {
-    fontSize: FontSize.sm,
-    fontFamily: Fonts.regular,
-    color: Palette.danger,
-    lineHeight: 18,
-  },
-  pointError: {
-    marginHorizontal: Spacing.xl,
-    marginTop: Spacing.sm,
     fontSize: FontSize.sm,
     fontFamily: Fonts.regular,
     color: Palette.danger,
