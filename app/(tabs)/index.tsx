@@ -11,6 +11,7 @@ import {
   OpenRestaurants,
 } from '@/components/home';
 import { useRestaurants } from '@/hooks/use-restaurants';
+import { selectUnreadCount, useNotificationStore } from '@/store/notification-store';
 
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
@@ -26,8 +27,11 @@ export default function HomeScreen() {
     refetch,
   } = useRestaurants({ sort: 'name' });
 
+  // Unread rows in the device inbox; the notifications screen clears them.
+  const unreadNotifications = useNotificationStore(selectUnreadCount);
+
   const handleNotificationPress = () => {
-    console.log('Notification pressed');
+    router.push('/notifications');
   };
 
   const handleSearch = (text: string) => {
@@ -65,7 +69,7 @@ export default function HomeScreen() {
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
       <HomeHeader
-        notificationCount={2}
+        notificationCount={unreadNotifications}
         onNotificationPress={handleNotificationPress}
       />
       <ScrollView

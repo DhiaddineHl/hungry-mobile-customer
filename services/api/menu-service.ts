@@ -1,6 +1,6 @@
 import { pageSchema } from '@/schemas/page';
 import { z } from 'zod';
-import { ApiError, apiClient } from './client';
+import { ApiError, apiClient, isApiError } from './client';
 
 /**
  * Resolves WHERE a restaurant's menu lives.
@@ -158,4 +158,71 @@ export async function fetchMenuScope(restaurantId: string): Promise<MenuScope | 
       .filter(isDisplayable)
       .map((category) => ({ id: category.id, name: category.name ?? null })),
   };
+}
+
+// --- Reading a menu backwards: which restaurant a product belongs to --------
+
+/**
+ * `GET /categories/{id}` returns the list projection plus the parent links —
+ * `supercategoryIds` is what lets a section be walked back up to its menu.
+ */
+const categoryDetailSchema = categorySchema.extend({
+  supercategoryIds: z.array(z.string()).catch([]),
+});
+
+const MENU_CATEGORY_CODE_PREFIX = 'RESTAURANT-MENU-';
+
+/** The restaurant id a menu category's code was built from, or `null`. */
+export function restaurantIdFromMenuCategoryCode(code: string | null | undefined): string | null {
+  if (!code || !code.startsWith(MENU_CATEGORY_CODE_PREFIX)) return null;
+  const restaurantId = code.slice(MENU_CATEGORY_CODE_PREFIX.length);
+  return restaurantId || null;
+}
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * One category by id, or `null` when it does not exist.
+ *
+ * Same trade as `fetchRestaurantById`: a missing id answers 500, so a 500 on
+ * a well-formed UUID is read as not-found rather than as a fault.
+ */
+async function fetchCategoryById(id: string): Promise<z.infer<typeof categoryDetailSchema> | null> {
+  if (!UUID.test(id)) return null;
+
+  try {
+    const { data } = await apiClient.get(`${CATEGORIES}/${encodeURIComponent(id)}`);
+    return parseOrThrow(categoryDetailSchema, data, 'category');
+  } catch (error) {
+    if (isApiError(error, 404) || isApiError(error, 400)) return null;
+    if (isApiError(error, 500)) return null;
+    throw error;
+  }
+}
+
+/**
+ * The restaurant whose menu a section belongs to, or `null` when the section
+ * is not under any restaurant's menu.
+ *
+ * This is `fetchMenuScope` walked in the other direction: a product lists its
+ * section categories, a section lists its supercategories, and the one whose
+ * code is `RESTAURANT-MENU-<restaurantId>` is the menu. It exists for cart
+ * hydration, where the only thing the server hands back per line is a
+ * product id (`CartItem` has no restaurant) and checkout needs to know which
+ * restaurant to order each line from.
+ *
+ * Two requests per section. Callers restoring a whole cart memoise by section
+ * id — every dish in one section resolves to the same restaurant.
+ */
+export async function fetchRestaurantIdForSection(sectionId: string): Promise<string | null> {
+  const section = await fetchCategoryById(sectionId);
+  if (!section) return null;
+
+  for (const parentId of section.supercategoryIds) {
+    const parent = await fetchCategoryById(parentId);
+    const restaurantId = restaurantIdFromMenuCategoryCode(parent?.code);
+    if (restaurantId) return restaurantId;
+  }
+
+  return null;
 }

@@ -9,7 +9,12 @@ import { orderTotals } from '@/services/api/order-view-model';
 import { orderKeys } from '@/services/api/query-keys';
 import { useCartStore, type CartLine } from '@/store/cart-store';
 import { useOrderPriceStore } from '@/store/order-price-store';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  useMutation,
+  useQuery,
+  useQueryClient,
+  type QueryClient,
+} from '@tanstack/react-query';
 
 /**
  * Order creation and reads.
@@ -23,68 +28,130 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
  * sets `retry: false`, and the checkout screen offers a MANUAL retry only.
  */
 
-interface CreateOrderVariables {
+/** One of the orders a checkout places: the payload, and whose lines it takes. */
+export interface CheckoutOrder {
   input: OrderInput;
-  /** The restaurant whose cart this checkout empties on success. */
+  /** The restaurant whose lines leave the cart once this order is confirmed. */
   restaurantId: string;
 }
 
 /**
- * Creates an order and, only once the server has confirmed it, clears that
- * restaurant's cart — locally and on the backend.
+ * A checkout that stopped part-way: some orders exist, one does not.
  *
- * Ordering is deliberate: the cart is cleared in `onSuccess`, never
- * optimistically. A failed checkout must leave the cart **completely intact**,
- * because the cart is the only record of what the customer configured — addons
- * and per-line notes exist nowhere else (`toCartInput` cannot send them), so a
- * cleared cart after a failed create is unrecoverable data loss.
- *
- * Other restaurants' groups are untouched: `clearRestaurant` is scoped to one
- * id, and the backend delete targets that group's own cart row.
+ * Thrown rather than returned so the mutation is in its error state — the
+ * screen must not read a partial checkout as success — while still carrying
+ * what DID happen. The orders in `placed` are real and have drivers coming;
+ * the lines of `failedRestaurantId` and every restaurant after it are still
+ * in the cart, untouched, ready for a manual retry.
  */
-export function useCreateOrder() {
+export class PartialCheckoutError extends Error {
+  constructor(
+    readonly placed: OrderOutput[],
+    readonly failedRestaurantId: string,
+    readonly reason: unknown
+  ) {
+    super(
+      reason instanceof Error ? reason.message : 'Could not place one of the orders.'
+    );
+    this.name = 'PartialCheckoutError';
+  }
+}
+
+/**
+ * Places one order per restaurant, in the order given, and returns them.
+ *
+ * ONE cart becomes SEVERAL orders here: the backend `Order` has a single
+ * `restaurant`, so a cart drawn from three restaurants is three POSTs. They
+ * go out one at a time, and each restaurant's lines leave the cart — locally,
+ * with its prices recorded — the moment ITS order is confirmed, never before
+ * and never in a batch at the end:
+ *
+ *   - never before, because a failed checkout must leave the cart
+ *     **completely intact**. The cart is the only record of what the customer
+ *     configured — addons and per-line notes exist nowhere else (`toCartInput`
+ *     cannot send them), so a cleared cart after a failed create is
+ *     unrecoverable data loss;
+ *   - never in a batch, because if the second POST fails the first order
+ *     already exists and has a driver coming. Its lines must be gone from the
+ *     cart, or "Try Again" would order the same food twice.
+ *
+ * A failure stops the sequence: the remaining restaurants are not attempted,
+ * their lines stay, and a {@link PartialCheckoutError} says which order broke.
+ *
+ * The backend cart is only deleted once the LOCAL cart is empty. While lines
+ * remain, the server copy is simply stale, and the sync engine rewrites it on
+ * the next pass — that is cheaper and safer than re-posting from here.
+ */
+export async function placeCheckoutOrders(
+  orders: CheckoutOrder[],
+  queryClient: QueryClient
+): Promise<OrderOutput[]> {
+  const placed: OrderOutput[] = [];
+
+  for (const { input, restaurantId } of orders) {
+    let order: OrderOutput;
+    try {
+      order = await createOrder(input);
+    } catch (error) {
+      throw new PartialCheckoutError(placed, restaurantId, error);
+    }
+    placed.push(order);
+
+    const store = useCartStore.getState();
+
+    // The prices, BEFORE the lines that hold them are cleared. This is the
+    // only moment they exist: the backend stores no price, fee or total on
+    // an order (plan §3.3), so without this the order screen could never say
+    // what the customer paid.
+    recordOrderPrices(
+      order.id,
+      store.items.filter((line) => line.restaurantId === restaurantId)
+    );
+
+    // Local first: it is synchronous and cannot fail, so the customer never
+    // sees a cart they have already paid for on delivery.
+    store.clearRestaurant(restaurantId);
+
+    // Seed the detail cache so a confirmation screen renders without a
+    // round-trip — which also side-steps the plan §2.2 defect where a
+    // re-read of a fresh order comes back with `items: []`.
+    queryClient.setQueryData(orderKeys.detail(order.id), order);
+  }
+
+  const store = useCartStore.getState();
+  if (store.items.length === 0 && store.remote.cartId) {
+    try {
+      await deleteCart(store.remote.cartId);
+      store.resetSyncState();
+    } catch {
+      // The orders exist; that is what matters. A stale server cart is
+      // reconciled by the next `syncCart` pass, which deletes the row for an
+      // empty cart.
+    }
+  }
+
+  return placed;
+}
+
+/**
+ * The checkout mutation: every order of one checkout, placed by
+ * {@link placeCheckoutOrders}.
+ *
+ * The side effects live in the mutation function rather than in `onSuccess`
+ * because they are PER ORDER, not per checkout — and they must happen whether
+ * or not the checkout screen is still mounted.
+ */
+export function useCreateOrders() {
   const queryClient = useQueryClient();
 
-  return useMutation<OrderOutput, Error, CreateOrderVariables>({
-    mutationFn: ({ input }) => createOrder(input),
+  return useMutation<OrderOutput[], Error, CheckoutOrder[]>({
+    mutationFn: (orders) => placeCheckoutOrders(orders, queryClient),
 
     // Never auto-retry — see the module header. This is the single most
     // consequential line in the file.
     retry: false,
 
-    onSuccess: async (order, { restaurantId }) => {
-      const store = useCartStore.getState();
-      const cartId = store.remote[restaurantId]?.cartId ?? null;
-
-      // The prices, BEFORE the cart that holds them is cleared. This is the
-      // only moment they exist: the backend stores no price, fee or total on an
-      // order (plan §3.3), so without this the order screen could never say
-      // what the customer paid. Captured here rather than on the checkout
-      // screen for the same reason the cart is cleared here — it must happen
-      // whether or not that screen is still mounted.
-      recordOrderPrices(order.id, store.items.filter((line) => line.restaurantId === restaurantId));
-
-      // Local first: it is synchronous and cannot fail, so the customer never
-      // sees a cart they have already paid for on delivery.
-      store.clearRestaurant(restaurantId);
-
-      if (cartId) {
-        try {
-          await deleteCart(cartId);
-        } catch {
-          // The order exists; that is what matters. A stale server cart is
-          // reconciled by the next `syncCarts` pass, which deletes the row for
-          // a group that is no longer live.
-        }
-      }
-
-      // Seed the detail cache so a confirmation screen renders without a
-      // round-trip — which also side-steps the plan §2.2 defect where a
-      // re-read of a fresh order comes back with `items: []`.
-      queryClient.setQueryData(orderKeys.detail(order.id), order);
-    },
-
-    // No `onError`: leaving the cart alone IS the error handling.
+    // No `onError`: leaving the unordered lines alone IS the error handling.
   });
 }
 

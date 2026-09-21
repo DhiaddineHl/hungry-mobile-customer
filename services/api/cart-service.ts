@@ -31,10 +31,16 @@ import { customerCartCodePrefix, parseCartCode } from './cart-view-model';
  *   3. **A missing or malformed id answers 500, not 404 or 400.**
  *      `DefaultCrudRepository.find` is `findById(...).orElseThrow()` and
  *      `CartControllerAdvice` registers no exception handler at all.
+ *   4. **A customer may hold ONE active cart.** `CartSchemaConfig` creates the
+ *      partial unique index `ux_cart_customer_active` over `(customer_id)
+ *      WHERE status = 'ACTIVE'`, and `CartBasePopulator` forces every create
+ *      to ACTIVE. A POST while any other cart of that customer still exists
+ *      fails on the index — which is why {@link replaceCart} deletes every
+ *      cart the customer has, not just the one it knows the id of, before it
+ *      creates.
  *
- * Carts are scoped by the `code` scheme in `cart-view-model.ts` rather than by
- * customer, because `Cart` has no restaurant field and the customer-id filter
- * key is one of the broken ones.
+ * Carts are found by the `code` scheme in `cart-view-model.ts` rather than by
+ * customer, because the customer-id filter key is one of the broken ones.
  */
 
 const CARTS = '/carts';
@@ -46,7 +52,10 @@ const CARTS = '/carts';
  */
 export type CartSortField = 'createdAt' | 'code' | 'name';
 
-/** One page is plenty: a customer has one cart per restaurant, not hundreds. */
+/**
+ * One page is plenty: a customer has ONE cart, plus at most a handful of
+ * legacy per-restaurant rows left by an earlier build.
+ */
 const CUSTOMER_CARTS_PAGE_SIZE = 50;
 
 const cartPageSchema = pageSchema(cartOutputSchema);
@@ -146,7 +155,8 @@ export async function fetchCartByCode(code: string): Promise<CartOutput | null> 
 }
 
 /**
- * Every cart this app wrote for one customer.
+ * Every cart this app wrote for one customer — the current single cart and
+ * any legacy per-restaurant rows an earlier build left behind.
  *
  * `LIKE` is rendered as `%value%` by `SpecificationUtils` — a SUBSTRING match,
  * not a prefix one — and `/carts/all` is not scoped to the caller in any case,
@@ -210,36 +220,61 @@ export async function deleteCart(cartId: string): Promise<void> {
 }
 
 /**
- * Makes the server's copy of a cart match `input`, and returns it — or `null`
- * when the cart was emptied.
+ * Makes the server's copy of the customer's cart match `input`, and returns
+ * it — or `null` when the cart was emptied.
  *
  * This is the ONLY write path for an existing cart, because `PUT /carts` does
  * not write (see the module header). The sequence is:
  *
- *   1. resolve the remote id — from `knownCartId`, else by `code`;
- *   2. DELETE it if one exists;
- *   3. POST the full item list, **strictly after** the delete.
+ *   1. DELETE the cart under `knownCartId`, if one is known;
+ *   2. DELETE every other cart of this customer — found by code prefix, so
+ *      legacy per-restaurant rows and a duplicate from an interrupted earlier
+ *      pass go too;
+ *   3. POST the full item list, **strictly after** the deletes.
  *
- * The ordering matters and is asserted by test. `code` has no unique
- * constraint, so create-then-delete leaves a window in which a crash duplicates
- * the cart; delete-then-create at worst loses a server copy the local store —
- * which stays authoritative — rebuilds on the next sync.
+ * The ordering is not a preference. `ux_cart_customer_active` rejects a
+ * create while ANY active cart of the customer exists, so create-then-delete
+ * cannot work at all; and delete-then-create at worst loses a server copy the
+ * local store — which stays authoritative — rebuilds on the next sync.
  *
  * A failed delete does not abort the create. The overwhelmingly likely cause is
  * that the row is already gone (a 500 on a well-formed UUID IS not-found here),
  * and refusing to create would leave the customer with no server cart at all.
+ * If a row really is still there, the create fails on the index and the sync
+ * engine reports it and retries on the next change.
  */
 export async function replaceCart(
   input: CartInput,
   knownCartId?: string
 ): Promise<CartOutput | null> {
-  const cartId = knownCartId ?? (await fetchCartByCode(input.code))?.id;
+  const deleted = new Set<string>();
 
-  if (cartId) {
+  if (knownCartId) {
     try {
-      await deleteCart(cartId);
+      await deleteCart(knownCartId);
+      deleted.add(knownCartId);
     } catch {
       // Already gone, or a transient fault on a row we are replacing anyway.
+    }
+  }
+
+  const customerId = input.customerId ?? parseCartCode(input.code)?.customerId;
+  if (customerId) {
+    let others: CartOutput[] = [];
+    try {
+      others = await fetchCustomerCarts(customerId);
+    } catch {
+      // The lookup failing must not stop a cart we can still write; if a row
+      // is left behind, the create below says so.
+    }
+    for (const cart of others) {
+      if (deleted.has(cart.id)) continue;
+      try {
+        await deleteCart(cart.id);
+        deleted.add(cart.id);
+      } catch {
+        // Same as above.
+      }
     }
   }
 

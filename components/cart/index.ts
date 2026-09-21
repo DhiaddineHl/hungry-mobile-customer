@@ -1,6 +1,5 @@
 export { CartHeader } from './cart-header';
 export { RestaurantCartCard } from './restaurant-cart-card';
-export { TrackOrdersSection } from './track-orders-section';
 export { CartItem } from './cart-item';
 export { SuggestedItems } from './suggested-items';
 export { SyncBadge } from './sync-badge';

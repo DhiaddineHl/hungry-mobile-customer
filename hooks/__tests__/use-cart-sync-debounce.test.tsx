@@ -1,7 +1,7 @@
 import { useCartSync } from '@/hooks/use-cart-sync';
 import * as cartService from '@/services/api/cart-service';
 import { cartCodeFor } from '@/services/api/cart-view-model';
-import { useCartStore } from '@/store/cart-store';
+import { EMPTY_SYNC_STATE, useCartStore } from '@/store/cart-store';
 import { act, render } from '@testing-library/react-native';
 
 /**
@@ -44,10 +44,10 @@ function Probe() {
 }
 
 it('collapses five taps on + into a single sync', async () => {
-  useCartStore.setState({ items: [], remote: {} });
+  useCartStore.setState({ items: [], remote: { ...EMPTY_SYNC_STATE } });
   mockedCartService.replaceCart.mockResolvedValue({
     id: CART_ID,
-    code: cartCodeFor(CUSTOMER_ID, RESTAURANT_ID),
+    code: cartCodeFor(CUSTOMER_ID),
     items: [],
   } as never);
 

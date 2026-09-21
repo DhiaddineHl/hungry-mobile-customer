@@ -368,3 +368,48 @@ export function checkoutBlockers(args: CheckoutBlockerArgs): CheckoutBlocker[] {
 
   return blockers;
 }
+
+// --- One cart, several orders ------------------------------------------
+
+/** What one restaurant's share of the cart costs, as its own order. */
+export interface RestaurantOrderTotals extends OrderTotals {
+  restaurantId: string;
+  restaurantName: string;
+  itemCount: number;
+}
+
+/**
+ * The bill for the whole cart, and for each order it becomes.
+ *
+ * Checkout turns ONE cart into ONE ORDER PER RESTAURANT — each restaurant
+ * cooks and is delivered from separately, so the service and delivery fees
+ * apply per order, not per checkout. `orders` is what the customer is shown
+ * so that a bill with two delivery fees is explained rather than surprising;
+ * the top-level figures are those orders summed.
+ */
+export interface CheckoutTotals extends OrderTotals {
+  orders: RestaurantOrderTotals[];
+}
+
+export function checkoutTotals(
+  groups: {
+    restaurantId: string;
+    restaurantName: string;
+    items: Pick<CartLine, 'unitPrice' | 'quantity'>[];
+  }[]
+): CheckoutTotals {
+  const orders = groups.map((group) => ({
+    restaurantId: group.restaurantId,
+    restaurantName: group.restaurantName,
+    itemCount: group.items.reduce((sum, line) => sum + line.quantity, 0),
+    ...orderTotals(group.items),
+  }));
+
+  return {
+    orders,
+    subtotal: orders.reduce((sum, order) => sum + order.subtotal, 0),
+    serviceFee: orders.reduce((sum, order) => sum + order.serviceFee, 0),
+    deliveryFee: orders.reduce((sum, order) => sum + order.deliveryFee, 0),
+    total: orders.reduce((sum, order) => sum + order.total, 0),
+  };
+}

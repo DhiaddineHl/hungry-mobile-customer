@@ -2,6 +2,7 @@ import {
   ORDER_CODE_PREFIX,
   buildOrderComment,
   checkoutBlockers,
+  checkoutTotals,
   customerOrderCodePrefix,
   orderCodeFor,
   orderTotals,
@@ -252,6 +253,63 @@ describe('orderTotals', () => {
       23.36,
       5
     );
+  });
+});
+
+describe('checkoutTotals — one cart, one order per restaurant', () => {
+  const groups = [
+    { restaurantId: 'r-a', restaurantName: 'A', items: [{ unitPrice: 10, quantity: 2 }] },
+    { restaurantId: 'r-b', restaurantName: 'B', items: [{ unitPrice: 6, quantity: 1 }] },
+  ];
+
+  it('prices each restaurant as its own order, with its own fees', () => {
+    const totals = checkoutTotals(groups);
+
+    expect(totals.orders).toHaveLength(2);
+    expect(totals.orders[0]).toMatchObject({
+      restaurantId: 'r-a',
+      restaurantName: 'A',
+      itemCount: 2,
+      ...orderTotals(groups[0].items),
+    });
+    expect(totals.orders[1]).toMatchObject({ restaurantId: 'r-b', itemCount: 1 });
+  });
+
+  it('charges the service and delivery fee ONCE PER ORDER, not once per checkout', () => {
+    const totals = checkoutTotals(groups);
+    const one = orderTotals([{ unitPrice: 1, quantity: 1 }]);
+
+    // Each restaurant cooks and delivers separately; hiding that in a single
+    // fee would under-charge — or surprise the customer on the bill.
+    expect(totals.serviceFee).toBeCloseTo(one.serviceFee * 2, 5);
+    expect(totals.deliveryFee).toBeCloseTo(one.deliveryFee * 2, 5);
+    expect(totals.subtotal).toBeCloseTo(26, 5);
+    expect(totals.total).toBeCloseTo(
+      totals.orders[0].total + totals.orders[1].total,
+      5
+    );
+  });
+
+  it('is a single order with single fees for a single-restaurant cart', () => {
+    const totals = checkoutTotals([groups[0]]);
+
+    expect(totals.orders).toHaveLength(1);
+    expect({
+      subtotal: totals.subtotal,
+      serviceFee: totals.serviceFee,
+      deliveryFee: totals.deliveryFee,
+      total: totals.total,
+    }).toEqual(orderTotals(groups[0].items));
+  });
+
+  it('costs nothing for an empty cart', () => {
+    expect(checkoutTotals([])).toEqual({
+      orders: [],
+      subtotal: 0,
+      serviceFee: 0,
+      deliveryFee: 0,
+      total: 0,
+    });
   });
 });
 

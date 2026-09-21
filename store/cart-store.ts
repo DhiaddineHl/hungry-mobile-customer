@@ -47,7 +47,7 @@ export interface CartLine {
 export type NewCartLine = Omit<CartLine, "lineId">;
 
 /**
- * Where one restaurant group stands against its server-side copy.
+ * Where the cart stands against its server-side copy.
  *
  * `synced` means the signature in `syncedSignature` was successfully written;
  * it is set only after a create returns, never optimistically, so the UI can
@@ -64,28 +64,42 @@ export interface CartSyncState {
   error?: string;
 }
 
+/**
+ * ONE cart per customer, whatever the lines are from.
+ *
+ * Lines from several restaurants sit side by side in `items`; each still
+ * carries its `restaurantId`, because that is what checkout splits on — one
+ * backend `Order` per restaurant, out of the one cart. The backend holds the
+ * same shape: `Cart` has no restaurant column, `CartItem` is `{product,
+ * quantity}`, and `ux_cart_customer_active` allows a customer exactly one
+ * ACTIVE cart row.
+ */
 interface CartState {
   items: CartLine[];
   /**
-   * Sync bookkeeping, keyed by `restaurantId` — one entry per UI group, which
-   * is one backend `Cart` row. Persisted so a restart does not re-issue a
-   * delete-and-create for a cart that is already up to date.
+   * Sync bookkeeping for THE cart — one backend `Cart` row. Persisted so a
+   * restart does not re-issue a delete-and-create for a cart that is already
+   * up to date.
    */
-  remote: Record<string, CartSyncState>;
+  remote: CartSyncState;
   addItem: (line: NewCartLine) => void;
   setQuantity: (lineId: string, quantity: number) => void;
   increment: (lineId: string) => void;
   decrement: (lineId: string) => void;
   removeItem: (lineId: string) => void;
+  /**
+   * Drops every line from one restaurant. Checkout calls this once that
+   * restaurant's order is confirmed; the other restaurants' lines stay.
+   */
   clearRestaurant: (restaurantId: string) => void;
   clear: () => void;
-  setSyncState: (restaurantId: string, patch: Partial<CartSyncState>) => void;
-  clearSyncState: (restaurantId: string) => void;
+  setSyncState: (patch: Partial<CartSyncState>) => void;
+  resetSyncState: () => void;
   /** Replaces the whole cart in one write — used by hydration. */
   replaceAll: (lines: CartLine[]) => void;
 }
 
-const EMPTY_SYNC_STATE: CartSyncState = {
+export const EMPTY_SYNC_STATE: CartSyncState = {
   cartId: null,
   syncedSignature: null,
   status: "idle",
@@ -107,18 +121,27 @@ export function lineSignature(line: NewCartLine): string {
 }
 
 /**
- * The persisted shape at version 0 — `{ items }` only.
+ * Persisted-shape history:
  *
- * Version 1 adds `remote`. A cart already on a customer's device must survive
- * the upgrade, so the migration ADDS the new slice rather than resetting the
- * state: dropping `items` here would silently empty a real cart on first launch
- * after an update.
+ *   - version 0 — `{ items }` only;
+ *   - version 1 — adds `remote`, keyed by restaurant id (one server cart per
+ *     restaurant);
+ *   - version 2 — `remote` is ONE sync state (one server cart per customer).
+ *
+ * A cart already on a customer's device must survive every upgrade, so each
+ * step keeps `items` and only reshapes the bookkeeping: dropping `items` here
+ * would silently empty a real cart on first launch after an update.
+ *
+ * Going from 1 to 2 resets the sync state rather than translating it. The
+ * per-restaurant rows it pointed at are not the cart the engine now writes,
+ * and `replaceCart` deletes every one of the customer's server carts before
+ * creating the single new one — so nothing is lost by forgetting their ids.
  */
 export function migrateCartState(persisted: unknown, version: number): CartState {
   const previous = (persisted ?? {}) as Partial<CartState>;
 
-  if (version === 0) {
-    return { ...previous, remote: {} } as CartState;
+  if (version <= 1) {
+    return { ...previous, remote: { ...EMPTY_SYNC_STATE } } as CartState;
   }
 
   return previous as CartState;
@@ -128,14 +151,14 @@ export const useCartStore = create<CartState>()(
   persist(
     (set) => ({
       items: [],
-      remote: {},
+      remote: { ...EMPTY_SYNC_STATE },
 
       addItem: (line) =>
         set((state) => {
-          // Without a restaurant the line has no group to belong to: every
-          // restaurant would collapse into one `""` group and the
-          // one-cart-per-restaurant rule would break silently. Callers that
-          // cannot resolve the restaurant must not add the line at all.
+          // Without a restaurant the line has no order to end up in: checkout
+          // splits the cart by `restaurantId`, and a line under `""` would be
+          // sent as an order for no restaurant. Callers that cannot resolve
+          // the restaurant must not add the line at all.
           if (!line.restaurantId) return state;
 
           const lineId = lineSignature(line);
@@ -182,43 +205,27 @@ export const useCartStore = create<CartState>()(
           items: state.items.filter((i) => i.lineId !== lineId),
         })),
 
+      // The sync state is deliberately left alone: the cart still exists, it
+      // just has fewer lines, and `syncedSignature` no longer matching is
+      // exactly what makes the engine write the smaller cart on its next pass.
       clearRestaurant: (restaurantId) =>
-        set((state) => {
-          // The sync state goes with the items. Keeping a stale
-          // `syncedSignature` would tell the engine the now-empty group is
-          // already up to date, leaving the server copy behind forever.
-          const { [restaurantId]: _removed, ...remote } = state.remote;
-          return {
-            items: state.items.filter((i) => i.restaurantId !== restaurantId),
-            remote,
-          };
-        }),
-
-      clear: () => set({ items: [], remote: {} }),
-
-      setSyncState: (restaurantId, patch) =>
         set((state) => ({
-          remote: {
-            ...state.remote,
-            [restaurantId]: {
-              ...(state.remote[restaurantId] ?? EMPTY_SYNC_STATE),
-              ...patch,
-            },
-          },
+          items: state.items.filter((i) => i.restaurantId !== restaurantId),
         })),
 
-      clearSyncState: (restaurantId) =>
-        set((state) => {
-          const { [restaurantId]: _removed, ...remote } = state.remote;
-          return { remote };
-        }),
+      clear: () => set({ items: [], remote: { ...EMPTY_SYNC_STATE } }),
+
+      setSyncState: (patch) =>
+        set((state) => ({ remote: { ...state.remote, ...patch } })),
+
+      resetSyncState: () => set({ remote: { ...EMPTY_SYNC_STATE } }),
 
       replaceAll: (lines) => set({ items: lines }),
     }),
     {
       name: "hungry-cart",
       storage: createJSONStorage(() => AsyncStorage),
-      version: 1,
+      version: 2,
       migrate: migrateCartState,
     },
   ),
@@ -235,6 +242,13 @@ export interface RestaurantCartGroup {
   totalPrice: number;
 }
 
+/**
+ * The cart split by restaurant — the shape checkout turns into orders, and
+ * the shape the cart screens render under one heading per restaurant.
+ *
+ * Groups keep first-appearance order, so a restaurant does not jump around
+ * the screen as lines are added to it.
+ */
 export function groupByRestaurant(items: CartLine[]): RestaurantCartGroup[] {
   const map = new Map<string, RestaurantCartGroup>();
   for (const item of items) {
@@ -270,4 +284,9 @@ export function formatDT(value: number): string {
  */
 export function selectCartItemCount(state: Pick<CartState, "items">): number {
   return state.items.reduce((total, item) => total + item.quantity, 0);
+}
+
+/** What every line adds up to, before any fee. */
+export function cartSubtotal(items: Pick<CartLine, "unitPrice" | "quantity">[]): number {
+  return items.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0);
 }

@@ -1,3 +1,4 @@
+import { isTokenExpired, refreshAccessToken } from '@/services/keycloak/auth-service';
 import { getTokens } from '@/services/keycloak/token-storage';
 import { Client, type IMessage, type StompSubscription } from '@stomp/stompjs';
 
@@ -54,15 +55,34 @@ function ensureClient(): Client {
     reconnectDelay: 4000,
     heartbeatIncoming: 10000,
     heartbeatOutgoing: 10000,
+    // stompjs's documented React Native settings: binary frames out, tolerate
+    // a dropped trailing NULL in — without them frames can silently fail to
+    // parse on Android and CONNECTED never fires.
+    forceBinaryWSFrames: true,
+    appendMissingNULLonIncoming: true,
   });
 
   // Read fresh on every (re)connect attempt, not once at client creation — a
-  // long-lived app can easily outlive the access token this started with.
+  // long-lived app can easily outlive the access token this started with —
+  // and refreshed when expired, as the REST client does, or every reconnect
+  // would present the same dead bearer and be rejected.
   stomp.beforeConnect = async () => {
-    const tokens = await getTokens();
+    let tokens = await getTokens();
+    if (tokens && isTokenExpired(tokens.accessToken)) {
+      const result = await refreshAccessToken();
+      tokens = result.success && result.tokens ? result.tokens : null;
+    }
     stomp.connectHeaders = tokens?.accessToken
       ? { Authorization: `Bearer ${tokens.accessToken}` }
       : {};
+  };
+
+  stomp.onStompError = (frame) => {
+    console.warn('[Realtime] STOMP error:', frame.headers.message ?? frame.body);
+  };
+  stomp.onWebSocketError = (event: unknown) => {
+    const message = event && typeof event === 'object' && 'message' in event ? event.message : event;
+    console.warn(`[Realtime] WebSocket error against ${stomp.brokerURL}:`, message);
   };
 
   // Replays every still-active registration on connect AND on every

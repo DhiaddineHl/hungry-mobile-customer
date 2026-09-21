@@ -11,9 +11,14 @@ import {
 import { keycloakConfig } from '@/services/keycloak/config';
 import { AuthMethod, clearTokens, getAuthMethod, getTokens } from '@/services/keycloak/token-storage';
 import { resolveCustomerForAccount } from '@/hooks/use-customer';
+import { deleteCurrentAccount } from '@/services/api/customer-service';
+import { isApiError } from '@/services/api/client';
 import { clearPushRegistration } from '@/services/notifications/push-service';
+import { useCartStore } from '@/store/cart-store';
 import { useCustomerStore } from '@/store/customer-store';
+import { useFavoritesStore } from '@/store/favorites-store';
 import { useDeliveryAddressStore } from '@/store/delivery-address-store';
+import { useNotificationStore } from '@/store/notification-store';
 import { useQueryClient } from '@tanstack/react-query';
 import * as AuthSession from 'expo-auth-session';
 import { createContext, useCallback, useContext, useEffect, useState } from 'react';
@@ -54,6 +59,14 @@ interface AuthContextValue extends AuthState {
    */
   reloadUser: (overrides?: Partial<KeycloakUserInfo>) => Promise<void>;
   logout: () => Promise<void>;
+  /**
+   * Permanently deletes the customer's account (backend record + Keycloak
+   * login) and ends the session. Everything this device holds for the account
+   * is wiped too — a deleted account must not leave a cart or favorites behind
+   * for the next sign-in. Rejects if the backend refuses; the session is then
+   * left intact so the customer can retry.
+   */
+  deleteAccount: () => Promise<void>;
   refreshSession: () => Promise<boolean>;
 }
 
@@ -262,6 +275,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
+  /**
+   * Drops everything tied to this account so the next login starts clean.
+   * Shared by sign-out and account deletion; `local` additionally wipes what
+   * survives a plain sign-out (cart, favorites, order snapshots) because a
+   * deleted account has no "next time" for them to come back on.
+   */
+  const clearSession = useCallback(
+    (options: { local: boolean }) => {
+      useCustomerStore.getState().clear();
+      useDeliveryAddressStore.getState().clear();
+      // The inbox is this account's order history in another form.
+      useNotificationStore.getState().clear();
+      if (options.local) {
+        useCartStore.getState().clear();
+        useFavoritesStore.getState().clear();
+      }
+      queryClient.clear();
+      setState({ isAuthenticated: false, isLoading: false, user: null, authMethod: null });
+    },
+    [queryClient]
+  );
+
   const logoutFn = useCallback(async () => {
     // Before the tokens go: unregistering is an authenticated call, and once
     // the session is cleared the backend can no longer tell whose device this
@@ -269,12 +304,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // the lock screen of whoever signs in here next.
     await clearPushRegistration();
     await keycloakLogout();
-    // Drop everything tied to this account so the next login starts clean.
-    useCustomerStore.getState().clear();
-    useDeliveryAddressStore.getState().clear();
-    queryClient.clear();
-    setState({ isAuthenticated: false, isLoading: false, user: null, authMethod: null });
-  }, [queryClient]);
+    clearSession({ local: false });
+  }, [clearSession]);
+
+  const deleteAccountFn = useCallback(async () => {
+    // Same ordering reason as logout: the device row must go while the token
+    // still identifies the account. The backend deletes the customer and the
+    // Keycloak user; a 404 means there was no record to delete (a Google
+    // sign-in that never completed its profile), which is still "done".
+    await clearPushRegistration();
+    try {
+      await deleteCurrentAccount();
+    } catch (error) {
+      if (!isApiError(error, 404)) throw error;
+    }
+    // The Keycloak user is gone, so revoking the refresh token may be refused;
+    // `keycloakLogout` swallows that and clears the local tokens regardless.
+    await keycloakLogout();
+    clearSession({ local: true });
+  }, [clearSession]);
 
   const refreshSession = useCallback(async (): Promise<boolean> => {
     const result = await refreshAccessToken();
@@ -293,6 +341,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         loginWithGoogle: loginWithGoogleFn,
         reloadUser,
         logout: logoutFn,
+        deleteAccount: deleteAccountFn,
         refreshSession,
       }}
     >

@@ -6,6 +6,17 @@
 **Date:** 2026-08-23
 **Backend studied:** `C:\projects\hungry-web\hungry-backend` @ `0e5bb3c`
 
+> **Superseded in part (2026-09-14) — one cart per customer.** The §2.2 workaround of one
+> backend cart *per restaurant* (`code = hc:<customer>:<restaurant>`) is gone. The backend now
+> enforces at most one ACTIVE cart per customer (`CartSchemaConfig` → partial unique index
+> `ux_cart_customer_active`), and `CartBasePopulator` forces every create to ACTIVE, so a second
+> per-restaurant cart is rejected at insert. The app writes ONE cart (`code = hc:<customer>`)
+> holding lines from every restaurant; `replaceCart` deletes every cart of the customer — legacy
+> per-restaurant rows included — before creating. Hydration still reads legacy codes and resolves
+> each line's restaurant from the product's menu section (`fetchRestaurantIdForSection`), because
+> neither `Cart` nor `CartItem` has a restaurant column. The split into restaurants happens at
+> checkout — see the note in `checkout-order-creation-plan.md`.
+
 > **Verification note.** Unlike `RESTO-01` and `MENU-01`, whose contracts were exercised
 > against a running backend, this plan is **derived from backend source only**. The Hungry
 > stack was not running while it was written (`:8081` and `:8082` both refused connections;

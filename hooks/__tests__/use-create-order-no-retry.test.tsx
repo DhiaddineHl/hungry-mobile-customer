@@ -1,4 +1,4 @@
-import { useCreateOrder } from '@/hooks/use-orders';
+import { useCreateOrders } from '@/hooks/use-orders';
 import type { OrderInput } from '@/schemas/order';
 import * as cartService from '@/services/api/cart-service';
 import { ApiError } from '@/services/api/client';
@@ -64,10 +64,10 @@ function line(restaurantId: string) {
 
 /** Fires the mutation once on mount, so nothing is assigned out of the tree. */
 function Probe() {
-  const { mutate, isError } = useCreateOrder();
+  const { mutate, isError } = useCreateOrders();
 
   useEffect(() => {
-    mutate({ input: INPUT, restaurantId: RESTAURANT_ID });
+    mutate([{ input: INPUT, restaurantId: RESTAURANT_ID }]);
   }, [mutate]);
 
   return <Text>{isError ? 'failed' : 'pending'}</Text>;
@@ -81,11 +81,9 @@ it('attempts a failed create exactly once and leaves the cart intact', async () 
   useCartStore.setState({
     items: [line(RESTAURANT_ID), line(OTHER_RESTAURANT_ID)],
     remote: {
-      [RESTAURANT_ID]: {
-        cartId: CART_ID,
-        syncedSignature: `${PRODUCT_ID}x2`,
-        status: 'synced',
-      },
+      cartId: CART_ID,
+      syncedSignature: `${PRODUCT_ID}x2`,
+      status: 'synced',
     },
   });
 
@@ -114,7 +112,7 @@ it('attempts a failed create exactly once and leaves the cart intact', async () 
   const state = useCartStore.getState();
   expect(state.items).toHaveLength(2);
   expect(state.items[0].addons).toHaveLength(1);
-  expect(state.remote[RESTAURANT_ID]?.cartId).toBe(CART_ID);
+  expect(state.remote.cartId).toBe(CART_ID);
   expect(mockedCartService.deleteCart).not.toHaveBeenCalled();
 
   client.clear();

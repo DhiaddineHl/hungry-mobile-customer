@@ -36,7 +36,9 @@ const OTHER_CUSTOMER_ID = 'd4d4d4d4-2222-3333-4444-999999999999';
 const RESTAURANT_ID = 'r2r2r2r2-2222-3333-4444-666666666666';
 const PRODUCT_ID = '8f3c1c2e-2f1a-4a1b-9d0e-1c2b3a4d5e6f';
 
-const CODE = cartCodeFor(CUSTOMER_ID, RESTAURANT_ID);
+const CODE = cartCodeFor(CUSTOMER_ID);
+/** A row an earlier build wrote, one per restaurant. */
+const LEGACY_CODE = `hc:${CUSTOMER_ID}:${RESTAURANT_ID}`;
 
 function cart(overrides: Record<string, unknown> = {}) {
   return {
@@ -179,7 +181,7 @@ describe('fetchCustomerCarts', () => {
     mockedGet.mockResolvedValue(
       pageOf([
         cart(),
-        cart({ id: OTHER_CART_ID, code: cartCodeFor(OTHER_CUSTOMER_ID, RESTAURANT_ID) }),
+        cart({ id: OTHER_CART_ID, code: cartCodeFor(OTHER_CUSTOMER_ID) }),
       ])
     );
 
@@ -197,6 +199,16 @@ describe('fetchCustomerCarts', () => {
     const carts = await fetchCustomerCarts(CUSTOMER_ID);
 
     expect(carts.map((each) => each.id)).toEqual([CART_ID]);
+  });
+
+  it('KEEPS a legacy per-restaurant row of this customer — hydration folds it in', async () => {
+    mockedGet.mockResolvedValue(
+      pageOf([cart(), cart({ id: OTHER_CART_ID, code: LEGACY_CODE })])
+    );
+
+    const carts = await fetchCustomerCarts(CUSTOMER_ID);
+
+    expect(carts.map((each) => each.id)).toEqual([CART_ID, OTHER_CART_ID]);
   });
 });
 
@@ -267,6 +279,7 @@ describe('fetchCartById', () => {
 describe('replaceCart', () => {
   it('deletes BEFORE creating', async () => {
     const order: string[] = [];
+    mockedGet.mockResolvedValue(pageOf([]));
     mockedDelete.mockImplementation(async () => {
       order.push('delete');
       return { data: undefined };
@@ -278,21 +291,42 @@ describe('replaceCart', () => {
 
     await replaceCart(INPUT, CART_ID);
 
-    // Not "both happened" — the ORDER is the invariant. `code` has no unique
-    // constraint, so create-then-delete can duplicate the cart.
+    // Not "both happened" — the ORDER is the invariant. The backend allows one
+    // ACTIVE cart per customer (`ux_cart_customer_active`), so create-then-
+    // delete would be rejected at insert.
     expect(order).toEqual(['delete', 'post']);
   });
 
-  it('resolves the existing cart by code when no id is known', async () => {
-    mockedGet.mockResolvedValue(pageOf([cart()]));
+  it('deletes EVERY cart of the customer, legacy rows included, before creating', async () => {
+    // A leftover per-restaurant row from an earlier build is an ACTIVE cart
+    // of this customer, and the unique index would reject the new one.
+    mockedGet.mockResolvedValue(
+      pageOf([cart({ id: OTHER_CART_ID, code: LEGACY_CODE }), cart()])
+    );
     mockedDelete.mockResolvedValue({ data: undefined });
     mockedPost.mockResolvedValue({ data: cart() });
 
     await replaceCart(INPUT);
 
     expect(filterOf()).toEqual({
-      codes: [{ operator: 'EQUALS', fieldValue: CODE, fieldType: 'STRING' }],
+      codes: [
+        { operator: 'LIKE', fieldValue: customerCartCodePrefix(CUSTOMER_ID), fieldType: 'STRING' },
+      ],
     });
+    expect(mockedDelete.mock.calls.map(([url]) => url).sort()).toEqual(
+      [`/carts/${CART_ID}`, `/carts/${OTHER_CART_ID}`].sort()
+    );
+    expect(mockedDelete.mock.invocationCallOrder.every((n) => n < mockedPost.mock.invocationCallOrder[0])).toBe(true);
+  });
+
+  it('does not delete the known cart twice when the lookup returns it too', async () => {
+    mockedGet.mockResolvedValue(pageOf([cart()]));
+    mockedDelete.mockResolvedValue({ data: undefined });
+    mockedPost.mockResolvedValue({ data: cart() });
+
+    await replaceCart(INPUT, CART_ID);
+
+    expect(mockedDelete).toHaveBeenCalledTimes(1);
     expect(mockedDelete).toHaveBeenCalledWith(`/carts/${CART_ID}`);
   });
 
@@ -307,6 +341,7 @@ describe('replaceCart', () => {
   });
 
   it('deletes and does NOT create when the item list is empty', async () => {
+    mockedGet.mockResolvedValue(pageOf([]));
     mockedDelete.mockResolvedValue({ data: undefined });
 
     const result = await replaceCart({ ...INPUT, items: [] }, CART_ID);
@@ -317,10 +352,21 @@ describe('replaceCart', () => {
   });
 
   it('still creates when the delete rejects with 500 — the row is already gone', async () => {
+    mockedGet.mockResolvedValue(pageOf([]));
     mockedDelete.mockRejectedValue(apiError(500));
     mockedPost.mockResolvedValue({ data: cart() });
 
     const result = await replaceCart(INPUT, CART_ID);
+
+    expect(mockedPost).toHaveBeenCalled();
+    expect(result?.id).toBe(CART_ID);
+  });
+
+  it('still creates when the customer-carts lookup fails', async () => {
+    mockedGet.mockRejectedValue(apiError(500));
+    mockedPost.mockResolvedValue({ data: cart() });
+
+    const result = await replaceCart(INPUT);
 
     expect(mockedPost).toHaveBeenCalled();
     expect(result?.id).toBe(CART_ID);

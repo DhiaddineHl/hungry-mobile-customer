@@ -48,7 +48,7 @@ export default function MapSelectScreen() {
    * add-an-address flow, which ends on the tabs and would strand a half-placed
    * order.
    */
-  const { checkoutRestaurantId } = useLocalSearchParams<{ checkoutRestaurantId?: string }>();
+  const { returnToCheckout } = useLocalSearchParams<{ returnToCheckout?: string }>();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearching, setIsSearching] = useState(false);
@@ -222,13 +222,12 @@ export default function MapSelectScreen() {
   };
 
   const handleDeliverHere = () => {
-    if (checkoutRestaurantId) {
-      // `replace`, not `push`: this screen was opened FROM that checkout, so
+    if (returnToCheckout) {
+      // `replace`, not `push`: this screen was opened FROM the checkout, so
       // returning to it must not leave a map underneath for Back to fall into.
       router.replace({
-        pathname: '/order-details/[id]',
+        pathname: '/order-details',
         params: {
-          id: checkoutRestaurantId,
           pickedLatitude: selectedCoords.latitude.toString(),
           pickedLongitude: selectedCoords.longitude.toString(),
           pickedAddress: addressText,

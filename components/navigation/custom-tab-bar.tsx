@@ -18,6 +18,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Fonts, FontSize, Palette, Radius } from '@/constants/theme';
+import { useTranslation, type TranslationKey } from '@/i18n';
 import { selectCartItemCount, useCartStore } from '@/store/cart-store';
 
 const TAB_ICONS = {
@@ -27,11 +28,11 @@ const TAB_ICONS = {
   profile: User,
 };
 
-const TAB_LABELS: Record<string, string> = {
-  index: 'Home',
-  favorites: 'Favorites',
-  cart: 'Cart',
-  profile: 'Profile',
+const TAB_LABELS: Partial<Record<string, TranslationKey>> = {
+  index: 'tabs.home',
+  favorites: 'tabs.favorites',
+  cart: 'tabs.cart',
+  profile: 'tabs.profile',
 };
 
 const SPRING = { damping: 18, stiffness: 200, mass: 0.8 };
@@ -55,6 +56,8 @@ function AnimatedTabIcon({
   cartItemCount = 0,
 }: TabIconProps) {
   const IconComponent = TAB_ICONS[routeName as keyof typeof TAB_ICONS];
+  const { t } = useTranslation();
+  const labelKey = TAB_LABELS[routeName];
   const active = useSharedValue(isFocused ? 1 : 0);
 
   useEffect(() => {
@@ -136,7 +139,7 @@ function AnimatedTabIcon({
         ]}
         numberOfLines={1}
       >
-        {TAB_LABELS[routeName] ?? routeName}
+        {labelKey ? t(labelKey) : routeName}
       </Animated.Text>
     </View>
   );
@@ -160,6 +163,7 @@ export function CustomTabBar({
   const storeCartItemCount = useCartStore(selectCartItemCount);
   const badgeCount = cartItemCount ?? storeCartItemCount;
   const insets = useSafeAreaInsets();
+  const { t } = useTranslation();
   const [barWidth, setBarWidth] = useState(0);
 
   const tabCount = state.routes.length;
@@ -224,8 +228,10 @@ export function CustomTabBar({
               accessibilityLabel={
                 options.tabBarAccessibilityLabel ??
                 (route.name === 'cart' && badgeCount > 0
-                  ? `${TAB_LABELS.cart}, ${badgeCount} item${badgeCount > 1 ? 's' : ''}`
-                  : (TAB_LABELS[route.name] ?? route.name))
+                  ? `${t('tabs.cart')}, ${badgeCount} item${badgeCount > 1 ? 's' : ''}`
+                  : TAB_LABELS[route.name]
+                    ? t(TAB_LABELS[route.name]!)
+                    : route.name)
               }
               onPress={onPress}
               onLongPress={onLongPress}

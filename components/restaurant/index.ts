@@ -5,3 +5,4 @@ export { MenuSection } from './menu-section';
 export { MenuSectionSkeleton } from './menu-section-skeleton';
 export { MenuUnavailable } from './menu-unavailable';
 export { TimingsModal } from './timings-modal';
+export { RestaurantCartBar } from './restaurant-cart-bar';

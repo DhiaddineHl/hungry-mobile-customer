@@ -1,4 +1,4 @@
-import { useCreateOrder } from '@/hooks/use-orders';
+import { useCreateOrders } from '@/hooks/use-orders';
 import type { OrderInput, OrderOutput } from '@/schemas/order';
 import * as cartService from '@/services/api/cart-service';
 import * as orderService from '@/services/api/order-service';
@@ -14,8 +14,9 @@ import { Text } from 'react-native';
  * the only arrangement that cannot be quietly wrong under this repo's
  * React 19 / RNTL 14 combination.
  *
- * What it proves: a confirmed order clears exactly ONE restaurant's cart —
- * locally and on the backend — and leaves every other group alone.
+ * What it proves: a confirmed order clears exactly ONE restaurant's lines from
+ * the cart and leaves the other restaurant's alone — and, since lines remain,
+ * the server cart is NOT deleted (the sync engine rewrites it instead).
  */
 
 jest.mock('@react-native-async-storage/async-storage', () => ({
@@ -35,7 +36,6 @@ const RESTAURANT_ID = 'r2r2r2r2-2222-3333-4444-666666666666';
 const OTHER_RESTAURANT_ID = 'e5e5e5e5-2222-3333-4444-777777777777';
 const PRODUCT_ID = '8f3c1c2e-2f1a-4a1b-9d0e-1c2b3a4d5e6f';
 const CART_ID = '3f1b9c44-0d2a-4c6e-9b1f-7a5c2e8d4b30';
-const OTHER_CART_ID = '9e8d7c66-1a2b-4c3d-8e9f-0a1b2c3d4e5f';
 const ORDER_ID = '9a7b6c5d-4e3f-2a1b-0c9d-8e7f6a5b4c3d';
 
 const INPUT: OrderInput = {
@@ -69,32 +69,25 @@ function line(restaurantId: string) {
 }
 
 function Probe() {
-  const { mutate, isSuccess } = useCreateOrder();
+  const { mutate, isSuccess } = useCreateOrders();
 
   useEffect(() => {
-    mutate({ input: INPUT, restaurantId: RESTAURANT_ID });
+    mutate([{ input: INPUT, restaurantId: RESTAURANT_ID }]);
   }, [mutate]);
 
   return <Text>{isSuccess ? 'placed' : 'pending'}</Text>;
 }
 
-it('clears only the ordered restaurant’s cart, locally and on the backend', async () => {
+it('clears only the ordered restaurant’s lines and keeps the shared server cart', async () => {
   mockedOrderService.createOrder.mockResolvedValue(CREATED);
   mockedCartService.deleteCart.mockResolvedValue(undefined);
 
   useCartStore.setState({
     items: [line(RESTAURANT_ID), line(OTHER_RESTAURANT_ID)],
     remote: {
-      [RESTAURANT_ID]: {
-        cartId: CART_ID,
-        syncedSignature: `${PRODUCT_ID}x2`,
-        status: 'synced',
-      },
-      [OTHER_RESTAURANT_ID]: {
-        cartId: OTHER_CART_ID,
-        syncedSignature: `${PRODUCT_ID}x2`,
-        status: 'synced',
-      },
+      cartId: CART_ID,
+      syncedSignature: `${PRODUCT_ID}x2`,
+      status: 'synced',
     },
   });
 
@@ -109,20 +102,17 @@ it('clears only the ordered restaurant’s cart, locally and on the backend', as
   );
 
   await waitFor(() => expect(screen.getByText('placed')).toBeTruthy());
-  await waitFor(() => expect(mockedCartService.deleteCart).toHaveBeenCalled());
 
   const state = useCartStore.getState();
 
-  // The ordered group is gone from the device...
+  // The ordered restaurant's lines are gone from the device...
   expect(state.items.map((item) => item.restaurantId)).toEqual([
     OTHER_RESTAURANT_ID,
   ]);
-  // ...and its server row was deleted, by id, exactly once.
-  expect(mockedCartService.deleteCart).toHaveBeenCalledTimes(1);
-  expect(mockedCartService.deleteCart).toHaveBeenCalledWith(CART_ID);
-
-  // The other restaurant's cart is untouched on both sides.
-  expect(state.remote[OTHER_RESTAURANT_ID]?.cartId).toBe(OTHER_CART_ID);
+  // ...but the ONE server cart still holds the other restaurant's lines, so
+  // it is left for the sync engine to rewrite rather than deleted.
+  expect(mockedCartService.deleteCart).not.toHaveBeenCalled();
+  expect(state.remote.cartId).toBe(CART_ID);
 
   // The created order is seeded into the cache, so a confirmation screen does
   // not have to re-read it — which today can come back with `items: []`.

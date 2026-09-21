@@ -7,6 +7,16 @@
 **Backend studied:** `C:\projects\hungry-web\hungry-backend` @ `0e5bb3c`
 **Designs:** `design/Cart Service Fee Info.png`, `design/Cart Delivery Fee Info.png`, `design/Order Details - Payment Method.png`
 
+> **Updated (2026-09-14) — one cart, one order per restaurant.** Checkout is no longer per
+> restaurant. `/order-details` takes the whole cart, groups it by restaurant and places ONE
+> `POST /orders` per group, sequentially (`placeCheckoutOrders` in `hooks/use-orders.ts`). Each
+> restaurant's lines leave the cart the moment *its* order is confirmed — never before (a failed
+> create must leave the cart intact) and never in a batch (a second failure after a first success
+> must not let "Try Again" re-order food already on its way). A mid-sequence failure surfaces as
+> `PartialCheckoutError`, naming the placed orders and the restaurant that failed. Service and
+> delivery fees are charged per order (`checkoutTotals`), and the screens say so.
+
+
 > **Verification note.** Like `CART-01`, this plan is **derived from backend source only** —
 > the Hungry stack was not running and could not be started without colliding on `5432`
 > with an unrelated project. Every claim cites the class and mechanism it comes from.

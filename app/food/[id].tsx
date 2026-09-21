@@ -181,12 +181,7 @@ export default function FoodDetailsScreen() {
     !isConfigurationPending &&
     !isConfigurationBroken;
 
-  // Without a restaurant there is no per-restaurant cart to open; the tab
-  // shows every cart instead.
-  const handleGoToCart = () =>
-    restaurant
-      ? router.push(`/cart/${restaurant.id}`)
-      : router.push("/(tabs)/cart");
+  const handleGoToCart = () => router.push("/cart/review");
 
   const handleAddToCart = () => {
     // The button is already disabled in both of these states; they are checked

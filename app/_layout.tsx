@@ -2,6 +2,7 @@ import { Palette } from "@/constants/theme";
 import { AuthProvider, useAuth } from "@/contexts/auth-context";
 import { useFrameworkReady } from "@/hooks/useFrameworkReady";
 import { useCurrentCustomer } from "@/hooks/use-delivery-address";
+import { useNotificationFeed } from "@/hooks/use-notification-feed";
 import { usePushNotifications } from "@/hooks/use-push-notifications";
 import { hasDeliveryAddress } from "@/services/api/customer-service";
 import { queryClient, wireAppFocus } from "@/services/api/query-client";
@@ -42,6 +43,9 @@ function RootNavigator() {
   // RootLayout because it reads the auth context and drives the router, both of
   // which only exist inside this component.
   usePushNotifications();
+  // Fills the notification inbox from order/delivery status changes — the
+  // statuses nothing pushes. Same place as the push hook, for the same reason.
+  useNotificationFeed();
 
   useEffect(() => {
     if (isLoading) return;
@@ -192,6 +196,12 @@ function RootNavigator() {
           name="account-settings"
           options={{ animation: "slide_from_right" }}
         />
+        {/* Profile → help & legal, danger zone. */}
+        <Stack.Screen name="help/support" options={{ animation: "slide_from_right" }} />
+        <Stack.Screen name="help/report" options={{ animation: "slide_from_right" }} />
+        <Stack.Screen name="legal/terms" options={{ animation: "slide_from_right" }} />
+        <Stack.Screen name="legal/privacy" options={{ animation: "slide_from_right" }} />
+        <Stack.Screen name="delete-account" options={{ animation: "slide_from_right" }} />
         <Stack.Screen
           name="complete-profile"
           options={{
@@ -228,14 +238,15 @@ function RootNavigator() {
           }}
         />
         <Stack.Screen
-          name="cart/[id]"
+          name="cart/review"
           options={{ animation: "slide_from_bottom" }}
         />
-        <Stack.Screen name="order-details/[id]" />
+        <Stack.Screen name="order-details/index" />
         {/* My Orders and one placed order — both slide in like the rest of
             the push stack. */}
         <Stack.Screen name="orders/index" />
         <Stack.Screen name="orders/[id]" />
+        <Stack.Screen name="notifications" />
         <Stack.Screen
           name="modal"
           options={{ presentation: "modal", title: "Modal" }}

@@ -4,6 +4,7 @@ import {
   MenuSection,
   MenuSectionSkeleton,
   MenuUnavailable,
+  RestaurantCartBar,
   RestaurantHeader,
   type MenuTab,
 } from "@/components/restaurant";
@@ -18,6 +19,7 @@ import { useRestaurantImageSource } from "@/hooks/use-restaurant-image";
 import { useRestaurant } from "@/hooks/use-restaurants";
 import { imageAuthHeaders } from "@/services/api/image-url";
 import { toTimingRows } from "@/services/api/restaurant-view-model";
+import { formatDT, useCartStore } from "@/store/cart-store";
 import { useFavoritesStore, useIsFavorite } from "@/store/favorites-store";
 import { Image } from "expo-image";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -49,6 +51,9 @@ const LOGO_REST_SIZE = 68;
 const COMPACT_BAR_HEIGHT = 52;
 const COMPACT_LOGO_SIZE = 40;
 const COMPACT_LOGO_LEFT = 60;
+// Bar height (~60) plus its top padding, without the safe-area inset the bar
+// adds at render time.
+const CART_BAR_CLEARANCE = 90;
 
 export default function RestaurantDetailsScreen() {
   const { id: restaurantId } = useLocalSearchParams<{ id: string }>();
@@ -195,6 +200,20 @@ export default function RestaurantDetailsScreen() {
   const toggleFavorite = useFavoritesStore((s) => s.toggle);
   const isFavorite = useIsFavorite("restaurant", restaurantId ?? "");
 
+  // Adding a dish lands the customer back here, so THIS restaurant's share of
+  // the cart is summarised in a floating bar — a direct way to the cart, and
+  // a cue that something from this menu is already in it. Lines from other
+  // restaurants are deliberately not counted: the bar is about this menu.
+  const cartItems = useCartStore((s) => s.items);
+  const restaurantCart = useMemo(() => {
+    const lines = cartItems.filter((line) => line.restaurantId === restaurantId);
+    return {
+      itemCount: lines.reduce((sum, line) => sum + line.quantity, 0),
+      total: lines.reduce((sum, line) => sum + line.unitPrice * line.quantity, 0),
+    };
+  }, [cartItems, restaurantId]);
+  const showCartBar = restaurantCart.itemCount > 0;
+
   const handleBackPress = () => router.back();
   const handleFavoritePress = () => {
     if (!restaurant) return;
@@ -216,6 +235,7 @@ export default function RestaurantDetailsScreen() {
     router.push(`/food/${productId}?restaurantId=${restaurantId}`);
   const handleOpenPress = () => setTimingsVisible(true);
   const handleNamePress = () => router.push(`/restaurant/${restaurantId}/info`);
+  const handleCartPress = () => router.push("/cart/review");
 
   // Every hook above has already run, so these early returns are safe.
   if (isPending) {
@@ -281,7 +301,11 @@ export default function RestaurantDetailsScreen() {
       <Animated.ScrollView
         style={styles.scrollView}
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[
+          styles.scrollContent,
+          // Room for the floating cart bar, so the last dish is not under it.
+          showCartBar && { paddingBottom: CART_BAR_CLEARANCE + insets.bottom },
+        ]}
         onScroll={scrollHandler}
         scrollEventThrottle={16}
       >
@@ -352,6 +376,14 @@ export default function RestaurantDetailsScreen() {
           contentFit="cover"
         />
       </Animated.View>
+
+      {showCartBar ? (
+        <RestaurantCartBar
+          itemCount={restaurantCart.itemCount}
+          total={formatDT(restaurantCart.total)}
+          onPress={handleCartPress}
+        />
+      ) : null}
 
       <TimingsModal
         visible={timingsVisible}

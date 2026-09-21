@@ -9,7 +9,14 @@
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "infoPlist": {
+        "CFBundleDevelopmentRegion": "en",
+        "CFBundleLocalizations": [
+          "en",
+          "fr"
+        ]
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -61,6 +68,7 @@
           "defaultChannel": "orders"
         }
       ],
+      "expo-localization",
       "expo-secure-store",
       "expo-font",
       "expo-image",

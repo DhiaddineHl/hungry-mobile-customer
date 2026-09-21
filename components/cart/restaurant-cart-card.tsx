@@ -24,6 +24,11 @@ interface RestaurantCartCardProps {
   items: CartItem[];
   totalItems: number;
   totalPrice: string;
+  /**
+   * Optional: there is ONE cart, so the tab renders one "View Cart" footer
+   * for all restaurants and leaves this out. The row is a per-restaurant
+   * summary line when no handler is given.
+   */
   onViewCart?: () => void;
   onDelete?: () => void;
   onAddMore?: () => void;
@@ -81,11 +86,20 @@ export function RestaurantCartCard({
         </TouchableOpacity>
       </View>
 
-      <TouchableOpacity style={styles.viewCartButton} onPress={onViewCart}>
-        <Text style={styles.itemCount}>{totalItems}</Text>
-        <Text style={styles.viewCartText}>View Cart</Text>
-        <Text style={styles.totalPrice}>{totalPrice}</Text>
-      </TouchableOpacity>
+      {onViewCart ? (
+        <TouchableOpacity style={styles.viewCartButton} onPress={onViewCart}>
+          <Text style={styles.itemCount}>{totalItems}</Text>
+          <Text style={styles.viewCartText}>View Cart</Text>
+          <Text style={styles.totalPrice}>{totalPrice}</Text>
+        </TouchableOpacity>
+      ) : (
+        <View style={styles.summaryRow}>
+          <Text style={styles.summaryText}>
+            {totalItems} {totalItems === 1 ? 'item' : 'items'}
+          </Text>
+          <Text style={styles.summaryPrice}>{totalPrice}</Text>
+        </View>
+      )}
     </View>
   );
 }
@@ -209,5 +223,23 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontFamily: Fonts.bold,
     color: '#FFFFFF',
+  },
+  summaryRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderTopWidth: 1,
+    borderTopColor: '#F0F0F0',
+    paddingTop: 12,
+  },
+  summaryText: {
+    fontSize: 13,
+    fontFamily: Fonts.medium,
+    color: '#8A8A8A',
+  },
+  summaryPrice: {
+    fontSize: 14,
+    fontFamily: Fonts.bold,
+    color: '#1A2B3D',
   },
 });

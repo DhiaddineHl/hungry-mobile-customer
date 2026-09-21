@@ -186,6 +186,19 @@ export async function updateCustomer(input: CustomerInput): Promise<Customer> {
 }
 
 /**
+ * Deletes the caller's own customer record AND Keycloak login — the in-app
+ * account deletion the stores require. Resolved server-side from the token's
+ * `sub`, so there is no id to pass and no way to reach anyone else's record.
+ *
+ * Throws `ApiError` 404 when the account has no customer record (a Google
+ * sign-in that never completed its profile); the caller treats that as
+ * "nothing to delete" and clears the session anyway.
+ */
+export async function deleteCurrentAccount(): Promise<void> {
+  await apiClient.delete('/customers/me');
+}
+
+/**
  * Whether the customer already has somewhere to deliver to — either a saved
  * labeled address or the top-level default one.
  *

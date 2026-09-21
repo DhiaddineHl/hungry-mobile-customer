@@ -1,6 +1,7 @@
 import {
   CART_CODE_PREFIX,
   cartCodeFor,
+  cartNameFor,
   customerCartCodePrefix,
   parseCartCode,
   syncSignature,
@@ -28,11 +29,17 @@ function line(overrides: Partial<CartLine> & Pick<CartLine, 'foodId'>): CartLine
 }
 
 describe('cartCodeFor / parseCartCode', () => {
-  it('round-trips a customer and a restaurant through a code', () => {
-    const code = cartCodeFor(CUSTOMER_ID, RESTAURANT_ID);
+  it('round-trips a customer through a code — one cart per customer, no restaurant', () => {
+    const code = cartCodeFor(CUSTOMER_ID);
 
-    expect(code).toBe(`hc:${CUSTOMER_ID}:${RESTAURANT_ID}`);
-    expect(parseCartCode(code)).toEqual({
+    expect(code).toBe(`hc:${CUSTOMER_ID}`);
+    expect(parseCartCode(code)).toEqual({ customerId: CUSTOMER_ID, restaurantId: null });
+  });
+
+  it('still reads a LEGACY per-restaurant code, naming its restaurant', () => {
+    // An earlier build wrote one row per restaurant; hydration folds those
+    // into the single cart, and needs to know which restaurant each was.
+    expect(parseCartCode(`hc:${CUSTOMER_ID}:${RESTAURANT_ID}`)).toEqual({
       customerId: CUSTOMER_ID,
       restaurantId: RESTAURANT_ID,
     });
@@ -47,15 +54,16 @@ describe('cartCodeFor / parseCartCode', () => {
   it('returns null for a code this app did not write', () => {
     // /carts/all is not scoped to the caller, so foreign rows do turn up.
     expect(parseCartCode('other:a:b')).toBeNull();
+    expect(parseCartCode('other:a')).toBeNull();
   });
 
   it('returns null for too few and too many segments', () => {
-    expect(parseCartCode('hc:a')).toBeNull();
     expect(parseCartCode('hc')).toBeNull();
     expect(parseCartCode('hc:a:b:c')).toBeNull();
   });
 
   it('returns null when a segment is empty', () => {
+    expect(parseCartCode('hc:')).toBeNull();
     expect(parseCartCode('hc::b')).toBeNull();
     expect(parseCartCode('hc:a:')).toBeNull();
   });
@@ -66,36 +74,46 @@ describe('cartCodeFor / parseCartCode', () => {
   });
 
   it("parses a code belonging to a DIFFERENT customer — matching the customer is the caller's job", () => {
-    const foreign = cartCodeFor('someone-else', RESTAURANT_ID);
+    const foreign = cartCodeFor('someone-else');
 
     // This function reports what the code SAYS. `fetchCustomerCarts` is what
     // decides whether that customer is the one we asked about; putting the
     // check here would make the parser lie about the data it was given.
-    expect(parseCartCode(foreign)).toEqual({
-      customerId: 'someone-else',
-      restaurantId: RESTAURANT_ID,
-    });
+    expect(parseCartCode(foreign)).toEqual({ customerId: 'someone-else', restaurantId: null });
   });
 });
 
 describe('customerCartCodePrefix', () => {
-  it('ends with the separator so one customer id cannot prefix another', () => {
-    expect(customerCartCodePrefix(CUSTOMER_ID)).toBe(`${CART_CODE_PREFIX}:${CUSTOMER_ID}:`);
+  it('starts with the app prefix and the customer id', () => {
+    expect(customerCartCodePrefix(CUSTOMER_ID)).toBe(`${CART_CODE_PREFIX}:${CUSTOMER_ID}`);
   });
 
-  it('is a prefix of every code that customer owns', () => {
-    expect(cartCodeFor(CUSTOMER_ID, RESTAURANT_ID)).toContain(
-      customerCartCodePrefix(CUSTOMER_ID)
-    );
+  it('is contained in the current code AND in a legacy per-restaurant code', () => {
+    // `LIKE` is a substring match, and one needle has to find both kinds of
+    // row so the legacy ones can be folded in and deleted.
+    expect(cartCodeFor(CUSTOMER_ID)).toContain(customerCartCodePrefix(CUSTOMER_ID));
+    expect(`hc:${CUSTOMER_ID}:${RESTAURANT_ID}`).toContain(customerCartCodePrefix(CUSTOMER_ID));
+  });
+});
+
+describe('cartNameFor', () => {
+  it('lists each restaurant once, in first-appearance order', () => {
+    const lines = [
+      line({ foodId: PIZZA, restaurantName: 'Baguette & Baguette' }),
+      line({ foodId: SALAD, restaurantId: 'r-2', restaurantName: 'Chez Ali' }),
+      line({ foodId: 'p-3', restaurantName: 'Baguette & Baguette' }),
+    ];
+
+    expect(cartNameFor(lines)).toBe('Baguette & Baguette, Chez Ali');
+  });
+
+  it('is the empty string for an empty cart', () => {
+    expect(cartNameFor([])).toBe('');
   });
 });
 
 describe('toCartInput', () => {
-  const base = {
-    customerId: CUSTOMER_ID,
-    restaurantId: RESTAURANT_ID,
-    restaurantName: 'Baguette & Baguette',
-  };
+  const base = { customerId: CUSTOMER_ID };
 
   it('collapses two lines of the same product into ONE item with summed quantity', () => {
     const input = toCartInput({
@@ -156,13 +174,36 @@ describe('toCartInput', () => {
     const input = toCartInput({ ...base, lines: [] });
 
     expect(input.code).toBeTruthy();
-    expect(input.code).toBe(cartCodeFor(CUSTOMER_ID, RESTAURANT_ID));
+    expect(input.code).toBe(cartCodeFor(CUSTOMER_ID));
   });
 
-  it('names the cart after the restaurant — the one label that is persisted', () => {
-    const input = toCartInput({ ...base, lines: [line({ foodId: PIZZA })] });
+  it('names the cart after its restaurants — the one label that is persisted', () => {
+    const input = toCartInput({
+      ...base,
+      lines: [
+        line({ foodId: PIZZA }),
+        line({ foodId: SALAD, restaurantId: 'r-2', restaurantName: 'Chez Ali' }),
+      ],
+    });
 
-    expect(input.name).toBe('Baguette & Baguette');
+    expect(input.name).toBe('Baguette & Baguette, Chez Ali');
+  });
+
+  it('puts lines from DIFFERENT restaurants into the same payload', () => {
+    // One cart, however many restaurants: the split happens at checkout, not
+    // here. The backend cart has no restaurant column to disagree.
+    const input = toCartInput({
+      ...base,
+      lines: [
+        line({ foodId: PIZZA, quantity: 1 }),
+        line({ foodId: SALAD, quantity: 2, restaurantId: 'r-2', restaurantName: 'Chez Ali' }),
+      ],
+    });
+
+    expect(input.items).toEqual([
+      { productId: PIZZA, quantity: 1 },
+      { productId: SALAD, quantity: 2 },
+    ]);
   });
 
   it('sends no status, addon, note or price key anywhere in the payload', () => {

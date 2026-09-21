@@ -5,13 +5,13 @@ import { DELIVERY_FEE, DELIVERY_FEE_WAIVED, SERVICE_FEE } from '@/constants/fees
 import { paymentMethodLabel } from '@/constants/payment-methods';
 import { Fonts, FontSize, Palette, Radius, Spacing } from '@/constants/theme';
 import { formatAddressName, useDeliveryAddress } from '@/hooks/use-delivery-address';
-import { useCreateOrder } from '@/hooks/use-orders';
+import { PartialCheckoutError, useCreateOrders } from '@/hooks/use-orders';
 import { useStoredImageSource } from '@/hooks/use-restaurant-image';
-import { useRestaurant } from '@/hooks/use-restaurants';
+import { restaurantQueryOptions } from '@/hooks/use-restaurants';
 import { useReverseGeocode } from '@/hooks/use-reverse-geocode';
 import {
   checkoutBlockers,
-  orderTotals,
+  checkoutTotals,
   toOrderInput,
   type CheckoutBlocker,
 } from '@/services/api/order-view-model';
@@ -19,9 +19,10 @@ import {
   coordinatesDiffer,
   toOrderDeliveryAddress,
 } from '@/services/location/delivery-point';
-import { formatDT, useCartStore } from '@/store/cart-store';
+import { formatDT, groupByRestaurant, useCartStore } from '@/store/cart-store';
 import { usePaymentMethodStore } from '@/store/payment-method-store';
 import type { LocationCoords } from '@/types/location';
+import { useQueries } from '@tanstack/react-query';
 import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import { ArrowLeft, DollarSign, Info, Phone } from 'lucide-react-native';
 import { useMemo, useState } from 'react';
@@ -29,15 +30,21 @@ import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 /**
- * Checkout for ONE restaurant's cart. The route param `id` is a **restaurant
- * id**, not an order id — the order does not exist until the customer taps
- * Continue.
+ * Checkout for the WHOLE cart. No route param: there is one cart, and the
+ * orders do not exist until the customer taps Continue.
  *
- * Everything on this screen now has a real source (plan §4.3,
- * `docs/plans/checkout-order-creation-plan.md`): the restaurant from
- * `useRestaurant`, the lines and subtotal from the cart store, the address and
- * phone from the customer record, the payment method from its store, and the
- * fees from `constants/fees.ts`.
+ * ONE cart, ONE order PER RESTAURANT. The backend `Order` has a single
+ * `restaurant`, so a cart drawn from three restaurants is placed as three
+ * orders, one after the other (`placeCheckoutOrders`). All of them go to the
+ * same delivery point and carry the same payment method; what differs is the
+ * lines, and the fees — service and delivery are charged per order, which the
+ * price block shows as `N × fee` rather than hiding in a total.
+ *
+ * Everything on this screen has a real source (plan §4.3,
+ * `docs/plans/checkout-order-creation-plan.md`): each restaurant from
+ * `restaurantQueryOptions`, the lines and subtotals from the cart store, the
+ * address and phone from the customer record, the payment method from its
+ * store, and the fees from `constants/fees.ts`.
  *
  * Two things the previous mock showed are deliberately GONE rather than
  * re-sourced:
@@ -100,13 +107,7 @@ export default function OrderDetailsScreen() {
   const navigation = useNavigation<ResettableNavigation>();
   // `pickedLatitude`/`pickedLongitude`/`pickedAddress` are set when the
   // full-screen picker sent a point back here — see `handleOpenMap`.
-  const {
-    id: restaurantId,
-    pickedLatitude,
-    pickedLongitude,
-    pickedAddress,
-  } = useLocalSearchParams<{
-    id: string;
+  const { pickedLatitude, pickedLongitude, pickedAddress } = useLocalSearchParams<{
     pickedLatitude?: string;
     pickedLongitude?: string;
     pickedAddress?: string;
@@ -114,7 +115,13 @@ export default function OrderDetailsScreen() {
 
   const [feeSheet, setFeeSheet] = useState<'service' | 'delivery' | null>(null);
   const [paymentSheetVisible, setPaymentSheetVisible] = useState(false);
-  const [failed, setFailed] = useState(false);
+  /**
+   * The last checkout attempt's failure, if any. A `PartialCheckoutError`
+   * means SOME orders were placed — those lines are already gone from the
+   * cart — and the message has to say so, or the customer would think nothing
+   * happened and go looking for food that is already on its way.
+   */
+  const [failure, setFailure] = useState<Error | null>(null);
   /**
    * A delivery point the customer confirmed for THIS order — dragged or picked,
    * then "Deliver here". Screen state only: it is sent with the order as its
@@ -135,20 +142,22 @@ export default function OrderDetailsScreen() {
    */
   const [dismissedPickKey, setDismissedPickKey] = useState<string | null>(null);
 
-  const allItems = useCartStore((s) => s.items);
-  const items = useMemo(
-    () => allItems.filter((line) => line.restaurantId === restaurantId),
-    [allItems, restaurantId]
-  );
+  const items = useCartStore((s) => s.items);
+  // One group per restaurant — and one order per group, in this order.
+  const groups = useMemo(() => groupByRestaurant(items), [items]);
 
   const { customer, selected: selectedAddress } = useDeliveryAddress();
-  const { data: restaurant } = useRestaurant(restaurantId);
+  // Every restaurant in the cart, for its coordinates (a preflight blocker)
+  // and its logo. One query each; the number is small and they run together.
+  const restaurantQueries = useQueries({
+    queries: groups.map((group) => restaurantQueryOptions(group.restaurantId)),
+  });
   const pickedName = useReverseGeocode();
   const paymentMethod = usePaymentMethodStore((s) => s.method);
   const setPaymentMethod = usePaymentMethodStore((s) => s.setMethod);
   const toImageSource = useStoredImageSource();
 
-  const createOrder = useCreateOrder();
+  const createOrders = useCreateOrders();
 
   // The saved address this order would go to by default. `useDeliveryAddress`
   // resolves the selected entry, falling back to the customer's default
@@ -263,11 +272,11 @@ export default function OrderDetailsScreen() {
   };
 
   const handleOpenMap = () => {
-    // `checkoutRestaurantId` is what tells the picker to hand its point back
-    // here rather than starting the add-an-address flow.
+    // `returnToCheckout` is what tells the picker to hand its point back here
+    // rather than starting the add-an-address flow.
     router.push({
       pathname: '/map-select',
-      params: { checkoutRestaurantId: restaurantId },
+      params: { returnToCheckout: '1' },
     });
   };
 
@@ -294,36 +303,82 @@ export default function OrderDetailsScreen() {
     pickedName.reset();
   };
 
-  const restaurantName =
-    restaurant?.name ?? items[0]?.restaurantName ?? 'Restaurant';
-  const restaurantLogo =
-    (restaurant?.logoUrl ? { uri: restaurant.logoUrl } : undefined) ??
-    toImageSource(items[0]?.restaurantLogo);
+  /**
+   * Each restaurant as the order rows and the payload see it: the fetched
+   * detail when it has arrived, the cart's own copy of the name and logo
+   * meanwhile, so the rows never flash a placeholder.
+   */
+  const restaurants = groups.map((group, index) => {
+    const query = restaurantQueries[index];
+    const detail = query?.data ?? null;
+    return {
+      id: group.restaurantId,
+      /** Still being fetched — not yet known to lack coordinates. */
+      isLoading: !!query?.isPending,
+      name: detail?.name ?? group.restaurantName ?? 'Restaurant',
+      logo:
+        (detail?.logoUrl ? { uri: detail.logoUrl } : undefined) ??
+        toImageSource(group.restaurantLogo),
+      coordinates: detail?.coordinates ?? null,
+      itemCount: group.totalQuantity,
+      lines: group.items,
+    };
+  });
+  const orderCount = groups.length;
 
-  const itemCount = items.reduce((sum, line) => sum + line.quantity, 0);
   // Both fees are client-side placeholders — see `constants/fees.ts`. No price,
   // fee or total field exists anywhere on `Order` (plan §3.3), so none of this
   // is sent and none of it is charged.
   //
-  // The arithmetic lives in `orderTotals` because these exact numbers are
-  // captured as the order's receipt when it is placed, and shown back on the
-  // order screen — computing them twice would let the two drift.
-  const totals = orderTotals(items);
+  // The arithmetic lives in `checkoutTotals` / `orderTotals` because each
+  // order's exact numbers are captured as its receipt when it is placed, and
+  // shown back on the order screen — computing them twice would let the two
+  // drift.
+  const totals = checkoutTotals(groups);
 
-  const blockers = checkoutBlockers({
-    customerId: customer?.id,
-    // A confirmed custom point satisfies the address preflight on its own: the
-    // order carries it, so no saved address is needed to place the order.
-    address: deliveryAddress ?? address,
-    restaurantId,
-    restaurantCoordinates: restaurant?.coordinates ?? null,
-    lines: items,
-  });
+  /**
+   * Every order's preflight, folded into one list. The customer and address
+   * checks are the same for every order; the restaurant ones are per order,
+   * and the FIRST failing restaurant is the one named below.
+   */
+  const blockers =
+    orderCount === 0
+      ? checkoutBlockers({
+          customerId: customer?.id,
+          address: deliveryAddress ?? address,
+          restaurantId: null,
+          restaurantCoordinates: null,
+          lines: [],
+        }).filter((b) => b !== 'no-restaurant')
+      : restaurants.flatMap((restaurant) =>
+          checkoutBlockers({
+            customerId: customer?.id,
+            // A confirmed custom point satisfies the address preflight on its
+            // own: the order carries it, so no saved address is needed.
+            address: deliveryAddress ?? address,
+            // A restaurant still loading reads as "no restaurant yet" — the
+            // loading message — rather than as one with no coordinates.
+            restaurantId: restaurant.isLoading ? null : restaurant.id,
+            restaurantCoordinates: restaurant.coordinates,
+            lines: restaurant.lines,
+          })
+        );
   const blocker = blockers[0];
-  const blockerCopy = blocker ? BLOCKER_COPY[blocker] : null;
+  const blockedRestaurant =
+    blocker === 'no-restaurant-coords' && orderCount > 1
+      ? restaurants.find((restaurant) => !restaurant.isLoading && !restaurant.coordinates)
+      : null;
+  const blockerCopy = blocker
+    ? {
+        ...BLOCKER_COPY[blocker],
+        message: blockedRestaurant
+          ? `${blockedRestaurant.name} has no map location yet, so it cannot be delivered from.`
+          : BLOCKER_COPY[blocker].message,
+      }
+    : null;
   const needsAddress = !!blocker && ADDRESS_BLOCKERS.includes(blocker);
 
-  const isSubmitting = createOrder.isPending;
+  const isSubmitting = createOrders.isPending;
   // An unconfirmed point blocks the order on purpose: the map is showing one
   // place and the order would go to another, and which one the customer meant
   // is exactly what has not been answered yet.
@@ -374,30 +429,54 @@ export default function OrderDetailsScreen() {
   const handleContinueCheckout = () => {
     if (!canSubmit || !customer?.id) return;
 
-    setFailed(false);
+    setFailure(null);
 
-    createOrder.mutate(
-      {
+    const customerId = customer.id;
+    createOrders.mutate(
+      restaurants.map((restaurant) => ({
         input: toOrderInput({
-          customerId: customer.id,
-          restaurantId,
-          restaurantName,
-          lines: items,
+          customerId,
+          restaurantId: restaurant.id,
+          restaurantName: restaurant.name,
+          lines: restaurant.lines,
           paymentMethod,
           deliveryAddress,
         }),
-        restaurantId,
-      },
+        restaurantId: restaurant.id,
+      })),
       {
-        // The cart is cleared inside the mutation's own `onSuccess`, never
+        // Each order's lines are cleared inside the mutation itself, never
         // here: it must happen whether or not this screen is still mounted.
-        // The customer lands on My Orders, where the order they just placed is
-        // now the top card — the emptied cart would show them nothing.
+        // The customer lands on My Orders, where the orders they just placed
+        // are the top cards — the emptied cart would show them nothing.
         onSuccess: goToPlacedOrder,
-        onError: () => setFailed(true),
+        onError: (error) => setFailure(error),
       }
     );
   };
+
+  /**
+   * What to say about a failed attempt. After a PARTIAL failure the cart has
+   * already lost the placed orders' lines, so `restaurants` above is now only
+   * what remains — which is exactly what Try Again will send.
+   */
+  const failureMessage = (() => {
+    if (!failure) return null;
+    if (failure instanceof PartialCheckoutError && failure.placed.length > 0) {
+      const placed = failure.placed.length;
+      const failedName =
+        restaurants.find((restaurant) => restaurant.id === failure.failedRestaurantId)?.name ??
+        'one restaurant';
+      return (
+        `${placed} ${placed === 1 ? 'order was' : 'orders were'} placed, but the order ` +
+        `for ${failedName} couldn't be. Its dishes are still in your cart — tap ` +
+        `Try Again to place the remaining ${orderCount === 1 ? 'order' : 'orders'}.`
+      );
+    }
+    return orderCount > 1
+      ? "We couldn't place your orders. Your cart is untouched — tap Try Again."
+      : "We couldn't place your order. Your cart is untouched — tap Try Again.";
+  })();
 
   return (
     <View style={styles.container}>
@@ -481,16 +560,28 @@ export default function OrderDetailsScreen() {
 
         <View style={styles.sectionDivider} />
 
-        <Text style={styles.summarySectionTitle}>Order Summary</Text>
+        <Text style={styles.summarySectionTitle}>
+          {orderCount > 1 ? `Order Summary · ${orderCount} orders` : 'Order Summary'}
+        </Text>
 
-        {restaurantLogo ? (
-          <OrderRestaurantRow
-            name={restaurantName}
-            itemCount={itemCount}
-            logo={restaurantLogo}
-            onPress={() => router.push(`/cart/${restaurantId}`)}
-          />
+        {orderCount > 1 ? (
+          <Text style={styles.splitNote}>
+            Each restaurant prepares and delivers separately, so this checkout
+            places {orderCount} orders — with a service and delivery fee each.
+          </Text>
         ) : null}
+
+        {restaurants.map((restaurant) =>
+          restaurant.logo ? (
+            <OrderRestaurantRow
+              key={restaurant.id}
+              name={restaurant.name}
+              itemCount={restaurant.itemCount}
+              logo={restaurant.logo}
+              onPress={() => router.push('/cart/review')}
+            />
+          ) : null
+        )}
 
         <View style={styles.pricingCard}>
           <View style={styles.priceRow}>
@@ -509,7 +600,11 @@ export default function OrderDetailsScreen() {
                 <Info size={14} color={Palette.textMuted} />
               </TouchableOpacity>
             </View>
-            <Text style={styles.priceValue}>{formatDT(SERVICE_FEE)}</Text>
+            <Text style={styles.priceValue}>
+              {orderCount > 1
+                ? `${orderCount} × ${formatDT(SERVICE_FEE)}`
+                : formatDT(SERVICE_FEE)}
+            </Text>
           </View>
 
           <View style={styles.priceRow}>
@@ -529,10 +624,18 @@ export default function OrderDetailsScreen() {
                   <View style={styles.freeBadge}>
                     <Text style={styles.freeText}>Free</Text>
                   </View>
-                  <Text style={styles.strikePrice}>{formatDT(DELIVERY_FEE)}</Text>
+                  <Text style={styles.strikePrice}>
+                    {orderCount > 1
+                      ? `${orderCount} × ${formatDT(DELIVERY_FEE)}`
+                      : formatDT(DELIVERY_FEE)}
+                  </Text>
                 </>
               ) : (
-                <Text style={styles.priceValue}>{formatDT(DELIVERY_FEE)}</Text>
+                <Text style={styles.priceValue}>
+                  {orderCount > 1
+                    ? `${orderCount} × ${formatDT(DELIVERY_FEE)}`
+                    : formatDT(DELIVERY_FEE)}
+                </Text>
               )}
             </View>
           </View>
@@ -554,11 +657,8 @@ export default function OrderDetailsScreen() {
           server's own message says nothing a customer can act on, and an
           automatic retry could put a second driver on the road.
         */}
-        {failed ? (
-          <Text style={styles.errorText}>
-            We couldn&apos;t place your order. Your cart is untouched — tap
-            Continue to try again.
-          </Text>
+        {failureMessage ? (
+          <Text style={styles.errorText}>{failureMessage}</Text>
         ) : null}
 
         {/*
@@ -607,7 +707,7 @@ export default function OrderDetailsScreen() {
             <ActivityIndicator color={Palette.textInverse} />
           ) : (
             <Text style={styles.checkoutButtonText}>
-              {failed ? 'Try Again' : 'Continue to Checkout'}
+              {failure ? 'Try Again' : 'Continue to Checkout'}
             </Text>
           )}
         </PressableScale>
@@ -693,6 +793,14 @@ const styles = StyleSheet.create({
     color: Palette.ink,
     paddingHorizontal: Spacing.xl,
     paddingTop: Spacing.sm,
+    paddingBottom: Spacing.lg,
+  },
+  splitNote: {
+    fontSize: FontSize.sm,
+    fontFamily: Fonts.regular,
+    color: Palette.textSecondary,
+    lineHeight: 18,
+    paddingHorizontal: Spacing.xl,
     paddingBottom: Spacing.lg,
   },
   pricingCard: {

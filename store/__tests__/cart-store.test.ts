@@ -1,4 +1,5 @@
 import {
+  EMPTY_SYNC_STATE,
   groupByRestaurant,
   migrateCartState,
   useCartStore,
@@ -32,11 +33,11 @@ function newLine(overrides: Partial<NewCartLine> = {}): NewCartLine {
 
 beforeEach(() => {
   // Every test starts from a known cart; zustand state is module-global.
-  useCartStore.setState({ items: [], remote: {} });
+  useCartStore.setState({ items: [], remote: { ...EMPTY_SYNC_STATE } });
 });
 
-describe('addItem — the one-cart-per-restaurant invariant', () => {
-  it('leaves restaurant A’s group untouched when adding from restaurant B', () => {
+describe('addItem — one cart, many restaurants', () => {
+  it('leaves restaurant A’s lines untouched when adding from restaurant B', () => {
     useCartStore.getState().addItem(newLine());
     const groupABefore = groupByRestaurant(useCartStore.getState().items).find(
       (g) => g.restaurantId === RESTAURANT_A
@@ -52,7 +53,7 @@ describe('addItem — the one-cart-per-restaurant invariant', () => {
     expect(groupAAfter).toEqual(groupABefore);
   });
 
-  it('keeps the same foodId under two restaurants as two separate lines', () => {
+  it('keeps the same foodId under two restaurants as two separate lines in the ONE cart', () => {
     useCartStore.getState().addItem(newLine());
     useCartStore.getState().addItem(
       newLine({ restaurantId: RESTAURANT_B, restaurantName: 'Restaurant B' })
@@ -63,16 +64,14 @@ describe('addItem — the one-cart-per-restaurant invariant', () => {
     expect(new Set(items.map((i) => i.lineId)).size).toBe(2);
   });
 
-  it('surfaces both restaurants as two groups', () => {
+  it('surfaces both restaurants as two groups — the two orders checkout will place', () => {
     useCartStore.getState().addItem(newLine());
     useCartStore.getState().addItem(
       newLine({ restaurantId: RESTAURANT_B, restaurantName: 'Restaurant B' })
     );
 
     const groups = groupByRestaurant(useCartStore.getState().items);
-    expect(groups.map((g) => g.restaurantId).sort()).toEqual(
-      [RESTAURANT_A, RESTAURANT_B].sort()
-    );
+    expect(groups.map((g) => g.restaurantId)).toEqual([RESTAURANT_A, RESTAURANT_B]);
   });
 
   it('merges an identical configuration from the SAME restaurant into one line', () => {
@@ -85,7 +84,7 @@ describe('addItem — the one-cart-per-restaurant invariant', () => {
   });
 
   it('rejects a line with an empty restaurantId', () => {
-    // Otherwise every restaurant collapses into one "" group.
+    // Otherwise checkout would try to place an order for no restaurant.
     useCartStore.getState().addItem(newLine({ restaurantId: '' }));
 
     expect(useCartStore.getState().items).toEqual([]);
@@ -93,19 +92,14 @@ describe('addItem — the one-cart-per-restaurant invariant', () => {
 });
 
 describe('clearRestaurant / clear', () => {
-  it("leaves restaurant B's items and sync state intact", () => {
+  it("removes only restaurant A's lines and leaves the cart's sync state alone", () => {
     useCartStore.getState().addItem(newLine());
     useCartStore.getState().addItem(
       newLine({ restaurantId: RESTAURANT_B, restaurantName: 'Restaurant B' })
     );
-    useCartStore.getState().setSyncState(RESTAURANT_A, {
-      cartId: 'cart-a',
-      syncedSignature: 'sig-a',
-      status: 'synced',
-    });
-    useCartStore.getState().setSyncState(RESTAURANT_B, {
-      cartId: 'cart-b',
-      syncedSignature: 'sig-b',
+    useCartStore.getState().setSyncState({
+      cartId: 'cart-1',
+      syncedSignature: 'sig-1',
       status: 'synced',
     });
 
@@ -113,75 +107,62 @@ describe('clearRestaurant / clear', () => {
 
     const state = useCartStore.getState();
     expect(state.items.map((i) => i.restaurantId)).toEqual([RESTAURANT_B]);
-    expect(state.remote[RESTAURANT_B]).toEqual({
-      cartId: 'cart-b',
-      syncedSignature: 'sig-b',
+    // The cart still exists on the server; its signature simply no longer
+    // matches, which is what makes the engine rewrite it.
+    expect(state.remote).toEqual({
+      cartId: 'cart-1',
+      syncedSignature: 'sig-1',
       status: 'synced',
     });
   });
 
-  it("drops the cleared restaurant's sync state so the empty cart still syncs", () => {
+  it('clear() empties both items and the sync state', () => {
     useCartStore.getState().addItem(newLine());
-    useCartStore.getState().setSyncState(RESTAURANT_A, {
-      cartId: 'cart-a',
-      syncedSignature: 'sig-a',
-      status: 'synced',
-    });
-
-    useCartStore.getState().clearRestaurant(RESTAURANT_A);
-
-    expect(useCartStore.getState().remote[RESTAURANT_A]).toBeUndefined();
-  });
-
-  it('clear() empties both items and every sync state', () => {
-    useCartStore.getState().addItem(newLine());
-    useCartStore.getState().setSyncState(RESTAURANT_A, { status: 'synced' });
+    useCartStore.getState().setSyncState({ cartId: 'cart-1', status: 'synced' });
 
     useCartStore.getState().clear();
 
     expect(useCartStore.getState().items).toEqual([]);
-    expect(useCartStore.getState().remote).toEqual({});
+    expect(useCartStore.getState().remote).toEqual(EMPTY_SYNC_STATE);
   });
 });
 
-describe('setSyncState / clearSyncState', () => {
-  it('creates an entry from a partial patch', () => {
-    useCartStore.getState().setSyncState(RESTAURANT_A, { status: 'syncing' });
+describe('setSyncState / resetSyncState', () => {
+  it('applies a partial patch over the empty state', () => {
+    useCartStore.getState().setSyncState({ status: 'syncing' });
 
-    expect(useCartStore.getState().remote[RESTAURANT_A]).toEqual({
+    expect(useCartStore.getState().remote).toEqual({
       cartId: null,
       syncedSignature: null,
       status: 'syncing',
     });
   });
 
-  it('merges into an existing entry rather than replacing it', () => {
-    useCartStore.getState().setSyncState(RESTAURANT_A, {
-      cartId: 'cart-a',
-      syncedSignature: 'sig-a',
+  it('merges into the existing state rather than replacing it', () => {
+    useCartStore.getState().setSyncState({
+      cartId: 'cart-1',
+      syncedSignature: 'sig-1',
       status: 'synced',
     });
 
-    useCartStore.getState().setSyncState(RESTAURANT_A, { status: 'error', error: 'boom' });
+    useCartStore.getState().setSyncState({ status: 'error', error: 'boom' });
 
-    expect(useCartStore.getState().remote[RESTAURANT_A]).toEqual({
-      cartId: 'cart-a',
+    expect(useCartStore.getState().remote).toEqual({
+      cartId: 'cart-1',
       // A failure must not move the synced signature, or the next attempt
       // would think it had nothing to do.
-      syncedSignature: 'sig-a',
+      syncedSignature: 'sig-1',
       status: 'error',
       error: 'boom',
     });
   });
 
-  it('clearSyncState removes only the named restaurant', () => {
-    useCartStore.getState().setSyncState(RESTAURANT_A, { status: 'synced' });
-    useCartStore.getState().setSyncState(RESTAURANT_B, { status: 'synced' });
+  it('resetSyncState forgets the server row entirely', () => {
+    useCartStore.getState().setSyncState({ cartId: 'cart-1', status: 'synced' });
 
-    useCartStore.getState().clearSyncState(RESTAURANT_A);
+    useCartStore.getState().resetSyncState();
 
-    expect(useCartStore.getState().remote[RESTAURANT_A]).toBeUndefined();
-    expect(useCartStore.getState().remote[RESTAURANT_B]).toBeDefined();
+    expect(useCartStore.getState().remote).toEqual(EMPTY_SYNC_STATE);
   });
 });
 
@@ -203,7 +184,7 @@ describe('migrateCartState', () => {
   };
 
   it('adds an empty `remote` slice to a version-0 blob', () => {
-    expect(migrateCartState(V0_BLOB, 0).remote).toEqual({});
+    expect(migrateCartState(V0_BLOB, 0).remote).toEqual(EMPTY_SYNC_STATE);
   });
 
   it('keeps an existing on-device cart byte-identical', () => {
@@ -213,13 +194,30 @@ describe('migrateCartState', () => {
   });
 
   it('survives a missing or empty persisted blob', () => {
-    expect(migrateCartState(undefined, 0).remote).toEqual({});
-    expect(migrateCartState({}, 0).remote).toEqual({});
+    expect(migrateCartState(undefined, 0).remote).toEqual(EMPTY_SYNC_STATE);
+    expect(migrateCartState({}, 0).remote).toEqual(EMPTY_SYNC_STATE);
+  });
+
+  it('replaces a version-1 per-restaurant `remote` map with one fresh sync state, keeping the items', () => {
+    const v1 = {
+      items: V0_BLOB.items,
+      remote: { [RESTAURANT_A]: { cartId: 'cart-a', syncedSignature: 'sig-a', status: 'synced' } },
+    };
+
+    const migrated = migrateCartState(v1, 1);
+
+    expect(migrated.items).toEqual(V0_BLOB.items);
+    // Forgetting the legacy row ids is safe: `replaceCart` deletes every cart
+    // of the customer before writing the single new one.
+    expect(migrated.remote).toEqual(EMPTY_SYNC_STATE);
   });
 
   it('passes a current-version blob through untouched', () => {
-    const v1 = { items: V0_BLOB.items, remote: { [RESTAURANT_A]: { status: 'synced' } } };
+    const v2 = {
+      items: V0_BLOB.items,
+      remote: { cartId: 'cart-1', syncedSignature: 'sig-1', status: 'synced' },
+    };
 
-    expect(migrateCartState(v1, 1)).toEqual(v1);
+    expect(migrateCartState(v2, 2)).toEqual(v2);
   });
 });
