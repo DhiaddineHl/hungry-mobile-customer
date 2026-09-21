@@ -1,4 +1,6 @@
+import { RESTAURANT_IMAGE_PLACEHOLDER } from "@/constants/images";
 import { Fonts, FontSize, Palette, Radius, Spacing } from "@/constants/theme";
+import { useRestaurantImageSourceFromPath } from "@/hooks/use-restaurant-image";
 import type { FavoriteItem } from "@/store/favorites-store";
 import { Image } from "expo-image";
 import { Heart, ThumbsUp } from "lucide-react-native";
@@ -11,6 +13,17 @@ interface FavoriteCardProps {
 }
 
 export function FavoriteCard({ item, onPress, onRemove }: FavoriteCardProps) {
+  // A stored `number` is a bundled require id and needs no resolution; a
+  // stored `string` is the backend's relative path, resolved against the
+  // current API base here rather than when the favorite was saved.
+  const toSource = useRestaurantImageSourceFromPath();
+  const source =
+    typeof item.image === "number"
+      ? item.image
+      : item.image
+        ? toSource(item.image)
+        : { uri: RESTAURANT_IMAGE_PLACEHOLDER };
+
   return (
     <Pressable
       style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
@@ -18,7 +31,7 @@ export function FavoriteCard({ item, onPress, onRemove }: FavoriteCardProps) {
       accessibilityRole="button"
       accessibilityLabel={item.name}
     >
-      <Image source={item.image} style={styles.image} contentFit="cover" />
+      <Image source={source} style={styles.image} contentFit="cover" />
 
       <View style={styles.info}>
         <Text style={styles.name} numberOfLines={1}>

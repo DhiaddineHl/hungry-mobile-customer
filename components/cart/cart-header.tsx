@@ -9,7 +9,7 @@ interface CartHeaderProps {
 export function CartHeader({ onOrdersPress }: CartHeaderProps) {
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Carts</Text>
+      <Text style={styles.title}>Cart</Text>
       <TouchableOpacity style={styles.ordersButton} onPress={onOrdersPress}>
         <CalendarCheck size={18} color="#1A2B3D" />
         <Text style={styles.ordersText}>Orders</Text>

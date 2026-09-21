@@ -1,5 +1,5 @@
 import { keycloakConfig } from './config';
-import { clearTokens, getTokens, saveTokens, TokenSet } from './token-storage';
+import { clearTokens, getTokens, saveAuthMethod, saveTokens, TokenSet } from './token-storage';
 
 interface KeycloakTokenResponse {
   access_token: string;
@@ -101,6 +101,7 @@ export async function loginWithPassword(email: string, password: string): Promis
     const data: KeycloakTokenResponse = await response.json();
     const tokens = parseTokenResponse(data);
     await saveTokens(tokens);
+    await saveAuthMethod('password');
     return { success: true, tokens };
   } catch (err) {
     console.error('[Auth] Login error:', err);
@@ -175,6 +176,10 @@ export async function exchangeAuthorizationCode(
     const data: KeycloakTokenResponse = await response.json();
     const tokens = parseTokenResponse(data);
     await saveTokens(tokens);
+    // The browser flow is only ever entered through the Google button
+    // (`kc_idp_hint=google`), so a session that came out of here is a social
+    // one — which is what exempts it from the e-mail verification gate.
+    await saveAuthMethod('google');
     return { success: true, tokens };
   } catch (err) {
     return { success: false, error: networkErrorMessage(err) };

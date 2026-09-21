@@ -1,8 +1,10 @@
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
-import { Image } from 'expo-image';
+import { Image, type ImageSource } from 'expo-image';
 import { ChevronLeft, Heart, MoreHorizontal, Upload, ThumbsUp, Clock, Bike, ChevronDown, ChevronRight, Info } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Fragment, type ReactNode } from 'react';
 import { Fonts } from '@/constants/theme';
+import { RESTAURANT_IMAGE_PLACEHOLDER } from '@/constants/images';
 
 // Circular badge accents, shared with the home restaurant cards.
 const StatBadge = {
@@ -13,19 +15,25 @@ const StatBadge = {
 
 interface RestaurantHeaderProps {
   name: string;
-  distance: string;
-  rating: string;
-  reviewCount: string;
-  deliveryTime: string;
-  deliveryFee: string;
-  isFreeDelivery: boolean;
-  minOrder: string;
-  isOpen: boolean;
+  /** `null` means the restaurant published no opening hours — unknown, not closed. */
+  isOpen: boolean | null;
+  /** Resolved absolute cover URL; falls back to the shared placeholder. */
+  bannerImage?: string;
+  /** Auth headers for the banner request — `/files/**` is behind bearer auth. */
+  imageHeaders?: Record<string, string>;
+  logoImage?: ImageSource;
+  // Everything below has no backend source yet (see UNBACKED_FIELDS); each
+  // render site guards on it so a card never shows an empty stat.
+  distance?: string;
+  rating?: string;
+  reviewCount?: string;
+  deliveryTime?: string;
+  deliveryFee?: string;
+  isFreeDelivery?: boolean;
+  minOrder?: string;
   isNew?: boolean;
   isTopRated?: boolean;
   discount?: string;
-  bannerImage: any;
-  logoImage: any;
   isFavorite?: boolean;
   onBackPress?: () => void;
   onFavoritePress?: () => void;
@@ -50,6 +58,7 @@ export function RestaurantHeader({
   isTopRated,
   discount,
   bannerImage,
+  imageHeaders,
   logoImage,
   isFavorite,
   onBackPress,
@@ -61,10 +70,56 @@ export function RestaurantHeader({
 }: RestaurantHeaderProps) {
   const insets = useSafeAreaInsets();
 
+  const stats: { key: string; color: string; icon: ReactNode; value: ReactNode }[] = [];
+  if (rating) {
+    stats.push({
+      key: 'rating',
+      color: StatBadge.rating,
+      icon: <ThumbsUp size={18} color="#1A2B3D" />,
+      value: (
+        <View style={styles.statValueRow}>
+          <Text style={styles.statValue}>{rating}</Text>
+          {reviewCount ? <Text style={styles.statLabel}> ({reviewCount})</Text> : null}
+        </View>
+      ),
+    });
+  }
+  if (deliveryTime) {
+    stats.push({
+      key: 'time',
+      color: StatBadge.time,
+      icon: <Clock size={18} color="#1A2B3D" />,
+      value: <Text style={styles.statValue}>{deliveryTime}</Text>,
+    });
+  }
+  if (deliveryFee) {
+    stats.push({
+      key: 'delivery',
+      color: StatBadge.delivery,
+      icon: <Bike size={18} color="#FFFFFF" />,
+      value: (
+        <View style={styles.statValueRow}>
+          {isFreeDelivery && (
+            <View style={styles.freePill}>
+              <Text style={styles.freeText}>Free</Text>
+            </View>
+          )}
+          <Text style={[styles.statValue, isFreeDelivery && styles.strikeFee]}>
+            {deliveryFee}
+          </Text>
+        </View>
+      ),
+    });
+  }
+
   return (
     <View style={styles.container}>
       <View style={styles.bannerContainer}>
-        <Image source={bannerImage} style={styles.bannerImage} contentFit="cover" />
+        <Image
+          source={{ uri: bannerImage ?? RESTAURANT_IMAGE_PLACEHOLDER, headers: imageHeaders }}
+          style={styles.bannerImage}
+          contentFit="cover"
+        />
 
         <View style={[styles.topBar, { paddingTop: insets.top + 8 }]}>
           <TouchableOpacity style={styles.iconButton} onPress={onBackPress} activeOpacity={0.7}>
@@ -87,7 +142,7 @@ export function RestaurantHeader({
 
       <View style={styles.brandRow}>
         <View style={[styles.logoContainer, hideLogo && styles.logoHidden]}>
-          <Image source={logoImage} style={styles.logo} contentFit="cover" />
+          {logoImage && <Image source={logoImage} style={styles.logo} contentFit="cover" />}
         </View>
 
         <View style={styles.tagsRow}>
@@ -105,67 +160,56 @@ export function RestaurantHeader({
         </View>
       </View>
 
-      <Text style={styles.minOrderText}>
-        Min value in this restaurant is {minOrder}
-      </Text>
+      {minOrder ? (
+        <Text style={styles.minOrderText}>
+          Min value in this restaurant is {minOrder}
+        </Text>
+      ) : null}
 
       <View style={styles.infoContainer}>
         <View style={styles.nameRow}>
           <TouchableOpacity style={styles.nameTouch} onPress={onNamePress} activeOpacity={0.7}>
             <Text style={styles.restaurantName}>{name}</Text>
-            <Text style={styles.distance}>{distance}</Text>
+            {distance ? <Text style={styles.distance}>{distance}</Text> : null}
             <ChevronRight size={18} color="#8A8A8A" />
           </TouchableOpacity>
 
           <TouchableOpacity style={styles.statusRow} onPress={onOpenPress} activeOpacity={0.7}>
-            <Text style={[styles.statusText, isOpen ? styles.openText : styles.closedText]}>
-              {isOpen ? 'Open' : 'Closed'}
+            <Text
+              style={[
+                styles.statusText,
+                isOpen === null ? styles.unknownText : isOpen ? styles.openText : styles.closedText,
+              ]}
+            >
+              {isOpen === null ? 'Hours' : isOpen ? 'Open' : 'Closed'}
             </Text>
-            <ChevronDown size={16} color={isOpen ? '#4CAF50' : '#FF5252'} />
+            <ChevronDown
+              size={16}
+              color={isOpen === null ? '#8A8A8A' : isOpen ? '#4CAF50' : '#FF5252'}
+            />
           </TouchableOpacity>
         </View>
 
-        <View style={styles.statsCard}>
-          <View style={styles.statCell}>
-            <Info size={12} color="#C4C4C4" style={styles.statInfo} />
-            <View style={[styles.statBadge, { backgroundColor: StatBadge.rating }]}>
-              <ThumbsUp size={18} color="#1A2B3D" />
-            </View>
-            <View style={styles.statValueRow}>
-              <Text style={styles.statValue}>{rating}</Text>
-              <Text style={styles.statLabel}> ({reviewCount})</Text>
-            </View>
-          </View>
-
-          <View style={styles.statDivider} />
-
-          <View style={styles.statCell}>
-            <Info size={12} color="#C4C4C4" style={styles.statInfo} />
-            <View style={[styles.statBadge, { backgroundColor: StatBadge.time }]}>
-              <Clock size={18} color="#1A2B3D" />
-            </View>
-            <Text style={styles.statValue}>{deliveryTime}</Text>
-          </View>
-
-          <View style={styles.statDivider} />
-
-          <View style={styles.statCell}>
-            <Info size={12} color="#C4C4C4" style={styles.statInfo} />
-            <View style={[styles.statBadge, { backgroundColor: StatBadge.delivery }]}>
-              <Bike size={18} color="#FFFFFF" />
-            </View>
-            <View style={styles.statValueRow}>
-              {isFreeDelivery && (
-                <View style={styles.freePill}>
-                  <Text style={styles.freeText}>Free</Text>
+        {/* Every stat here is unbacked today (see UNBACKED_FIELDS). Cells are
+            rendered only when their value exists, and the whole card is
+            dropped when none of them do — an empty stats frame reads as
+            broken, an absent one reads as "not offered yet". */}
+        {stats.length > 0 && (
+          <View style={styles.statsCard}>
+            {stats.map((stat, index) => (
+              <Fragment key={stat.key}>
+                {index > 0 && <View style={styles.statDivider} />}
+                <View style={styles.statCell}>
+                  <Info size={12} color="#C4C4C4" style={styles.statInfo} />
+                  <View style={[styles.statBadge, { backgroundColor: stat.color }]}>
+                    {stat.icon}
+                  </View>
+                  {stat.value}
                 </View>
-              )}
-              <Text style={[styles.statValue, isFreeDelivery && styles.strikeFee]}>
-                {deliveryFee}
-              </Text>
-            </View>
+              </Fragment>
+            ))}
           </View>
-        </View>
+        )}
       </View>
     </View>
   );
@@ -317,6 +361,9 @@ const styles = StyleSheet.create({
   },
   closedText: {
     color: '#FF5252',
+  },
+  unknownText: {
+    color: '#8A8A8A',
   },
   statsCard: {
     flexDirection: 'row',

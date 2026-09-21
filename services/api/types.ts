@@ -73,3 +73,80 @@ export interface Customer {
   addresses?: CustomerAddress[] | null;
   keycloakUserId?: string | null;
 }
+
+// ---------------------------------------------------------------------------
+// E-mail verification (CustomerVerificationService)
+// ---------------------------------------------------------------------------
+
+/**
+ * Answer to `POST /customers/verification/send`: everything the code screen
+ * needs to draw itself. `codeLength` is authoritative — the backend decides how
+ * many digits it generates, so the screen renders that many boxes rather than
+ * assuming a number.
+ */
+export interface VerificationChallenge {
+  email: string;
+  codeLength: number;
+  expiresInSeconds: number;
+  /** Seconds the Resend button stays disabled after this send. */
+  resendAvailableInSeconds: number;
+  /** The address was already confirmed; nothing was sent and the app may move on. */
+  alreadyVerified: boolean;
+  /** False when the backend has no mail transport (dev) and only logged the code. */
+  delivered: boolean;
+}
+
+/** Answer to `POST /customers/verification/confirm`. */
+export interface VerificationResult {
+  email: string;
+  keycloakUserId: string;
+  verified: boolean;
+}
+
+/** Answer to `POST /customers/password-reset/verify`. */
+export interface PasswordResetTicket {
+  email: string;
+  /**
+   * The single-use secret that authorizes the password change. Held in memory
+   * for one screen and never persisted — see `store/password-reset-store.ts`.
+   */
+  ticket: string;
+  expiresInSeconds: number;
+}
+
+/** Answer to `POST /customers/password-reset/confirm`. */
+export interface PasswordResetResult {
+  email: string;
+  updated: boolean;
+}
+
+/** Answer to `POST /customers/verification/lookup`. */
+export interface AccountLookup {
+  email: string;
+  /** A customer is registered under this address — ask for a password. */
+  registered: boolean;
+  /** That account has already confirmed the address. */
+  emailVerified: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// Restaurants
+//
+// These types are INFERRED from the zod schemas in `schemas/restaurant.ts`,
+// which is the single source of truth for the restaurant contract — there is
+// deliberately no hand-written interface here that could drift from the parser
+// that validates the payload at runtime.
+// ---------------------------------------------------------------------------
+
+/** The paged envelope is shared with products, so it lives in its own module. */
+export type { Page } from '@/schemas/page';
+
+export type {
+  BusinessContact,
+  RestaurantAccessibility,
+  RestaurantAddress,
+  RestaurantGeoCoordinates,
+  RestaurantOutput,
+  RestaurantPolicy,
+  WorkingDay,
+} from '@/schemas/restaurant';

@@ -1,14 +1,18 @@
-import { AuthProvider, useAuth } from "@/contexts/auth-context";
 import { Palette } from "@/constants/theme";
+import { AuthProvider, useAuth } from "@/contexts/auth-context";
 import { useFrameworkReady } from "@/hooks/useFrameworkReady";
+import { useCurrentCustomer } from "@/hooks/use-delivery-address";
+import { useNotificationFeed } from "@/hooks/use-notification-feed";
+import { usePushNotifications } from "@/hooks/use-push-notifications";
+import { hasDeliveryAddress } from "@/services/api/customer-service";
 import { queryClient, wireAppFocus } from "@/services/api/query-client";
-import { QueryClientProvider } from "@tanstack/react-query";
 import {
   Poppins_400Regular,
   Poppins_500Medium,
   Poppins_600SemiBold,
   Poppins_700Bold,
 } from "@expo-google-fonts/poppins";
+import { QueryClientProvider } from "@tanstack/react-query";
 import { useFonts } from "expo-font";
 import {
   DefaultTheme,
@@ -32,30 +36,102 @@ export const unstable_settings = {
 function RootNavigator() {
   const router = useRouter();
   const segments = useSegments();
-  const { isAuthenticated, isLoading } = useAuth();
+  const { isAuthenticated, isLoading, isCustomerResolved, user, authMethod } = useAuth();
+  const { data: customer } = useCurrentCustomer();
+
+  // Registers this device and handles taps. Mounted here rather than in
+  // RootLayout because it reads the auth context and drives the router, both of
+  // which only exist inside this component.
+  usePushNotifications();
+  // Fills the notification inbox from order/delivery status changes — the
+  // statuses nothing pushes. Same place as the push hook, for the same reason.
+  useNotificationFeed();
 
   useEffect(() => {
     if (isLoading) return;
 
+    // "auth" is the OAuth deep-link landing group (app/auth/callback.tsx). It
+    // belongs here so an unauthenticated arrival is not bounced to /login while
+    // the token exchange is still in flight.
     const inAuthGroup =
       segments[0] === "login" ||
+      segments[0] === "password" ||
       segments[0] === "signup" ||
-      segments[0] === "verification";
+      segments[0] === "verification" ||
+      // The forgotten-password reset: three screens reached from /password,
+      // all of them without a session — the user is here precisely because
+      // they cannot get one.
+      segments[0] === "forgot-password" ||
+      segments[0] === "reset-code" ||
+      segments[0] === "new-password" ||
+      segments[0] === "auth";
 
-    // Post-sign-up onboarding screens are reachable before the user has a
-    // session (sign up → location → map → address → login), so they must not
-    // be bounced back to /login while unauthenticated.
+    // Address onboarding. Normally reached with a session (verification signs
+    // the new account in before handing over), but kept out of the /login
+    // bounce below so a mid-flow token refresh cannot eject the user from a
+    // half-entered address.
     const inOnboarding =
+      segments[0] === "complete-profile" ||
       segments[0] === "location" ||
       segments[0] === "map-select" ||
       segments[0] === "address-info";
+
+    // A signed-in account is held in whichever step it has not finished yet,
+    // in order: prove the e-mail, have a customer record, have somewhere to
+    // deliver to. All three are keyed off server state rather than a local
+    // flag, so they cover every way in — in-app registration, password login
+    // and Google — and survive a reinstall.
+    if (isAuthenticated) {
+      // An unverified email outranks the rules below: the account exists but
+      // has not proved it owns the address, so it goes back to the code
+      // screen. Keycloak is the source of truth (`email_verified` is a claim
+      // on the token), and a claim the realm does not emit reads as undefined,
+      // which deliberately gates nobody.
+      //
+      // Social logins are exempt outright: Google proved the address, and no
+      // code was ever mailed for it — sending them to /verification would ask
+      // for a code that does not exist. (Keycloak may still mark the brokered
+      // account unverified when the Google IdP has "Trust Email" off, which is
+      // exactly the case this guard covers.)
+      if (authMethod !== "google" && user?.email_verified === false) {
+        if (segments[0] !== "verification") {
+          router.replace("/verification");
+        }
+        return;
+      }
+
+      // Route nothing until the record is known, or a new account flashes the
+      // tabs on its way to the onboarding.
+      if (!isCustomerResolved) return;
+
+      // A null record — the lookup finished and the backend has none — is a
+      // Google account on its first sign-in: Keycloak provisioned it while
+      // brokering, so nothing ever registered it here. It needs a name and a
+      // phone number before there is a record to hang an address off.
+      // `undefined` is different and deliberately not caught: the lookup
+      // failed, and stranding the user in a form that cannot save is worse
+      // than letting them through.
+      if (customer === null) {
+        if (segments[0] !== "complete-profile") {
+          router.replace("/complete-profile");
+        }
+        return;
+      }
+
+      if (customer && !hasDeliveryAddress(customer)) {
+        if (!inOnboarding) {
+          router.replace("/location");
+        }
+        return;
+      }
+    }
 
     if (isAuthenticated && inAuthGroup) {
       router.replace("/(tabs)");
     } else if (!isAuthenticated && !inAuthGroup && !inOnboarding) {
       router.replace("/login");
     }
-  }, [isAuthenticated, isLoading, segments]);
+  }, [isAuthenticated, isLoading, segments, isCustomerResolved, customer, user, authMethod]);
 
   return (
     <>
@@ -74,17 +150,74 @@ function RootNavigator() {
             navy so the fade never flashes white behind the backdrop. */}
         <Stack.Screen
           name="login"
-          options={{ animation: "fade", contentStyle: { backgroundColor: Palette.navy } }}
+          options={{
+            animation: "fade",
+            contentStyle: { backgroundColor: Palette.navy },
+          }}
+        />
+        <Stack.Screen
+          name="password"
+          options={{
+            animation: "fade",
+            contentStyle: { backgroundColor: Palette.navy },
+          }}
         />
         <Stack.Screen
           name="signup"
-          options={{ animation: "fade", contentStyle: { backgroundColor: Palette.navy } }}
+          options={{
+            animation: "fade",
+            contentStyle: { backgroundColor: Palette.navy },
+          }}
+        />
+        <Stack.Screen
+          name="forgot-password"
+          options={{
+            animation: "fade",
+            contentStyle: { backgroundColor: Palette.navy },
+          }}
+        />
+        <Stack.Screen name="reset-code" options={{ animation: "fade" }} />
+        <Stack.Screen
+          name="new-password"
+          options={{
+            animation: "fade",
+            contentStyle: { backgroundColor: Palette.navy },
+          }}
         />
         <Stack.Screen name="verification" options={{ animation: "fade" }} />
-        <Stack.Screen name="account-settings" options={{ animation: "slide_from_right" }} />
+        <Stack.Screen
+          name="auth/callback"
+          options={{
+            animation: "fade",
+            contentStyle: { backgroundColor: Palette.navy },
+          }}
+        />
+        <Stack.Screen
+          name="account-settings"
+          options={{ animation: "slide_from_right" }}
+        />
+        {/* Profile → help & legal, danger zone. */}
+        <Stack.Screen name="help/support" options={{ animation: "slide_from_right" }} />
+        <Stack.Screen name="help/report" options={{ animation: "slide_from_right" }} />
+        <Stack.Screen name="legal/terms" options={{ animation: "slide_from_right" }} />
+        <Stack.Screen name="legal/privacy" options={{ animation: "slide_from_right" }} />
+        <Stack.Screen name="delete-account" options={{ animation: "slide_from_right" }} />
+        <Stack.Screen
+          name="complete-profile"
+          options={{
+            animation: "fade",
+            contentStyle: { backgroundColor: Palette.navy },
+          }}
+        />
         <Stack.Screen name="location" />
-        <Stack.Screen name="map-select" options={{ animation: "slide_from_bottom" }} />
-        <Stack.Screen name="address-info" options={{ animation: "slide_from_bottom" }} />
+        <Stack.Screen
+          name="map-select"
+          options={{ animation: "slide_from_bottom" }}
+        />
+        <Stack.Screen
+          name="address-info"
+          options={{ animation: "slide_from_bottom" }}
+        />
         {/* Restaurant details slide in from the side. */}
         <Stack.Screen
           name="restaurant/[id]/index"
@@ -104,8 +237,16 @@ function RootNavigator() {
             gestureDirection: "vertical",
           }}
         />
-        <Stack.Screen name="cart/[id]" options={{ animation: "slide_from_bottom" }} />
-        <Stack.Screen name="order-details/[id]" />
+        <Stack.Screen
+          name="cart/review"
+          options={{ animation: "slide_from_bottom" }}
+        />
+        <Stack.Screen name="order-details/index" />
+        {/* My Orders and one placed order — both slide in like the rest of
+            the push stack. */}
+        <Stack.Screen name="orders/index" />
+        <Stack.Screen name="orders/[id]" />
+        <Stack.Screen name="notifications" />
         <Stack.Screen
           name="modal"
           options={{ presentation: "modal", title: "Modal" }}

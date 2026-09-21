@@ -15,7 +15,7 @@ interface HomeHeaderProps {
 }
 
 export function HomeHeader({
-  notificationCount = 2,
+  notificationCount = 0,
   onNotificationPress,
 }: HomeHeaderProps) {
   const router = useRouter();

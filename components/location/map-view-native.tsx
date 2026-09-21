@@ -24,6 +24,20 @@ interface NativeMapViewProps {
   isLoadingAddress: boolean;
   /** Fires when the map settles — after a drag, a tap, or a programmatic animation. */
   onRegionChangeComplete: (region: Region) => void;
+  /**
+   * Replaces the default tap behaviour (recentre on the tapped point).
+   *
+   * The inline card on checkout uses this to OPEN the full picker instead:
+   * there, a tap means "I want the big map", while dragging still moves the
+   * pin in place.
+   */
+  onPress?: () => void;
+  /**
+   * Shows the blue user dot. Off by default for embedded maps: switching it on
+   * asks iOS for location permission the moment the map mounts, and a checkout
+   * screen is not where that prompt belongs.
+   */
+  showsUserLocation?: boolean;
 }
 
 // The pin's tip must sit on the map's visual center: shift the whole column
@@ -47,6 +61,8 @@ export function NativeMapView({
   addressText,
   isLoadingAddress,
   onRegionChangeComplete,
+  onPress,
+  showsUserLocation = true,
 }: NativeMapViewProps) {
   const isMovingRef = useRef(false);
   const lift = useSharedValue(0);
@@ -89,8 +105,13 @@ export function NativeMapView({
   };
 
   // Tapping recenters on the tapped point (keeping zoom); selection itself
-  // happens in onRegionChangeComplete once the animation settles.
+  // happens in onRegionChangeComplete once the animation settles. A caller that
+  // passes `onPress` means the tap for something else entirely.
   const handlePress = (e: MapPressEvent) => {
+    if (onPress) {
+      onPress();
+      return;
+    }
     mapRef.current?.animateCamera({ center: e.nativeEvent.coordinate }, { duration: 350 });
   };
 
@@ -104,7 +125,7 @@ export function NativeMapView({
         onPress={handlePress}
         onRegionChange={handleRegionChange}
         onRegionChangeComplete={handleRegionChangeComplete}
-        showsUserLocation
+        showsUserLocation={showsUserLocation}
         showsMyLocationButton={false}
         toolbarEnabled={false}
         pitchEnabled={false}

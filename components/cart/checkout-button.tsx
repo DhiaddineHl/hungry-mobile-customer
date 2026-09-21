@@ -5,10 +5,12 @@ import { Fonts, FontSize, Palette, Radius, Spacing } from '@/constants/theme';
 
 interface CheckoutButtonProps {
   total: string;
+  /** The verb on the button. The cart tab says "View Cart", the cart itself "Continue". */
+  label?: string;
   onPress?: () => void;
 }
 
-export function CheckoutButton({ total, onPress }: CheckoutButtonProps) {
+export function CheckoutButton({ total, label = 'Continue', onPress }: CheckoutButtonProps) {
   const insets = useSafeAreaInsets();
 
   return (
@@ -19,9 +21,9 @@ export function CheckoutButton({ total, onPress }: CheckoutButtonProps) {
         scaleTo={0.98}
         dimTo={0.95}
         haptic
-        accessibilityLabel={`Continue to checkout, total ${total}`}
+        accessibilityLabel={`${label}, total ${total}`}
       >
-        <Text style={styles.buttonText}>Continue</Text>
+        <Text style={styles.buttonText}>{label}</Text>
         <Text style={styles.totalText}>{total}</Text>
       </PressableScale>
     </View>

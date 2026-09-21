@@ -1,5 +1,5 @@
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
-import { Image } from 'expo-image';
+import { Image, type ImageSource } from 'expo-image';
 import { ThumbsUp, Trash2, Plus } from 'lucide-react-native';
 import { Fonts } from '@/constants/theme';
 
@@ -7,17 +7,28 @@ interface CartItem {
   id: string;
   name: string;
   quantity: number;
-  image: any;
+  /** An already-resolved source, or a bundled module id. Never a raw path. */
+  image?: ImageSource | number;
 }
 
 interface RestaurantCartCardProps {
   restaurantName: string;
-  restaurantLogo: any;
-  rating: string;
-  reviewCount: string;
+  restaurantLogo?: ImageSource | number;
+  /**
+   * Optional because NO backend field supplies either one — they are in
+   * `UNBACKED_FIELDS`. Call sites omit them rather than passing invented
+   * numbers, and the row below disappears instead of showing a made-up score.
+   */
+  rating?: string;
+  reviewCount?: string;
   items: CartItem[];
   totalItems: number;
   totalPrice: string;
+  /**
+   * Optional: there is ONE cart, so the tab renders one "View Cart" footer
+   * for all restaurants and leaves this out. The row is a per-restaurant
+   * summary line when no handler is given.
+   */
   onViewCart?: () => void;
   onDelete?: () => void;
   onAddMore?: () => void;
@@ -42,11 +53,15 @@ export function RestaurantCartCard({
           <Image source={restaurantLogo} style={styles.logo} contentFit="cover" />
           <View>
             <Text style={styles.restaurantName}>{restaurantName}</Text>
-            <View style={styles.ratingRow}>
-              <ThumbsUp size={12} color="#F5A623" />
-              <Text style={styles.rating}>{rating}</Text>
-              <Text style={styles.reviewCount}>({reviewCount})</Text>
-            </View>
+            {rating ? (
+              <View style={styles.ratingRow}>
+                <ThumbsUp size={12} color="#F5A623" />
+                <Text style={styles.rating}>{rating}</Text>
+                {reviewCount ? (
+                  <Text style={styles.reviewCount}>({reviewCount})</Text>
+                ) : null}
+              </View>
+            ) : null}
           </View>
         </View>
         <TouchableOpacity style={styles.deleteButton} onPress={onDelete}>
@@ -71,11 +86,20 @@ export function RestaurantCartCard({
         </TouchableOpacity>
       </View>
 
-      <TouchableOpacity style={styles.viewCartButton} onPress={onViewCart}>
-        <Text style={styles.itemCount}>{totalItems}</Text>
-        <Text style={styles.viewCartText}>View Cart</Text>
-        <Text style={styles.totalPrice}>{totalPrice}</Text>
-      </TouchableOpacity>
+      {onViewCart ? (
+        <TouchableOpacity style={styles.viewCartButton} onPress={onViewCart}>
+          <Text style={styles.itemCount}>{totalItems}</Text>
+          <Text style={styles.viewCartText}>View Cart</Text>
+          <Text style={styles.totalPrice}>{totalPrice}</Text>
+        </TouchableOpacity>
+      ) : (
+        <View style={styles.summaryRow}>
+          <Text style={styles.summaryText}>
+            {totalItems} {totalItems === 1 ? 'item' : 'items'}
+          </Text>
+          <Text style={styles.summaryPrice}>{totalPrice}</Text>
+        </View>
+      )}
     </View>
   );
 }
@@ -199,5 +223,23 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontFamily: Fonts.bold,
     color: '#FFFFFF',
+  },
+  summaryRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderTopWidth: 1,
+    borderTopColor: '#F0F0F0',
+    paddingTop: 12,
+  },
+  summaryText: {
+    fontSize: 13,
+    fontFamily: Fonts.medium,
+    color: '#8A8A8A',
+  },
+  summaryPrice: {
+    fontSize: 14,
+    fontFamily: Fonts.bold,
+    color: '#1A2B3D',
   },
 });

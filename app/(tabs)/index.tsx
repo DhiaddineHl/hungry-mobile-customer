@@ -10,15 +10,28 @@ import {
   PopularRestaurants,
   OpenRestaurants,
 } from '@/components/home';
-import { AnimatedEntrance } from '@/components/ui/animated-entrance';
+import { useRestaurants } from '@/hooks/use-restaurants';
+import { selectUnreadCount, useNotificationStore } from '@/store/notification-store';
 
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const [selectedFilters, setSelectedFilters] = useState<string[]>([]);
 
+  // The home screen owns the restaurant query; both sections below are
+  // presentational and read from this one cache entry.
+  const {
+    data: restaurants,
+    isPending,
+    error,
+    refetch,
+  } = useRestaurants({ sort: 'name' });
+
+  // Unread rows in the device inbox; the notifications screen clears them.
+  const unreadNotifications = useNotificationStore(selectUnreadCount);
+
   const handleNotificationPress = () => {
-    console.log('Notification pressed');
+    router.push('/notifications');
   };
 
   const handleSearch = (text: string) => {
@@ -56,7 +69,7 @@ export default function HomeScreen() {
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
       <HomeHeader
-        notificationCount={2}
+        notificationCount={unreadNotifications}
         onNotificationPress={handleNotificationPress}
       />
       <ScrollView
@@ -64,35 +77,30 @@ export default function HomeScreen() {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
       >
-        <AnimatedEntrance index={0} variant="fade">
-          <SearchBar
-            placeholder="Search the menu"
-            onChangeText={handleSearch}
-          />
-        </AnimatedEntrance>
-        <AnimatedEntrance index={1}>
-          <CategoriesSlider
-            onCategoryPress={handleCategoryPress}
-            onSeeAllPress={handleSeeAllCategories}
-          />
-        </AnimatedEntrance>
-        <AnimatedEntrance index={2}>
-          <FiltersSlider
-            selectedFilters={selectedFilters}
-            onFilterPress={handleFilterPress}
-          />
-        </AnimatedEntrance>
-        <AnimatedEntrance index={3}>
-          <PopularRestaurants
-            onRestaurantPress={handlePopularRestaurantPress}
-          />
-        </AnimatedEntrance>
-        <AnimatedEntrance index={4}>
-          <OpenRestaurants
-            onRestaurantPress={handleRestaurantPress}
-            onSeeAllPress={handleSeeAllRestaurants}
-          />
-        </AnimatedEntrance>
+        <SearchBar placeholder="Search the menu" onChangeText={handleSearch} />
+        <CategoriesSlider
+          onCategoryPress={handleCategoryPress}
+          onSeeAllPress={handleSeeAllCategories}
+        />
+        <FiltersSlider
+          selectedFilters={selectedFilters}
+          onFilterPress={handleFilterPress}
+        />
+        <PopularRestaurants
+          restaurants={restaurants ?? []}
+          isLoading={isPending}
+          error={error}
+          onRetry={refetch}
+          onRestaurantPress={handlePopularRestaurantPress}
+        />
+        <OpenRestaurants
+          restaurants={restaurants ?? []}
+          isLoading={isPending}
+          error={error}
+          onRetry={refetch}
+          onRestaurantPress={handleRestaurantPress}
+          onSeeAllPress={handleSeeAllRestaurants}
+        />
       </ScrollView>
     </View>
   );

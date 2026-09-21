@@ -10,3 +10,113 @@ export const customerKeys = {
   /** Keyed by the Keycloak account id (the token's `sub`). */
   detail: (keycloakUserId: string) => [...customerKeys.details(), keycloakUserId] as const,
 };
+
+/**
+ * Restaurant cache entries. Same shape as `customerKeys` so there is one
+ * factory pattern in this codebase: `lists()` and `details()` are the
+ * invalidation handles, `list(params)` and `detail(id)` the leaves.
+ */
+export const restaurantKeys = {
+  all: ['restaurants'] as const,
+  lists: () => [...restaurantKeys.all, 'list'] as const,
+  /** Keyed by the query params so a filtered page never reads a plain page's cache. */
+  list: (params: object) => [...restaurantKeys.lists(), params] as const,
+  details: () => [...restaurantKeys.all, 'detail'] as const,
+  /** Keyed by the restaurant's UUID — the backend resolves by id only, never by code. */
+  detail: (id: string) => [...restaurantKeys.details(), id] as const,
+};
+
+/**
+ * Menu cache entries, in the same shape as the factories above.
+ *
+ * Only one leaf: which categories a restaurant's menu is made of. It is keyed
+ * by the RESTAURANT id because resolving the sections from it is the whole
+ * point of the entry (see `fetchMenuScope`) — the caller never has a category
+ * id to key on.
+ */
+export const menuKeys = {
+  all: ['menu'] as const,
+  scopes: () => [...menuKeys.all, 'scope'] as const,
+  scope: (restaurantId: string) => [...menuKeys.scopes(), restaurantId] as const,
+};
+
+/**
+ * Product (menu) cache entries, in the same shape as the two factories above.
+ *
+ * `list` takes the menu **scope** as well as the params: products are not
+ * addressed by restaurant anywhere in the backend, so the section ids the
+ * scope carries are the only thing separating one restaurant's menu from
+ * another's. Leaving them out of the key would let two restaurants read each
+ * other's cached menu.
+ */
+export const productKeys = {
+  all: ['products'] as const,
+  lists: () => [...productKeys.all, 'list'] as const,
+  list: (scope: object | null, params: object) =>
+    [...productKeys.lists(), scope, params] as const,
+  details: () => [...productKeys.all, 'detail'] as const,
+  /** Keyed by the product's UUID — the backend resolves by id only, never by code. */
+  detail: (id: string) => [...productKeys.details(), id] as const,
+  images: () => [...productKeys.all, 'image'] as const,
+  /** Artwork is a separate request per product — see `fetchProductImageUrl`. */
+  image: (id: string) => [...productKeys.images(), id] as const,
+  configurations: () => [...productKeys.all, 'configuration'] as const,
+  /**
+   * A configurable dish's addon groups, keyed by the CONFIGURATION id rather
+   * than the product id: the configuration is what
+   * `fetchProductConfiguration` addresses, and keying by product would fetch
+   * the same groups again for every dish that shares a configuration.
+   */
+  configuration: (configurationId: string) =>
+    [...productKeys.configurations(), configurationId] as const,
+};
+
+/**
+ * Cart cache entries, in the same shape as the three factories above.
+ *
+ * `list` is keyed by the CUSTOMER and `detail` by the cart `code`, not by ids:
+ * `Cart` has no restaurant column and the `customerIds` filter answers 500, so
+ * the `"hc:<customerId>:<restaurantId>"` code is what actually addresses a cart
+ * (see `services/api/cart-view-model.ts`).
+ */
+export const cartKeys = {
+  all: ['carts'] as const,
+  lists: () => [...cartKeys.all, 'list'] as const,
+  /** Keyed by the backend `Customer.id` UUID — never the Keycloak `sub`. */
+  list: (customerId: string) => [...cartKeys.lists(), customerId] as const,
+  details: () => [...cartKeys.all, 'detail'] as const,
+  /** Keyed by the cart `code`, the only field that identifies a cart by restaurant. */
+  detail: (code: string) => [...cartKeys.details(), code] as const,
+};
+
+/**
+ * Order cache entries, in the same shape as the four factories above.
+ *
+ * `list` is keyed by the CUSTOMER even though the server cannot filter by one:
+ * every filter on `/orders/all` is a 500 or is silently ignored, so
+ * `fetchCustomerOrders` pages the list and narrows it on the device (see
+ * `services/api/order-service.ts`). The key still has to carry the customer —
+ * the cached result is one customer's orders, and re-using it across accounts
+ * would show the previous customer's history to the next one.
+ */
+export const orderKeys = {
+  all: ['orders'] as const,
+  lists: () => [...orderKeys.all, 'list'] as const,
+  /** Keyed by the backend `Customer.id` UUID — never the Keycloak `sub`. */
+  list: (customerId: string) => [...orderKeys.lists(), customerId] as const,
+  details: () => [...orderKeys.all, 'detail'] as const,
+  /** Keyed by the order's UUID — the backend resolves by id only, never by code. */
+  detail: (id: string) => [...orderKeys.details(), id] as const,
+};
+
+/**
+ * Delivery cache entries — "who's delivering this order, and what's its
+ * status." One leaf only: `GET /orders/{id}/delivery` is the only read this
+ * app does, so there is no `list`/`lists()` pair here.
+ */
+export const deliveryKeys = {
+  all: ['deliveries'] as const,
+  details: () => [...deliveryKeys.all, 'detail'] as const,
+  /** Keyed by the ORDER's UUID, not the delivery's — that's how the endpoint addresses it. */
+  detail: (orderId: string) => [...deliveryKeys.details(), orderId] as const,
+};

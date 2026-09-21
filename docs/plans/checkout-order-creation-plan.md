@@ -7,6 +7,16 @@
 **Backend studied:** `C:\projects\hungry-web\hungry-backend` @ `0e5bb3c`
 **Designs:** `design/Cart Service Fee Info.png`, `design/Cart Delivery Fee Info.png`, `design/Order Details - Payment Method.png`
 
+> **Updated (2026-09-14) — one cart, one order per restaurant.** Checkout is no longer per
+> restaurant. `/order-details` takes the whole cart, groups it by restaurant and places ONE
+> `POST /orders` per group, sequentially (`placeCheckoutOrders` in `hooks/use-orders.ts`). Each
+> restaurant's lines leave the cart the moment *its* order is confirmed — never before (a failed
+> create must leave the cart intact) and never in a batch (a second failure after a first success
+> must not let "Try Again" re-order food already on its way). A mid-sequence failure surfaces as
+> `PartialCheckoutError`, naming the placed orders and the restaurant that failed. Service and
+> delivery fees are charged per order (`checkoutTotals`), and the screens say so.
+
+
 > **Verification note.** Like `CART-01`, this plan is **derived from backend source only** —
 > the Hungry stack was not running and could not be started without colliding on `5432`
 > with an unrelated project. Every claim cites the class and mechanism it comes from.
@@ -32,6 +42,32 @@ The route param `id` is a **restaurant id**, not an order id — `app/cart/[id].
 cart, which matches the one-cart-per-restaurant rule `CART-01` established.
 
 ## 2. The blocker: `POST /orders` cannot currently persist line items
+
+> **RESOLVED 2026-08-25 — fixed in `hungry-backend`, verified live.** Everything below is
+> kept as the record of what was wrong. What §7's probes actually found:
+>
+> - The first failure was **not** §2.1. Every create died earlier, in the dispatch
+>   listener: `TraceabilityModel.createdAt` is `@CreatedDate`, but nothing in the backend
+>   was annotated `@EnableJpaAuditing`, so `created_at` was NULL in *every* table and
+>   `DefaultPriorityCalculatorService.calculate` NPE'd on it inside the `@Transactional`
+>   create. Fixed by `org.jfwk.core.infrastructure.config.JpaAuditingConfig`, plus a null
+>   guard in the calculator.
+> - §2.1 and §2.2 were real and are fixed: `OrderItem.product` now cascades PERSIST/MERGE,
+>   and `OrderItemsDirectPopulator` sets the `order` back-reference.
+> - §2.3 is fixed differently than proposed: `OrderedProductAttribut` gained an
+>   `orderedProduct` back-reference (the collection is now `mappedBy` + cascaded), and
+>   `OrderedProductDirectPopulator` sets both `orderedProduct` and the NOT NULL `product`.
+>   `checked` is still ignored — there is no column for it (see below).
+> - One defect the plan missed: `OrderedProduct.product` was `@OneToOne`, so `product_id`
+>   carried a UNIQUE constraint and the **second** order of any dish failed with a
+>   duplicate key. Now `@ManyToOne`; the stale constraint has to be dropped in any database
+>   created before the change.
+> - Also missed: **nothing mapped `comment`** in either direction, so the payment method
+>   `buildOrderComment` records was silently discarded. Now populated both ways.
+> - §2.4's NPE landmines are untouched: a customer or restaurant with no address still
+>   fails the create, which is what `checkoutBlockers` exists to prevent client-side.
+> - Still true: item-level `code`/`name` are not copied by the item converters, so they
+>   read back null. The app does not use them.
 
 This is the central finding, and it is more serious than the gaps in `CART-01`. The order
 aggregate has **three independent persistence defects** in one chain, plus a set of NPE

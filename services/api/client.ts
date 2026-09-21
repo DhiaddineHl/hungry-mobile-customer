@@ -41,11 +41,19 @@ apiClient.interceptors.request.use(async (config) => {
 
 export class ApiError extends Error {
   readonly status?: number;
+  /**
+   * The raw error payload. Spring's ProblemDetail carries custom properties
+   * beside `detail` — the verification endpoints add `reason` and
+   * `retryAfterSeconds` — and callers that branch on those need more than the
+   * message.
+   */
+  readonly data?: Record<string, unknown>;
 
-  constructor(message: string, status?: number) {
+  constructor(message: string, status?: number, data?: Record<string, unknown>) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
+    this.data = data;
   }
 }
 
@@ -64,7 +72,7 @@ apiClient.interceptors.response.use(
         (typeof data?.message === 'string' && data.message) ||
         (typeof data?.error === 'string' && data.error) ||
         `Request failed (${error.response.status})`;
-      throw new ApiError(message, error.response.status);
+      throw new ApiError(message, error.response.status, data);
     }
     if (error.code === 'ECONNABORTED') {
       throw new ApiError(

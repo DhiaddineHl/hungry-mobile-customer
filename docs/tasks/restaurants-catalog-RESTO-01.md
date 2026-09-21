@@ -1,7 +1,7 @@
 ---
 suffix: RESTO-01
 title: Fetch and display restaurants from the backend
-status: todo
+status: done
 plan: docs/plans/restaurants-fetch-display-plan.md
 ---
 

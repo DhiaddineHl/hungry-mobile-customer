@@ -9,7 +9,14 @@
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "infoPlist": {
+        "CFBundleDevelopmentRegion": "en",
+        "CFBundleLocalizations": [
+          "en",
+          "fr"
+        ]
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -20,11 +27,17 @@
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
-      "package": "com.dhiaddinehlaoui.hungrycustomer"
+      "package": "com.hungry.customer",
+      "googleServicesFile": "./google-services.json"
     },
     "web": {
       "output": "static",
       "favicon": "./assets/images/favicon.png"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "eb77a000-b8ff-4398-83c3-90b0cfb4f5b5"
+      }
     },
     "plugins": [
       "expo-router",
@@ -47,6 +60,15 @@
           "locationAlwaysAndWhenInUsePermission": "Allow Hungry to use your location."
         }
       ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/android-icon-monochrome.png",
+          "color": "#F5A623",
+          "defaultChannel": "orders"
+        }
+      ],
+      "expo-localization",
       "expo-secure-store",
       "expo-font",
       "expo-image",

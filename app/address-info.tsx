@@ -127,8 +127,11 @@ export default function AddressInfoScreen() {
         defaultIndex: Math.min(defaultIndex, addresses.length - 1),
       });
       clearDrafts();
-      // During post-sign-up onboarding the user has no session yet → send them
-      // to login. When an already-signed-in user edits an address → back to app.
+      // Saving seeds the customer cache with the new addresses, which is what
+      // releases the root navigator's onboarding hold.
+      // A user who saved an address without a session (registration whose
+      // sign-in failed) still has to log in; an already-signed-in one goes
+      // straight back to the app.
       router.replace(isAuthenticated ? '/(tabs)' : '/login');
     } catch (err) {
       Alert.alert(

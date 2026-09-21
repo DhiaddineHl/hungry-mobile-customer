@@ -1,5 +1,5 @@
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
-import { Image } from 'expo-image';
+import { Image, type ImageSource } from 'expo-image';
 import { Trash2, Minus, Plus } from 'lucide-react-native';
 import { Fonts } from '@/constants/theme';
 
@@ -10,7 +10,8 @@ interface CartItemProps {
   price: string;
   originalPrice?: string;
   quantity: number;
-  image: any;
+  /** An already-resolved source, or a bundled module id. Never a raw path. */
+  image?: ImageSource | number;
   onIncrement?: () => void;
   onDecrement?: () => void;
   onDelete?: () => void;

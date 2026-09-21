@@ -1,7 +1,7 @@
 import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import * as Haptics from 'expo-haptics';
 import { Heart, Home, ShoppingCart, User } from 'lucide-react-native';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   LayoutChangeEvent,
   Pressable,
@@ -13,10 +13,13 @@ import Animated, {
   interpolate,
   useAnimatedStyle,
   useSharedValue,
+  withSequence,
   withSpring,
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Fonts, FontSize, Palette, Radius } from '@/constants/theme';
+import { useTranslation, type TranslationKey } from '@/i18n';
+import { selectCartItemCount, useCartStore } from '@/store/cart-store';
 
 const TAB_ICONS = {
   index: Home,
@@ -25,14 +28,18 @@ const TAB_ICONS = {
   profile: User,
 };
 
-const TAB_LABELS: Record<string, string> = {
-  index: 'Home',
-  favorites: 'Favorites',
-  cart: 'Cart',
-  profile: 'Profile',
+const TAB_LABELS: Partial<Record<string, TranslationKey>> = {
+  index: 'tabs.home',
+  favorites: 'tabs.favorites',
+  cart: 'tabs.cart',
+  profile: 'tabs.profile',
 };
 
 const SPRING = { damping: 18, stiffness: 200, mass: 0.8 };
+// Snappier than SPRING so the badge pop reads as a reaction to the tap.
+const BADGE_SPRING = { damping: 12, stiffness: 320, mass: 0.6 };
+/** Above this the badge shows `9+` rather than growing wider. */
+const MAX_BADGE_COUNT = 9;
 const PILL_WIDTH = 52;
 const PILL_HEIGHT = 40;
 const BAR_PADDING_TOP = 10;
@@ -49,6 +56,8 @@ function AnimatedTabIcon({
   cartItemCount = 0,
 }: TabIconProps) {
   const IconComponent = TAB_ICONS[routeName as keyof typeof TAB_ICONS];
+  const { t } = useTranslation();
+  const labelKey = TAB_LABELS[routeName];
   const active = useSharedValue(isFocused ? 1 : 0);
 
   useEffect(() => {
@@ -67,6 +76,36 @@ function AnimatedTabIcon({
     opacity: interpolate(active.get(), [0, 1], [0.7, 1]),
   }));
 
+  // The badge pops on every change of the count, not just on the first item:
+  // adding a second unit to a dish already in the cart changes only the digit,
+  // which is easy to miss without the movement.
+  const badgeScale = useSharedValue(cartItemCount > 0 ? 1 : 0);
+  const previousCount = useRef(cartItemCount);
+
+  useEffect(() => {
+    const changed = previousCount.current !== cartItemCount;
+    previousCount.current = cartItemCount;
+
+    if (cartItemCount === 0) {
+      // Hidden anyway once the count hits zero — reset so the next first item
+      // scales in from nothing instead of appearing at full size.
+      badgeScale.set(0);
+      return;
+    }
+    if (!changed) return;
+
+    badgeScale.set(
+      withSequence(
+        withSpring(1.3, BADGE_SPRING),
+        withSpring(1, BADGE_SPRING),
+      ),
+    );
+  }, [cartItemCount, badgeScale]);
+
+  const badgeStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: badgeScale.get() }],
+  }));
+
   if (!IconComponent) return null;
 
   const showBadge = routeName === 'cart' && cartItemCount > 0;
@@ -82,11 +121,13 @@ function AnimatedTabIcon({
           />
         </Animated.View>
         {showBadge && (
-          <View style={styles.badge}>
+          <Animated.View style={[styles.badge, badgeStyle]}>
             <Text style={styles.badgeText} numberOfLines={1}>
-              {cartItemCount > 9 ? '9+' : cartItemCount}
+              {cartItemCount > MAX_BADGE_COUNT
+                ? `${MAX_BADGE_COUNT}+`
+                : cartItemCount}
             </Text>
-          </View>
+          </Animated.View>
         )}
       </View>
       <Animated.Text
@@ -98,14 +139,18 @@ function AnimatedTabIcon({
         ]}
         numberOfLines={1}
       >
-        {TAB_LABELS[routeName] ?? routeName}
+        {labelKey ? t(labelKey) : routeName}
       </Animated.Text>
     </View>
   );
 }
 
 interface CustomTabBarProps extends BottomTabBarProps {
-  /** Number of items in the cart; drives the cart tab badge. */
+  /**
+   * Overrides the badge count. Left undefined in the app — the bar reads the
+   * cart store itself so every screen that adds a line updates the badge
+   * without having to thread a count through the navigator.
+   */
   cartItemCount?: number;
 }
 
@@ -113,9 +158,12 @@ export function CustomTabBar({
   state,
   descriptors,
   navigation,
-  cartItemCount = 0,
+  cartItemCount,
 }: CustomTabBarProps) {
+  const storeCartItemCount = useCartStore(selectCartItemCount);
+  const badgeCount = cartItemCount ?? storeCartItemCount;
   const insets = useSafeAreaInsets();
+  const { t } = useTranslation();
   const [barWidth, setBarWidth] = useState(0);
 
   const tabCount = state.routes.length;
@@ -177,7 +225,14 @@ export function CustomTabBar({
               key={route.key}
               accessibilityRole="button"
               accessibilityState={isFocused ? { selected: true } : {}}
-              accessibilityLabel={options.tabBarAccessibilityLabel ?? route.name}
+              accessibilityLabel={
+                options.tabBarAccessibilityLabel ??
+                (route.name === 'cart' && badgeCount > 0
+                  ? `${t('tabs.cart')}, ${badgeCount} item${badgeCount > 1 ? 's' : ''}`
+                  : TAB_LABELS[route.name]
+                    ? t(TAB_LABELS[route.name]!)
+                    : route.name)
+              }
               onPress={onPress}
               onLongPress={onLongPress}
               style={styles.tabButton}
@@ -186,7 +241,7 @@ export function CustomTabBar({
               <AnimatedTabIcon
                 routeName={route.name}
                 isFocused={isFocused}
-                cartItemCount={route.name === 'cart' ? cartItemCount : 0}
+                cartItemCount={route.name === 'cart' ? badgeCount : 0}
               />
             </Pressable>
           );

@@ -1,7 +1,7 @@
 ---
 suffix: CART-01
 title: Add products to a cart and persist it in the backend
-status: todo
+status: done
 plan: docs/plans/cart-backend-sync-plan.md
 depends_on: MENU-01
 ---

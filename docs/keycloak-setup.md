@@ -103,10 +103,15 @@ Be **as specific as possible** — wildcards on a public client are a security r
 | **Valid post-logout redirect URIs** | `hungrycustomer://auth/callback`  (or a dedicated `hungrycustomer://auth/logout`) |
 | **Web origins** | `+` (echo allowed redirect origins) — or the exact web origin if you ship a web build |
 
-> **Expo dev caveat:** in Expo Go / dev client the redirect can be an `exp://…` proxy URL
-> instead of the custom scheme. During development add the exact URI that
-> `AuthSession.makeRedirectUri(...)` logs (e.g. `exp://192.168.x.x:8081/--/auth/callback`) as
-> an additional **Valid redirect URI**. Standalone/EAS builds use `hungrycustomer://auth/callback`.
+> **Expo dev caveat — do NOT register a dev URL here.** `makeRedirectUri` only honours the
+> `scheme` option when it is also given `native`; without it, it falls through to
+> `Linking.createURL`, which splices `Constants.expoConfig.hostUri` (the **Metro dev-server
+> host**) into the URL and yields `hungrycustomer://localhost:8081/auth/callback`. The app
+> therefore passes `native: 'hungrycustomer://auth/callback'` explicitly
+> (`contexts/auth-context.tsx`), so dev builds and release builds send the **same** redirect
+> URI and the single entry above is all Keycloak ever needs. Expo Go cannot be used for Google
+> login at all — it ignores custom schemes. Confirm with the `[Auth] OAuth redirect_uri = …`
+> log line on startup.
 
 ### Advanced → enforce PKCE
 **Clients → hungry-customer-app → Advanced → Advanced settings:**
@@ -144,8 +149,8 @@ App ──(1)──► Keycloak ──(2)──► Google ──(2 back)──�
             authorize         broker login          broker endpoint        hungrycustomer://
 ```
 
-- **Hop 1** (App ↔ Keycloak): redirect URI `hungrycustomer://auth/callback` (or the `exp://…`
-  dev URL). Configured on the **client** in §4.
+- **Hop 1** (App ↔ Keycloak): redirect URI `hungrycustomer://auth/callback`. Configured on the
+  **client** in §4. In dev this hop also depends on `KC_HOSTNAME` — see §6.3.1.
 - **Hop 2** (Keycloak ↔ Google): redirect URI is Keycloak's **broker endpoint**. Configured in
   **Google Cloud Console** and must be HTTPS-reachable by the user's browser.
 
@@ -201,11 +206,97 @@ No code changes are needed; for reference, the relevant pieces:
   page and jump **straight to Google**. The shared `runBrowserAuth()` then exchanges the
   returned code for tokens.
 - Requirements on the Keycloak **client** (§4) for this to work: **Standard flow = On**,
-  **PKCE = S256**, and the redirect URIs include `hungrycustomer://auth/callback` (plus the
-  `exp://…` dev URL).
+  **PKCE = S256**, and the redirect URIs include `hungrycustomer://auth/callback` — the same
+  value in dev and release builds, see the §4 caveat.
 - To show a **single page with both** email/password and a Google button instead of jumping
   straight to Google, remove the `kc_idp_hint` extra param — Keycloak then renders its hosted
   login page (which lists Google as a social button).
+
+#### What happens after the token exchange
+
+A Google sign-in never sees the e-mail verification screen, and only stops for a form on its
+**first** sign-in. The root navigator (`app/_layout.tsx`) decides, in this order:
+
+```
+tokens in hand
+  ├─ verification gate ....... SKIPPED for Google (see below)
+  ├─ customer record?
+  │    ├─ exists  ─────────────► straight into the app (or /location if it has no address)
+  │    └─ none (404) ─────────► /complete-profile ──► /map-select ──► /address-info ──► tabs
+```
+
+- **No verification screen.** Keycloak marks a brokered account's e-mail unverified unless the
+  Google IdP has **Trust Email = On** (§6.2), and the app used to route on that claim alone —
+  which sent every Google user to a code screen for a code that was never mailed. The session's
+  origin is now recorded at token-exchange time (`saveAuthMethod('google')` in
+  `services/keycloak/auth-service.ts`, persisted beside the tokens so it survives a restart)
+  and the gate is skipped for it. Turning **Trust Email** on is still the right setting; the
+  app simply no longer depends on it.
+- **`/complete-profile` creates the customer record.** Keycloak provisions the account itself
+  when brokering, so nothing ever called `POST /customers` for it and a lookup answers 404.
+  The screen asks for first name, last name and phone — pre-filling the name from the
+  `given_name`/`family_name` claims (falling back to splitting `name`) — and creates the record
+  through `POST /customers/me`. A phone number is always asked for: it is never in an OIDC
+  token. There is no password field, because the account has none.
+- **The record is not created before that form.** An earlier version created an empty record
+  right after login, which satisfied the "has a record" test with a nameless, phoneless
+  customer and left no later moment to ask. `resolveCustomerForAccount` now only reads.
+- **Then straight to the map.** `/location` is skipped — it exists to ask for the location
+  permission, which `/map-select` requests itself — so the user lands on the picker and
+  continues through the normal address onboarding.
+
+> Getting a Google account back to the first-run state for testing means deleting **both** the
+> Keycloak user and its customer record. Deleting only the Keycloak user leaves an orphaned
+> record that the next sign-in will not match; deleting only the record sends the account back
+> through `/complete-profile`, which is the useful half of the reset.
+
+### 6.3.1 `KC_HOSTNAME=localhost` and the emulator (dev only)
+
+Keycloak runs with `KC_HOSTNAME=http://localhost:8081`. That setting does **not** only affect
+the token issuer (§9) — it makes Keycloak stamp `localhost` into **every absolute URL it
+generates**, including the `/realms/hungry/broker/google/login` redirect in hop 1. So even if
+the app calls Keycloak on the LAN IP, Keycloak answers with a redirect to
+`http://localhost:8081/...`, and the phone/emulator browser dies there with
+*"localhost refused to connect"*.
+
+Password login is unaffected — it is a single `POST` to the token endpoint with no redirects.
+**Only the browser-based flows (Google, hosted registration) break.** That is the tell.
+
+Do **not** "fix" this by pointing `KC_HOSTNAME` at the LAN IP. It breaks two other things:
+1. Google rejects non-HTTPS redirect URIs except `http://localhost` (§6.1) — hop 2 would stop
+   working. `localhost` is what makes plain HTTP acceptable to Google in dev.
+2. The issuer would no longer match `KEYCLOAK_ISSUER_URI` on the gateway and hungry-app (§9).
+
+Instead, make the emulator's own `localhost:8081` reach Keycloak on the host:
+
+```bash
+adb reverse tcp:8081 tcp:8081
+# Windows: %LOCALAPPDATA%\Android\Sdk\platform-tools\adb.exe reverse tcp:8081 tcp:8081
+adb reverse --list   # verify; Metro's own tunnel is listed here too
+```
+
+and point the app at the same host, so the browser flow starts and ends on one origin:
+
+```bash
+EXPO_PUBLIC_KEYCLOAK_URL=http://localhost:8081
+```
+
+Both halves are required. If the app starts the flow on `192.168.x.x:8081` while Keycloak
+redirects to `localhost:8081`, the Keycloak session cookie is set on the wrong origin, is not
+sent on the next hop, and the login fails a step later with no useful error.
+
+> `EXPO_PUBLIC_*` values are inlined at **bundle** time — restart with `npx expo start -c`
+> after editing `.env`, a hot reload will not pick it up.
+
+> **Caveats.** `adb reverse` is per-device and does not survive an emulator restart or
+> `adb kill-server` — re-run it if Google login suddenly returns to the dead localhost page.
+> It also only works on an emulator or a USB-attached device. `EXPO_PUBLIC_API_URL` stays on
+> the LAN IP; only Keycloak needs this treatment, because only Keycloak redirects the browser.
+>
+> **On a physical device over Wi-Fi** there is no tunnel and no way to satisfy both Google and
+> the emulator with `localhost`. Put Keycloak behind an HTTPS tunnel (ngrok / Cloudflare), set
+> `KC_HOSTNAME` to that HTTPS URL, register it as the broker redirect in Google (§6.1), and
+> update `KEYCLOAK_ISSUER_URI` on the gateway and hungry-app to match (§9).
 
 ### 6.4 Test & troubleshoot
 
@@ -214,8 +305,14 @@ No code changes are needed; for reference, the relevant pieces:
 | `redirect_uri_mismatch` from Google | Google's Authorized redirect URI ≠ Keycloak broker endpoint. Copy it verbatim from the Keycloak provider page (§6.2.4). |
 | Google rejects the URI on save | Not HTTPS / using a LAN IP. Use `localhost` or an HTTPS tunnel (§6.1 warning). |
 | `Access blocked: app not verified` / only some accounts work | Consent screen still in **Testing** — add the account under **Test users**, or publish. |
-| Browser returns to app but not logged in | App-side redirect (`hungrycustomer://auth/callback` / `exp://…`) missing from the **client's** Valid redirect URIs (§4). |
+| Browser returns to app but not logged in | App-side redirect `hungrycustomer://auth/callback` missing from the **client's** Valid redirect URIs (§4). |
+| **"localhost refused to connect"** on `…/broker/google/login` | `KC_HOSTNAME=localhost` and nothing is listening on the device's `localhost:8081`. Run `adb reverse tcp:8081 tcp:8081` and set `EXPO_PUBLIC_KEYCLOAK_URL=http://localhost:8081` (§6.3.1). |
+| Redirect URI contains a host, e.g. `hungrycustomer://localhost:8081/auth/callback` | `makeRedirectUri` was called without `native`, so Metro's dev-server host leaked in (§4 caveat). |
+| Google login worked, then broke after an emulator restart | `adb reverse` does not persist — re-run it (§6.3.1). |
 | Lands on Keycloak login page instead of Google | `kc_idp_hint` not sent, or the provider alias isn't `google`. |
+| Google login lands on the **verification** screen | Stale build: the session's origin is recorded at token exchange, so re-login after updating. Setting **Trust Email = On** (§6.2) fixes the underlying `email_verified` claim too. |
+| Google login lands on **/complete-profile** every time | The record is not being created — check `POST /customers/me` in the Metro network log; a 4xx there leaves the lookup at 404 and the router sends the user straight back. |
+| Google user reaches the tabs with no name or phone | A customer record was created empty by an older build. Delete it so the account goes through `/complete-profile` again (§6.3). |
 
 ---
 
@@ -292,8 +389,11 @@ app ──► jfwk-gateway :8082 ──► hungry-app :8080 (internal network, n
 - **Issuer.** Keycloak runs with `KC_HOSTNAME=http://localhost:8081`, so it stamps
   `iss=http://localhost:8081/realms/hungry` into every token *regardless of the host the
   device used to log in* — which is exactly what the gateway and hungry-app are configured
-  to trust. Reaching Keycloak over the LAN IP therefore works unchanged; do not "fix" the
-  issuer to the LAN IP without changing `KEYCLOAK_ISSUER_URI` on both services.
+  to trust. Reaching Keycloak over the LAN IP therefore works unchanged **for the direct
+  password/refresh calls**; do not "fix" the issuer to the LAN IP without changing
+  `KEYCLOAK_ISSUER_URI` on both services. The same setting *does* break the browser-based
+  flows (Google, hosted registration), because Keycloak also puts `localhost` in the redirects
+  it generates — see §6.3.1 for why the fix is `adb reverse`, not a new `KC_HOSTNAME`.
 - **503 with `"hungry-app is currently unavailable"`** comes from the gateway's
   circuit-breaker fallback (4s time limiter), not from a bug in the app — it means
   hungry-app is down or slow to start.

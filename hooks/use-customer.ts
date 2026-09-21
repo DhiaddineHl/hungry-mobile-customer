@@ -1,5 +1,6 @@
 import { isApiError } from '@/services/api/client';
 import {
+  createCustomerForAccount,
   CustomerRegistration,
   getCustomerByAccount,
   registerCustomer,
@@ -10,7 +11,7 @@ import { customerKeys } from '@/services/api/query-keys';
 import { Customer, CustomerInput } from '@/services/api/types';
 import { useCustomerStore } from '@/store/customer-store';
 import { AddressData } from '@/types/location';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { QueryClient, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 /**
  * Shared query options for the customer-by-account fetch. Colocated so both
@@ -33,6 +34,69 @@ export function customerQueryOptions(keycloakUserId: string | null | undefined) 
     // Profile data rarely changes outside this device's own mutations.
     staleTime: 5 * 60 * 1000,
   };
+}
+
+/**
+ * Resolves the customer record for the logged-in account into the cache, and
+ * answers `null` when the backend has none.
+ *
+ * It deliberately does NOT create one. Accounts created by in-app signup
+ * always have a record (the backend writes both in a single transaction), so
+ * `null` means exactly one thing: a Keycloak-provisioned account — a Google
+ * sign-in — that has never been through a profile form. The router turns that
+ * `null` into the profile-completion screen, which is the only place the
+ * record is created, once there is a name and a phone number to put in it.
+ *
+ * Creating an empty record here instead (as this used to) would satisfy the
+ * "has a record" test with a nameless, phoneless customer and there would be
+ * no later moment at which to ask for those details.
+ */
+export async function resolveCustomerForAccount(
+  queryClient: QueryClient,
+  keycloakUserId: string
+): Promise<Customer | null> {
+  return queryClient.fetchQuery(customerQueryOptions(keycloakUserId));
+}
+
+/**
+ * Creates the customer record behind a social login, with the details the
+ * profile-completion screen collected (Google supplies the name; the phone
+ * number is never in an OIDC token, so it is always asked for).
+ *
+ * `POST /customers/me` rather than `POST /customers`: the Keycloak account
+ * already exists — Keycloak made it while brokering to Google — and the
+ * unauthenticated endpoint would answer 409 because it always provisions a
+ * new one. See `createCustomerForAccount`.
+ */
+export function useCompleteSocialProfile() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      firstName,
+      lastName,
+      email,
+      phoneNumber,
+    }: {
+      firstName: string;
+      lastName: string;
+      email?: string;
+      phoneNumber: string;
+    }) =>
+      createCustomerForAccount({
+        name: `${firstName} ${lastName}`.trim(),
+        fullname: { firstName, lastName },
+        contact: { email, phones: [phoneNumber] },
+      }),
+    onSuccess: (customer) => {
+      if (customer.keycloakUserId) {
+        useCustomerStore.getState().setAccount({
+          keycloakUserId: customer.keycloakUserId,
+          customerId: customer.id,
+        });
+        queryClient.setQueryData(customerKeys.detail(customer.keycloakUserId), customer);
+      }
+    },
+  });
 }
 
 /**

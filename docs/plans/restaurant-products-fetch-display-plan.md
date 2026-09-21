@@ -59,12 +59,144 @@ is real, tested and type-safe today and switches on with a one-line change:
 function menuScopeOf(restaurant: RestaurantDetail): MenuScope | null
 ```
 
-When the scope is `null`, `useRestaurantMenu` resolves to an explicit
-`{ status: 'unavailable', reason: 'no-catalog-link' }` and the screens render a clear
-"menu coming soon" state. That is honest, it is testable, and it does not fake data.
-
 **Do not** work around the gap by fetching all products and guessing ownership by name,
 keyword or category. That produces a menu that is silently wrong.
+
+### 2.3 UPDATE — the scope is resolvable today, without the backend change
+
+§2.1 remains the right fix, but it is no longer what the feature waits on. The back-office
+dashboard has the same missing relation and works around it with a **deterministic code
+convention**, which the mobile client can simply read back:
+
+```
+catalog          RESTAURANT-MENU-<restaurantId>
+catalog version  RESTAURANT-MENU-<restaurantId>-V1
+```
+
+(`hungry-frontend/src/hooks/useRestaurantMenu.ts` — `menuCatalogCode` / `menuVersionCode`.)
+This is not the guessing §2.2 forbids. The dashboard's `createMenuProduct` **creates** the
+catalog, version and category under exactly these codes the first time a restaurant is given
+a dish, so every menu that exists was filed under them. The codes resolve through the list
+endpoint's `codes` filter, because `read(identifier)` parses its argument as a UUID and
+cannot look anything up by code.
+
+`{ status: 'unavailable', reason: 'no-menu' }` therefore now means what it says — the
+menu was never created — rather than "the backend cannot tell us yet".
+
+### 2.3.1 SUPERSEDED — a menu is a CATEGORY, not a catalog
+
+The back-office changed the convention, and the client follows it
+(`hungry-frontend/src/hooks/useRestaurantMenu.ts`, `menuCategoryCode` /
+`ensureMenuSection` / `loadRestaurantMenu`). The whole platform now stages its products in
+ONE catalog and ONE catalog version — resolved from `VITE_DEFAULT_CATALOG_VERSION_CODE` —
+and a restaurant's menu is a category inside them:
+
+```
+menu category            RESTAURANT-MENU-<restaurantId>   (one per restaurant)
+  └── section categories Pizzas, Drinks, …                (supercategory = the menu)
+        └── products
+```
+
+Two consequences for the client, both implemented in `services/api/menu-service.ts` and
+`fetchMenu`:
+
+- **The catalog scope is no longer a scope.** Every restaurant shares that catalog version,
+  so `filter={"catalogVersionId":"…"}` returns the whole platform's dishes. The client no
+  longer sends either catalog field, and `menuScopeOf` — the §2.1 fast path — is gone along
+  with `catalogId` / `catalogVersionId` on `RestaurantDetail`: a restaurant-level catalog
+  link could not identify a menu even if the backend served one.
+- **Products are read section by section.** `ProductFilter.categoryId` takes one category,
+  so a menu costs one request per section, run in parallel and merged (a dish filed under
+  two sections is kept once). Sections come from `supercategoryId` = the menu category.
+
+`RESTAURANT-MENU-<restaurantId>` survives as the code, but it now names the menu CATEGORY.
+A menu category with no section is an EMPTY menu, not a missing one — only a missing
+category is `unavailable`.
+
+### 2.4 Both product subtypes must be fetched
+
+`Product` is SINGLE_TABLE with `@DiscriminatorColumn(product_type)`: `StandardProduct` is 1,
+`ConfigurableProduct` is 2. A menu holds both, and the difference is an ordering one —
+a standard dish is added to the cart directly, a configurable one asks for choices first.
+
+Reading only `/configurable-products/all` therefore drops every standard dish. But
+`/products/all`, which is polymorphic and returns both, exposes neither `configuration` nor
+the discriminator itself — `ProductOutputData` carries no `productType` field. Neither
+endpoint alone is enough, so `fetchMenu` issues both over the same filter and matches on
+id: the base call is the menu, the configurable call is the lookup that labels it and
+supplies the addons.
+
+Adding `productType` to `ProductOutputData` would collapse this into one request. The
+back-office frontend already declares the field and renders a "Configurable" badge on it,
+which is dead code until the backend sends it.
+
+#### RESOLVED — `productType` now ships
+
+`ProductOutputData` carries `private Integer productType`, and
+`ProductBaseInversePopulator.resolveProductType` derives it from the runtime subtype
+(`ConfigurableProduct` → 2, `StandardProduct` → 1, anything else → `null`). Because the
+base populator is what the configurable populator delegates to, the field is present on
+`/products/**` and `/configurable-products/**` alike.
+
+Two things follow, both implemented:
+
+- **`fetchMenu` is one request.** `/products/all` returns every dish already labelled.
+  The parallel `/configurable-products/all` lookup existed only to recover the subtype by
+  id membership and is gone. Nothing was lost with it — see §2.5, a list endpoint never
+  carried usable addons in the first place.
+- **`fetchProductById` asks the discriminator instead of guessing.** It reads
+  `/products/{id}` first (polymorphic, so it answers for every dish) and only then, for
+  discriminator 2, `/configurable-products/{id}` — whose sole remaining value is the
+  configuration id. The previous order tried the configurable route first and read its
+  **500** as "then it must be standard", which cost two requests for every standard dish
+  and, worse, could not tell a real fault on a configurable dish from a standard one: the
+  dish would silently render without the choices it requires.
+
+`isConfigurableType` in `services/api/product-service.ts` is the single place the numbers
+are read. Anything that is not exactly 2 — `null` included — is standard, which is the
+safe direction: a dish mislabelled standard is still orderable at its base price, whereas
+one mislabelled configurable opens a sheet with nothing in it.
+
+### 2.5 Addon groups — RESOLVED, one request
+
+Displaying a configurable dish's choices needs the groups and their options.
+`AttributeGroupController` on `/attribute-groups` now serves both, and the mobile client
+reads a whole dish's configuration in ONE request:
+
+```
+GET /attribute-groups/all
+    ?filter={"productConfigurationId":"<uuid>"}
+    &sort=[{"field":"createdAt","direction":"ASC"}]
+```
+
+Each group comes back with `required` set and its options nested, every option carrying
+its own prices. `services/api/configuration-service.ts` is the whole client side of it.
+
+The routes nearby are dead ends for this, worth recording so nobody tries to save the
+round-trip through them:
+
+| Read | Returns | Missing |
+| --- | --- | --- |
+| `/configurable-products/{id}` | `configuration` with id/code/name/description | its `attributes` — `ConfigurableProductBaseInversePopulator` builds a fresh output object and never copies the groups across. Its one use is supplying the configuration id |
+| `/product-configurations/{id}` | the groups, `required` included | each group's `attributes` — `ProductConfigurationBaseInversePopulator` stops at the group's own fields |
+| `/attributes/all` | the options, with prices | nothing, but `AttributeFilter` narrows by `attributeGroupId` only — one group at a time |
+
+Before the controller existed the client walked the last two: a configuration read plus a
+request per group. It was also moot — the back-office POSTs to `/attribute-groups` to
+create a group, so with no controller its `tryPersistAttributeGroups` failed on every save
+and no configurable dish had any groups at all.
+
+Two details of the backend work that the client depends on:
+
+- **Options are ordered server-side.** `AttributeGroup.attribute` carries
+  `@OrderBy("createdAt ASC")`. A `List` with no `@OrderBy` comes back in whatever order the
+  database returns, so a customer could watch a dish's options reshuffle between loads.
+  The client orders the GROUPS itself, via the `sort` above.
+- **There is no PUT on `/attribute-groups`.** `DefaultCrudService.update` returns `null`
+  without touching the repository — only `CustomerCrudService` and `DriverCrudService`
+  implement it — so a mapped PUT would answer 200, an empty body, and no write. The
+  mapping is omitted so callers get a 405 instead. This is framework-wide: every other
+  controller's PUT has the same no-op behaviour, they just expose it.
 
 ## 3. Ground truth — verified against the running backend
 
@@ -154,9 +286,19 @@ of backend `1e167ed`, `coverImageUrl` as well; products got nothing. Two options
 - **A placeholder asset**, with the real image wired when the backend adds an image field
   or a batch files endpoint.
 
-**Recommendation: placeholder for list views, and the files call only on the food-detail
-screen**, where it is a single request for a single product. Do not fan out `/files/` calls
-across a menu grid.
+**Original recommendation: placeholder for list views, and the files call only on the
+food-detail screen.**
+
+**Revised (menu artwork).** A menu of neutral grey squares is not a menu, and neither of
+the two cheaper shapes exists yet — `ProductOutputData` still has no image field, and
+`/files` still offers no batch read. So the fan-out is paid, deliberately, and confined to
+one hook: `useProductImageSources` in `hooks/use-products.ts`. What keeps it bounded is
+that the screen passes only the ids it is rendering (a tab filter narrows them), the hook
+de-duplicates a dish that appears in two sections, and every answer shares the cache entry
+the food-detail screen reads — so opening a dish costs no image request, and returning to
+the menu costs none for 30 minutes. The placeholder still fills the gap while a request is
+in flight and permanently for a dish with no photo. **When the backend grows a product
+image field or a batch files endpoint, that hook is the only place that changes.**
 
 ### 3.6 Price selection — the core logic of this task
 
@@ -182,6 +324,9 @@ Take `now` as an injected parameter so tests are deterministic.
 
 ### 3.7 Addon mapping and what is missing
 
+The groups do NOT arrive with the product — see §2.5 for where each piece is read from.
+`toAddonGroups` therefore takes the resolved groups, not a product.
+
 `AttributeGroup` → the UI's `AddonGroupData`, `Attribute` → `AddonOption`:
 
 | UI field | Backend source |
@@ -191,14 +336,26 @@ Take `now` as an injected parameter so tests are deterministic.
 | `required` | `AttributeGroup.required` ✅ |
 | `options[].id`, `.name` | `Attribute.id`, `.name` |
 | `options[].price` | `Attribute.prices` via §3.6, rendered as `"+2 DT"` |
-| `type` (`checkbox`\|`radio`) | ❌ **no backend field** |
+| `type` (`checkbox`\|`radio`) | `AttributeGroup.selectionType` ✅ — see the update below |
 | `maxSelect` | ❌ **no backend field** |
 | `options[].isPopular` | ❌ **no backend field** |
 
-Default `type: 'checkbox'` and leave `maxSelect`/`isPopular` undefined, collected in an
-`UNBACKED_ADDON_FIELDS` constant mirroring RESTO-01's `UNBACKED_FIELDS`. A single-select
-group cannot be distinguished from a multi-select one today — say so in a comment rather
-than guessing from the group name.
+Leave `maxSelect`/`isPopular` undefined, collected in an `UNBACKED_ADDON_FIELDS` constant
+mirroring RESTO-01's `UNBACKED_FIELDS`.
+
+#### UPDATE — `selectionType` ships, so `type` is backed
+
+`AttributeGroupOutputData` carries `selectionType` (`SINGLE` | `MULTIPLE`), and the
+back-office writes it on every group it creates (`selectionType ?? 'SINGLE'`). `SINGLE`
+maps to a radio group, everything else to a checkbox group (`addonGroupType`), and the
+tap rule that follows from it — replace vs. toggle — is `toggleAddonSelection`, which the
+food screen applies.
+
+An unspecified value renders as a CHECKBOX. `null` does not mean "the restaurant did not
+choose", since the back-office always sends one; it means the value never reached us. That
+silence must not cap every topping group at one choice, whereas the opposite error only
+permits a second choice the group should not take. There is still no `maxSelect`, so a
+multi-select group remains uncapped.
 
 ### 3.8 Menu sections
 
@@ -237,15 +394,15 @@ handling in `services/api/client.ts`, and the query-key factory style in `query-
 | `services/api/product-view-model.ts` | Price selection, currency formatting, addon mapping, section grouping |
 | `hooks/use-products.ts` | `useRestaurantMenu`, `useProduct` |
 | `components/restaurant/menu-section-skeleton.tsx` | Loading placeholder |
-| `components/restaurant/menu-unavailable.tsx` | The §2.2 "no catalog link" state |
+| `components/restaurant/menu-unavailable.tsx` | The §2.3.1 "no menu category" state |
 
 **Modified**
 
 | File | Change |
 | --- | --- |
-| `schemas/restaurant.ts` | Add the optional `catalogVersionId` / `catalogId` the backend will expose |
-| `services/api/restaurant-view-model.ts` | Add `menuScopeOf()` |
-| `services/api/query-keys.ts` | Add `productKeys` |
+| `schemas/restaurant.ts` | No catalog link — see §2.3.1; the menu is found through its category |
+| `services/api/menu-service.ts` | Resolve the menu category + its sections (§2.3.1) |
+| `services/api/query-keys.ts` | Add `productKeys` and `menuKeys` |
 | `components/restaurant/product-card.tsx` | `image: any` → typed; price/rating props optional |
 | `components/restaurant/menu-section.tsx` | Accept the view-model product type |
 | `components/restaurant/menu-filter-tabs.tsx` | Tabs from categories, not hardcoded |
@@ -265,10 +422,11 @@ The harness exists after RESTO-01 Phase 1 — do not reinstall it. Priorities:
    currency falling back safely.
 3. **Addon mapping** — group with `required: true`; empty attribute list; an attribute whose
    prices are all restricted out; `type` defaulting to `checkbox`.
-4. **Menu scope** — `menuScopeOf` returns `null` when the restaurant carries no catalog
-   link, and a scope when it does.
-5. **Service layer** — filter JSON for `catalogVersionId` + `categoryId`; that no `keyword`
-   filter is ever emitted; 500-on-valid-UUID → not-found; schema-invalid response throws.
+4. **Menu scope** — `fetchMenuScope` returns `null` when the restaurant has no menu
+   category, and a scope (sections included, possibly empty) when it does.
+5. **Service layer** — filter JSON for `categoryId` and nothing else that scopes; one
+   request per section, merged and de-duplicated; that no `keyword` filter is ever emitted;
+   500-on-valid-UUID → not-found; schema-invalid response throws.
 6. **Component smoke tests** — a product card with no price renders without crashing and
    without an add-to-cart affordance.
 

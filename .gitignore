@@ -42,3 +42,6 @@ app-example
 /ios
 /android
 .env
+
+# Firebase service-account keys (admin secrets — uploaded to EAS via `eas credentials`, never committed)
+*firebase-adminsdk*.json

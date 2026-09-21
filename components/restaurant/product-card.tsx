@@ -1,21 +1,31 @@
 import { View, Text, StyleSheet } from 'react-native';
-import { Image } from 'expo-image';
+import { Image, type ImageSource } from 'expo-image';
 import { ThumbsUp } from 'lucide-react-native';
 import { Fonts, FontSize, Palette, Radius, Spacing } from '@/constants/theme';
+import { PRODUCT_IMAGE_PLACEHOLDER } from '@/constants/images';
 import { PressableScale } from '@/components/ui/pressable-scale';
 
 // Fixed width so cards form a horizontal carousel that hints at more items.
 const CARD_WIDTH = 152;
 
+/**
+ * A card's artwork: an `expo-image` source (a backend URL, with the bearer
+ * headers `/files/**` needs) or a bundled `require(...)` module id. Never
+ * `any` — the two shapes are not interchangeable at the call site.
+ */
+export type ProductImage = ImageSource | number;
+
 interface ProductCardProps {
   id: string;
   name: string;
-  price: string;
+  /** Absent when no price applies right now — see `selectPrice`. */
+  price?: string;
   originalPrice?: string;
   discount?: string;
   rating?: string;
   reviewCount?: string;
-  image: any;
+  /** Absent when the product has no artwork; the placeholder fills in. */
+  image?: ProductImage;
   onPress?: () => void;
 }
 
@@ -37,7 +47,11 @@ export function ProductCard({
       accessibilityLabel={name}
     >
       <View style={styles.imageContainer}>
-        <Image source={image} style={styles.image} contentFit="cover" />
+        <Image
+          source={image ?? { uri: PRODUCT_IMAGE_PLACEHOLDER }}
+          style={styles.image}
+          contentFit="cover"
+        />
         {discount && (
           <View style={styles.discountBadge}>
             <Text style={styles.discountText}>{discount}</Text>
@@ -46,15 +60,21 @@ export function ProductCard({
       </View>
       <View style={styles.infoContainer}>
         <Text style={styles.name} numberOfLines={2}>{name}</Text>
-        <View style={styles.priceRow}>
-          <Text style={styles.price}>{price}</Text>
-          {originalPrice && (
-            <Text style={styles.originalPrice}>{originalPrice}</Text>
-          )}
-        </View>
+        {price ? (
+          <View style={styles.priceRow}>
+            <Text style={styles.price}>{price}</Text>
+            {originalPrice && (
+              <Text style={styles.originalPrice}>{originalPrice}</Text>
+            )}
+          </View>
+        ) : (
+          // No applicable price means unorderable, not free — say so rather
+          // than leaving a blank where a number belongs.
+          <Text style={styles.unavailable}>Currently unavailable</Text>
+        )}
         {rating && (
           <View style={styles.ratingRow}>
-            <ThumbsUp size={12} color="#F5A623" />
+            <ThumbsUp size={12} color={Palette.warning} />
             <Text style={styles.rating}>{rating}</Text>
             {reviewCount && <Text style={styles.reviewCount}>({reviewCount})</Text>}
           </View>
@@ -119,6 +139,11 @@ const styles = StyleSheet.create({
     fontFamily: Fonts.regular,
     color: Palette.textMuted,
     textDecorationLine: 'line-through',
+  },
+  unavailable: {
+    fontSize: FontSize.sm,
+    fontFamily: Fonts.medium,
+    color: Palette.textMuted,
   },
   ratingRow: {
     flexDirection: 'row',

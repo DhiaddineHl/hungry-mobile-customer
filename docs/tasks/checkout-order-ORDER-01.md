@@ -1,7 +1,7 @@
 ---
 suffix: ORDER-01
 title: Checkout — fee modals, payment method, and order creation
-status: todo
+status: done
 plan: docs/plans/checkout-order-creation-plan.md
 depends_on: CART-01
 ---
