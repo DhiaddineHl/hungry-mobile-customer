@@ -14,7 +14,6 @@ import {
 import {
   addonAmounts,
   groupBySection,
-  selectPrice,
   toAddonGroups,
   type MenuSectionData,
 } from '@/services/api/product-view-model';
@@ -272,56 +271,6 @@ export function useProductImageUrl(id: string | null | undefined) {
 
 /** Stable identity so an empty menu does not re-run the memos below. */
 const EMPTY_IDS: string[] = [];
-
-/**
- * Flattens per-product results to the product (or `null`) each id resolved to.
- *
- * Module-level for the identity reason `collectImagePaths` documents:
- * `useQueries` re-runs `combine` whenever the function itself is new.
- */
-function collectProducts(
-  results: UseQueryResult<MenuProductOutput | null, Error>[]
-): (MenuProductOutput | null)[] {
-  return results.map((result) => result.data ?? null);
-}
-
-/**
- * Today's unit price for each product, keyed by product id.
- *
- * **This is the menu price NOW, not the price anyone paid.** It exists for one
- * caller: a placed order whose prices this device never captured (see
- * `store/order-price-store.ts`). The backend keeps no price on an order and no
- * history on a `Price`, so a dish repriced since resolves to its new amount —
- * which is why every screen using this must say the number is a menu price.
- *
- * `null` for a product that could not be resolved, or that has no applicable
- * price right now: unknown, never free. Ids are de-duplicated, so a dish
- * ordered on two lines costs one request, and each answer is the same cache
- * entry the menu and the dish screen already use.
- *
- * Pass an empty list to fetch nothing — which is what the order screen does
- * whenever it has a receipt to read instead.
- */
-export function useMenuUnitPrices(productIds: string[] = EMPTY_IDS) {
-  const ids = useMemo(
-    () => Array.from(new Set(productIds.filter(isUuid))),
-    [productIds]
-  );
-
-  const products = useQueries({
-    queries: ids.map((id) => productQueryOptions(id)),
-    combine: collectProducts,
-  });
-
-  return useMemo(() => {
-    const now = new Date();
-    const prices = new Map<string, number | null>();
-    products.forEach((product, index) => {
-      prices.set(ids[index], product ? (selectPrice(product.prices, now)?.amount ?? null) : null);
-    });
-    return prices;
-  }, [ids, products]);
-}
 
 /**
  * Flattens the per-product results to one path (or `null`) per id, in the

@@ -1,5 +1,13 @@
 # Plan — Cart: Adding Products and Persisting Carts in the Backend
 
+> **SUPERSEDED (2026-09-25) — the cart is now the server's.** This plan describes an app-owned
+> cart (a persisted local store, plus a thin copy synced with delete-then-POST). That whole model
+> is gone: the backend cart is the single source of truth, changed through
+> `POST/PUT/DELETE /carts/active/…` and recalculated on every change (promotions, delivery,
+> service and additional fees). See [`server-cart-checkout.md`](./server-cart-checkout.md). The
+> defects listed here (`PUT /carts` no-op, broken filters, code scheme) no longer matter to the app,
+> which never calls the generic cart routes any more.
+
 **Status:** Ready for implementation — with two backend gaps, see §2
 **Task file:** [`docs/tasks/cart-sync-CART-01.md`](../tasks/cart-sync-CART-01.md) — trigger with `/task "CART-01"`
 **Depends on:** [`MENU-01`](../tasks/restaurant-products-MENU-01.md) — must be `status: done` first (which in turn requires `RESTO-01`)

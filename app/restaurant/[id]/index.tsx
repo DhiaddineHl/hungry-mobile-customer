@@ -15,11 +15,12 @@ import {
   useProductImageSources,
   useRestaurantMenu,
 } from "@/hooks/use-products";
+import { useActiveCart } from "@/hooks/use-cart";
 import { useRestaurantImageSource } from "@/hooks/use-restaurant-image";
 import { useRestaurant } from "@/hooks/use-restaurants";
 import { imageAuthHeaders } from "@/services/api/image-url";
 import { toTimingRows } from "@/services/api/restaurant-view-model";
-import { formatDT, useCartStore } from "@/store/cart-store";
+import { formatDT } from "@/services/api/money";
 import { useFavoritesStore, useIsFavorite } from "@/store/favorites-store";
 import { Image } from "expo-image";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -204,14 +205,18 @@ export default function RestaurantDetailsScreen() {
   // the cart is summarised in a floating bar — a direct way to the cart, and
   // a cue that something from this menu is already in it. Lines from other
   // restaurants are deliberately not counted: the bar is about this menu.
-  const cartItems = useCartStore((s) => s.items);
+  // The cart is the server's: the lines and their totals are what it last
+  // calculated, and this bar only sums the ones from this restaurant.
+  const { data: activeCart } = useActiveCart();
   const restaurantCart = useMemo(() => {
-    const lines = cartItems.filter((line) => line.restaurantId === restaurantId);
+    const lines = (activeCart?.items ?? []).filter(
+      (line) => !line.giftItem && line.restaurantId === restaurantId
+    );
     return {
       itemCount: lines.reduce((sum, line) => sum + line.quantity, 0),
-      total: lines.reduce((sum, line) => sum + line.unitPrice * line.quantity, 0),
+      total: lines.reduce((sum, line) => sum + line.lineTotal, 0),
     };
-  }, [cartItems, restaurantId]);
+  }, [activeCart, restaurantId]);
   const showCartBar = restaurantCart.itemCount > 0;
 
   const handleBackPress = () => router.back();

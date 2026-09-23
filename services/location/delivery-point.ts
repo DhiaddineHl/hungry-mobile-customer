@@ -1,4 +1,4 @@
-import type { OrderDeliveryAddressInput } from '@/schemas/order';
+import type { CartDeliveryAddressInput } from '@/schemas/cart';
 import type { LocationCoords } from '@/types/location';
 import * as Location from 'expo-location';
 
@@ -13,10 +13,10 @@ import * as Location from 'expo-location';
  * ## Why a re-pinned point is NOT saved
  *
  * A point picked at checkout is where THIS order goes, not a new address the
- * customer wants to keep. It travels on the order itself as
- * `OrderInput.deliveryAddress` (see {@link toOrderDeliveryAddress}) and the
- * backend files it on the order alone — the customer's saved addresses are
- * never touched, so nudging the pin for one delivery cannot move "Home" or
+ * customer wants to keep. It is written to the cart as its
+ * `deliveryAddress` (see {@link toOrderDeliveryAddress}) and the backend files it
+ * on the cart and the orders made from it alone — the customer's saved addresses
+ * are never touched, so nudging the pin for one delivery cannot move "Home" or
  * grow the saved list.
  */
 
@@ -101,7 +101,7 @@ export async function describeCoordinates(coords: LocationCoords): Promise<strin
 }
 
 /**
- * The picked point as the one-off delivery address of an order.
+ * The picked point as the one-off delivery address of the cart (and so of its orders).
  *
  * Coordinates and a readable line, nothing more: no floor, door or building —
  * those belong to an address the customer typed and saved, and a point tapped
@@ -111,7 +111,7 @@ export async function describeCoordinates(coords: LocationCoords): Promise<strin
 export function toOrderDeliveryAddress(
   coords: LocationCoords,
   addressText: string
-): OrderDeliveryAddressInput {
+): CartDeliveryAddressInput {
   return {
     formattedAddress: addressText.trim() || formatCoordinates(coords),
     coordinates: { latitude: coords.latitude, longitude: coords.longitude },

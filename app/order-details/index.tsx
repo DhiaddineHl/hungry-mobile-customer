@@ -1,31 +1,26 @@
+import { OrderSummary } from '@/components/cart';
 import { DeliveryFeeModal, PaymentMethodModal, ServiceFeeModal } from '@/components/checkout';
 import { DeliveryLocationCard, OrderInfoRow, OrderRestaurantRow } from '@/components/order';
 import { PressableScale } from '@/components/ui/pressable-scale';
-import { DELIVERY_FEE, DELIVERY_FEE_WAIVED, SERVICE_FEE } from '@/constants/fees';
 import { paymentMethodLabel } from '@/constants/payment-methods';
 import { Fonts, FontSize, Palette, Radius, Spacing } from '@/constants/theme';
+import { useActiveCart, useIsCartUpdating, useUpdateCheckoutOptions } from '@/hooks/use-cart';
+import { useCartArtwork } from '@/hooks/use-cart-artwork';
+import { useCheckout } from '@/hooks/use-checkout';
 import { formatAddressName, useDeliveryAddress } from '@/hooks/use-delivery-address';
-import { PartialCheckoutError, useCreateOrders } from '@/hooks/use-orders';
-import { useStoredImageSource } from '@/hooks/use-restaurant-image';
-import { restaurantQueryOptions } from '@/hooks/use-restaurants';
 import { useReverseGeocode } from '@/hooks/use-reverse-geocode';
-import {
-  checkoutBlockers,
-  checkoutTotals,
-  toOrderInput,
-  type CheckoutBlocker,
-} from '@/services/api/order-view-model';
+import { blockerMessage, discountPromotions, groupCartByRestaurant } from '@/services/api/cart-view-model';
+import { blockersOf } from '@/services/api/checkout-service';
+import { formatDT } from '@/services/api/money';
 import {
   coordinatesDiffer,
   toOrderDeliveryAddress,
 } from '@/services/location/delivery-point';
-import { formatDT, groupByRestaurant, useCartStore } from '@/store/cart-store';
 import { usePaymentMethodStore } from '@/store/payment-method-store';
 import type { LocationCoords } from '@/types/location';
-import { useQueries } from '@tanstack/react-query';
 import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
-import { ArrowLeft, DollarSign, Info, Phone } from 'lucide-react-native';
-import { useMemo, useState } from 'react';
+import { ArrowLeft, DollarSign, Phone } from 'lucide-react-native';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -33,20 +28,21 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
  * Checkout for the WHOLE cart. No route param: there is one cart, and the
  * orders do not exist until the customer taps Continue.
  *
- * ONE cart, ONE order PER RESTAURANT. The backend `Order` has a single
- * `restaurant`, so a cart drawn from three restaurants is placed as three
- * orders, one after the other (`placeCheckoutOrders`). All of them go to the
- * same delivery point and carry the same payment method; what differs is the
- * lines, and the fees — service and delivery are charged per order, which the
- * price block shows as `N × fee` rather than hiding in a total.
+ * The cart is the server's, and so is every figure here: the summary shows
+ * the fees, discounts and totals the backend calculated, and "Continue to
+ * Checkout" is a single `POST /checkout` with NO parameters — the server turns
+ * the cart into one order per restaurant, atomically. What the customer decides
+ * on this screen (the delivery point, the payment method) is written to the
+ * cart as it changes, so the server prices the delivery from the address the
+ * customer actually sees and the checkout reads it back from the cart.
  *
- * Everything on this screen has a real source (plan §4.3,
- * `docs/plans/checkout-order-creation-plan.md`): each restaurant from
- * `restaurantQueryOptions`, the lines and subtotals from the cart store, the
- * address and phone from the customer record, the payment method from its
- * store, and the fees from `constants/fees.ts`.
+ * There is no partial failure to handle: either every restaurant's order is
+ * created or none is. A failed attempt leaves the cart as it was and offers a
+ * MANUAL retry — nothing here retries on its own, because a create that
+ * reached the database dispatches a driver and a duplicate order is a
+ * duplicate delivery.
  *
- * Two things the previous mock showed are deliberately GONE rather than
+ * Two things an earlier mock showed are deliberately GONE rather than
  * re-sourced:
  *
  *   - the estimated time and arrival time. No ETA, prep-time or estimate field
@@ -54,36 +50,13 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
  *     convention the rows render nothing instead of an invented number;
  *   - the totals row's `Delivery Fee` label, which named the row above it while
  *     showing the total. It reads `Total`.
- *
- * A failed create leaves the cart completely intact and offers a MANUAL retry.
- * Nothing here retries on its own: a create that reached the database enqueues
- * a driver, so a duplicate order is a duplicate delivery (plan §3.6).
  */
 
-/**
- * What to tell the customer, and where to send them, for each preflight
- * blocker. Wording is the app's own — the server's failure body says only
- * "A populator has failed (N errors occurred)" and is never relayed.
- */
-const BLOCKER_COPY: Record<CheckoutBlocker, { message: string; action?: string }> = {
-  'no-customer': { message: 'Loading your account…' },
-  'no-address': {
-    message: 'Add a delivery address to continue.',
-    action: 'Add address',
-  },
-  'no-address-coords': {
-    message: 'Pick your address on the map so a driver can find it.',
-    action: 'Set on map',
-  },
-  'no-restaurant': { message: 'Loading the restaurant…' },
-  'no-restaurant-coords': {
-    message: 'This restaurant has no map location yet, so it cannot be delivered from.',
-  },
-  'empty-cart': { message: 'Your cart is empty.' },
+/** What the customer can do about a blocker: only the address ones have a fix on this screen. */
+const BLOCKER_ACTIONS: Record<string, string> = {
+  NO_DELIVERY_ADDRESS: 'Add address',
+  NO_ADDRESS_COORDINATES: 'Set on map',
 };
-
-/** The blockers whose fix is the address flow rather than an error message. */
-const ADDRESS_BLOCKERS: CheckoutBlocker[] = ['no-address', 'no-address-coords'];
 
 /**
  * The slice of the navigation object `goToPlacedOrder` needs: one stack reset,
@@ -116,17 +89,16 @@ export default function OrderDetailsScreen() {
   const [feeSheet, setFeeSheet] = useState<'service' | 'delivery' | null>(null);
   const [paymentSheetVisible, setPaymentSheetVisible] = useState(false);
   /**
-   * The last checkout attempt's failure, if any. A `PartialCheckoutError`
-   * means SOME orders were placed — those lines are already gone from the
-   * cart — and the message has to say so, or the customer would think nothing
-   * happened and go looking for food that is already on its way.
+   * The last checkout attempt's failure, if any. Nothing was placed when it
+   * failed — the checkout is atomic — so the cart is exactly as it was.
    */
   const [failure, setFailure] = useState<Error | null>(null);
   /**
-   * A delivery point the customer confirmed for THIS order — dragged or picked,
-   * then "Deliver here". Screen state only: it is sent with the order as its
-   * own `deliveryAddress` and is never written to the customer's saved
-   * addresses. Leaving the screen forgets it, which is right for a one-off.
+   * A delivery point the customer confirmed for THIS cart — dragged or picked,
+   * then "Deliver here". It is written to the cart (see the sync effect below)
+   * so the server prices the delivery from it and places the orders there, and
+   * it is never added to the customer's saved addresses. Restored from the cart
+   * when the screen opens, so a point picked earlier is not forgotten.
    */
   const [customPoint, setCustomPoint] = useState<{
     coords: LocationCoords;
@@ -142,22 +114,20 @@ export default function OrderDetailsScreen() {
    */
   const [dismissedPickKey, setDismissedPickKey] = useState<string | null>(null);
 
-  const items = useCartStore((s) => s.items);
-  // One group per restaurant — and one order per group, in this order.
-  const groups = useMemo(() => groupByRestaurant(items), [items]);
+  // The cart, as the server last calculated it. One group per restaurant — and
+  // one order per group, in this order.
+  const { data: cart } = useActiveCart();
+  const groups = useMemo(() => groupCartByRestaurant(cart), [cart]);
+  const artwork = useCartArtwork(cart);
+  const isUpdating = useIsCartUpdating();
+  const { mutate: syncCheckoutOptions } = useUpdateCheckoutOptions();
 
   const { customer, selected: selectedAddress } = useDeliveryAddress();
-  // Every restaurant in the cart, for its coordinates (a preflight blocker)
-  // and its logo. One query each; the number is small and they run together.
-  const restaurantQueries = useQueries({
-    queries: groups.map((group) => restaurantQueryOptions(group.restaurantId)),
-  });
   const pickedName = useReverseGeocode();
   const paymentMethod = usePaymentMethodStore((s) => s.method);
   const setPaymentMethod = usePaymentMethodStore((s) => s.setMethod);
-  const toImageSource = useStoredImageSource();
 
-  const createOrders = useCreateOrders();
+  const checkout = useCheckout();
 
   // The saved address this order would go to by default. `useDeliveryAddress`
   // resolves the selected entry, falling back to the customer's default
@@ -185,6 +155,64 @@ export default function OrderDetailsScreen() {
   const deliveryAddress = customPoint
     ? toOrderDeliveryAddress(customPoint.coords, customPoint.text)
     : null;
+
+  // ---- Keeping the cart's checkout options in step with what the customer sees ----
+  //
+  // The delivery point and the payment method are part of the CART, not of the
+  // checkout call (which takes no parameters). Delivery fees depend on the
+  // address, so a change is written the moment it is made and the recalculated
+  // cart comes back with the new fees; the customer never sees a price for an
+  // address other than the one on the map.
+
+  /**
+   * Restores a point picked earlier in this cart, once, before anything is
+   * written back. Done while rendering (guarded, so it runs a single time)
+   * rather than in an effect: the restored point and the "restored" flag land
+   * in the same render, so the write-back effect below never sees one without
+   * the other and cannot clear the server's point before it is restored.
+   */
+  const [hydrated, setHydrated] = useState(false);
+  if (!hydrated && cart) {
+    setHydrated(true);
+    const point = cart.deliveryAddress?.coordinates;
+    if (typeof point?.latitude === 'number' && typeof point?.longitude === 'number') {
+      setCustomPoint({
+        coords: { latitude: point.latitude, longitude: point.longitude },
+        text: cart.deliveryAddress?.formattedAddress ?? '',
+      });
+    }
+  }
+
+  /** The point (rounded) and payment method as the cart holds them, and as the customer has them. */
+  const pointKey = (lat?: number | null, lng?: number | null) =>
+    typeof lat === 'number' && typeof lng === 'number' ? `${lat.toFixed(5)},${lng.toFixed(5)}` : '';
+  const desiredKey = `${pointKey(customPoint?.coords.latitude, customPoint?.coords.longitude)}|${paymentMethod}`;
+  const serverKey = cart
+    ? `${pointKey(cart.deliveryAddress?.coordinates?.latitude, cart.deliveryAddress?.coordinates?.longitude)}|${cart.paymentMethod ?? ''}`
+    : null;
+  /** False from the moment the customer changes something until the server's cart reflects it. */
+  const optionsInSync = hydrated && serverKey === desiredKey;
+
+  // The last thing sent, so a failed write is not retried in a loop by the effect re-running.
+  const lastSentKey = useRef<string | null>(null);
+  useEffect(() => {
+    if (!cart || !hydrated || isUpdating) return;
+    if (serverKey === desiredKey) {
+      lastSentKey.current = null;
+      return;
+    }
+    if (lastSentKey.current === desiredKey) return;
+    lastSentKey.current = desiredKey;
+    syncCheckoutOptions({
+      deliveryAddress,
+      paymentMethod,
+      // Not edited on this screen; carried through because the write replaces all four.
+      comment: cart.comment ?? null,
+      couponCode: cart.couponCode ?? null,
+    });
+    // `deliveryAddress` is derived from `customPoint`, which `desiredKey` already covers.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cart, hydrated, isUpdating, desiredKey, serverKey, paymentMethod, syncCheckoutOptions]);
 
   /**
    * A point handed back by the full-screen picker, as route params.
@@ -304,92 +332,52 @@ export default function OrderDetailsScreen() {
   };
 
   /**
-   * Each restaurant as the order rows and the payload see it: the fetched
-   * detail when it has arrived, the cart's own copy of the name and logo
-   * meanwhile, so the rows never flash a placeholder.
+   * Each restaurant as the order rows see it: the name and logo the cart already
+   * carries, so the rows never flash a placeholder while a picture loads.
    */
-  const restaurants = groups.map((group, index) => {
-    const query = restaurantQueries[index];
-    const detail = query?.data ?? null;
-    return {
-      id: group.restaurantId,
-      /** Still being fetched — not yet known to lack coordinates. */
-      isLoading: !!query?.isPending,
-      name: detail?.name ?? group.restaurantName ?? 'Restaurant',
-      logo:
-        (detail?.logoUrl ? { uri: detail.logoUrl } : undefined) ??
-        toImageSource(group.restaurantLogo),
-      coordinates: detail?.coordinates ?? null,
-      itemCount: group.totalQuantity,
-      lines: group.items,
-    };
-  });
+  const restaurants = groups.map((group) => ({
+    id: group.restaurantId,
+    name: group.restaurantName,
+    logo: artwork.logoOf(group.restaurantId),
+    itemCount: group.totalQuantity,
+  }));
   const orderCount = groups.length;
 
-  // Both fees are client-side placeholders — see `constants/fees.ts`. No price,
-  // fee or total field exists anywhere on `Order` (plan §3.3), so none of this
-  // is sent and none of it is charged.
-  //
-  // The arithmetic lives in `checkoutTotals` / `orderTotals` because each
-  // order's exact numbers are captured as its receipt when it is placed, and
-  // shown back on the order screen — computing them twice would let the two
-  // drift.
-  const totals = checkoutTotals(groups);
-
   /**
-   * Every order's preflight, folded into one list. The customer and address
-   * checks are the same for every order; the restaurant ones are per order,
-   * and the FIRST failing restaurant is the one named below.
+   * Why the order cannot be placed yet. The server decides (an empty cart, no
+   * delivery address, an address without coordinates, a restaurant that cannot
+   * be delivered from) and says so on the cart; this screen only adds the two
+   * things it alone knows — the account or the cart is still loading.
    */
-  const blockers =
-    orderCount === 0
-      ? checkoutBlockers({
-          customerId: customer?.id,
-          address: deliveryAddress ?? address,
-          restaurantId: null,
-          restaurantCoordinates: null,
-          lines: [],
-        }).filter((b) => b !== 'no-restaurant')
-      : restaurants.flatMap((restaurant) =>
-          checkoutBlockers({
-            customerId: customer?.id,
-            // A confirmed custom point satisfies the address preflight on its
-            // own: the order carries it, so no saved address is needed.
-            address: deliveryAddress ?? address,
-            // A restaurant still loading reads as "no restaurant yet" — the
-            // loading message — rather than as one with no coordinates.
-            restaurantId: restaurant.isLoading ? null : restaurant.id,
-            restaurantCoordinates: restaurant.coordinates,
-            lines: restaurant.lines,
-          })
-        );
-  const blocker = blockers[0];
-  const blockedRestaurant =
-    blocker === 'no-restaurant-coords' && orderCount > 1
-      ? restaurants.find((restaurant) => !restaurant.isLoading && !restaurant.coordinates)
-      : null;
-  const blockerCopy = blocker
-    ? {
-        ...BLOCKER_COPY[blocker],
-        message: blockedRestaurant
-          ? `${blockedRestaurant.name} has no map location yet, so it cannot be delivered from.`
-          : BLOCKER_COPY[blocker].message,
-      }
-    : null;
-  const needsAddress = !!blocker && ADDRESS_BLOCKERS.includes(blocker);
+  const blocker: string | undefined = !customer?.id
+    ? 'LOADING_ACCOUNT'
+    : cart
+      ? cart.blockers[0]
+      : 'LOADING_CART';
+  const blockerText =
+    blocker === 'LOADING_ACCOUNT'
+      ? 'Loading your account…'
+      : blocker === 'LOADING_CART'
+        ? 'Loading your cart…'
+        : blocker
+          ? blockerMessage(blocker)
+          : null;
+  const blockerAction = blocker ? BLOCKER_ACTIONS[blocker] : undefined;
 
-  const isSubmitting = createOrders.isPending;
+  const isSubmitting = checkout.isPending;
   // An unconfirmed point blocks the order on purpose: the map is showing one
   // place and the order would go to another, and which one the customer meant
-  // is exactly what has not been answered yet.
-  const canSubmit = blockers.length === 0 && !isSubmitting && !pendingPoint;
+  // is exactly what has not been answered yet. So does a change the server has
+  // not answered: the summary above would still be pricing the old address.
+  const canSubmit =
+    !blocker && !isSubmitting && !pendingPoint && !isUpdating && optionsInSync;
 
   const handleBlockerAction = () => {
     // An address problem routes to the flow that fixes it rather than showing
     // an error the customer can do nothing about — and the two problems have
     // different fixes. An address that exists but has no coordinates needs a
     // point on the map, not another form.
-    if (blocker === 'no-address-coords') {
+    if (blocker === 'NO_ADDRESS_COORDINATES') {
       handleOpenMap();
       return;
     }
@@ -427,55 +415,30 @@ export default function OrderDetailsScreen() {
   };
 
   const handleContinueCheckout = () => {
-    if (!canSubmit || !customer?.id) return;
+    if (!canSubmit) return;
 
     setFailure(null);
-
-    const customerId = customer.id;
-    createOrders.mutate(
-      restaurants.map((restaurant) => ({
-        input: toOrderInput({
-          customerId,
-          restaurantId: restaurant.id,
-          restaurantName: restaurant.name,
-          lines: restaurant.lines,
-          paymentMethod,
-          deliveryAddress,
-        }),
-        restaurantId: restaurant.id,
-      })),
-      {
-        // Each order's lines are cleared inside the mutation itself, never
-        // here: it must happen whether or not this screen is still mounted.
-        // The customer lands on My Orders, where the orders they just placed
-        // are the top cards — the emptied cart would show them nothing.
-        onSuccess: goToPlacedOrder,
-        onError: (error) => setFailure(error),
-      }
-    );
+    // No parameters: the server places the orders from the cart it holds.
+    checkout.mutate(undefined, {
+      // The orders are seeded into the cache by the mutation itself, and the
+      // customer lands on My Orders, where they are the top cards.
+      onSuccess: goToPlacedOrder,
+      onError: (error) => setFailure(error),
+    });
   };
 
   /**
-   * What to say about a failed attempt. After a PARTIAL failure the cart has
-   * already lost the placed orders' lines, so `restaurants` above is now only
-   * what remains — which is exactly what Try Again will send.
+   * What to say about a failed attempt. Nothing was placed — the checkout is
+   * atomic — so the cart is exactly as it was and Try Again is safe. A refusal
+   * that names a blocker says what to fix instead.
    */
   const failureMessage = (() => {
     if (!failure) return null;
-    if (failure instanceof PartialCheckoutError && failure.placed.length > 0) {
-      const placed = failure.placed.length;
-      const failedName =
-        restaurants.find((restaurant) => restaurant.id === failure.failedRestaurantId)?.name ??
-        'one restaurant';
-      return (
-        `${placed} ${placed === 1 ? 'order was' : 'orders were'} placed, but the order ` +
-        `for ${failedName} couldn't be. Its dishes are still in your cart — tap ` +
-        `Try Again to place the remaining ${orderCount === 1 ? 'order' : 'orders'}.`
-      );
-    }
+    const blockers = blockersOf(failure);
+    if (blockers.length > 0) return blockerMessage(blockers[0]);
     return orderCount > 1
-      ? "We couldn't place your orders. Your cart is untouched — tap Try Again."
-      : "We couldn't place your order. Your cart is untouched — tap Try Again.";
+      ? "We couldn't place your orders. Nothing was ordered and your cart is untouched — tap Try Again."
+      : "We couldn't place your order. Nothing was ordered and your cart is untouched — tap Try Again.";
   })();
 
   return (
@@ -567,7 +530,8 @@ export default function OrderDetailsScreen() {
         {orderCount > 1 ? (
           <Text style={styles.splitNote}>
             Each restaurant prepares and delivers separately, so this checkout
-            places {orderCount} orders — with a service and delivery fee each.
+            places {orderCount} orders — each with its own delivery fee; the
+            service fee is shared between them.
           </Text>
         ) : null}
 
@@ -583,72 +547,40 @@ export default function OrderDetailsScreen() {
           ) : null
         )}
 
-        <View style={styles.pricingCard}>
-          <View style={styles.priceRow}>
-            <Text style={styles.priceLabel}>Subtotal</Text>
-            <Text style={styles.priceValue}>{formatDT(totals.subtotal)}</Text>
+        {cart ? (
+          <OrderSummary
+            subtotal={formatDT(cart.subtotal)}
+            discounts={discountPromotions(cart).map((promotion) => ({
+              label: promotion.message ?? promotion.promotionRuleCode ?? 'Discount',
+              amount: formatDT(promotion.amount ?? 0),
+            }))}
+            deliveryFees={cart.deliveryFees.map((fee) => ({
+              label:
+                cart.deliveryFees.length > 1
+                  ? `Delivery · ${fee.restaurantName ?? 'Restaurant'}`
+                  : 'Delivery Fee',
+              amount: formatDT(fee.amount),
+            }))}
+            serviceFee={cart.serviceFee ? formatDT(cart.serviceFee.amount) : null}
+            serviceFeeNote={
+              cart.serviceFee && cart.serviceFee.orderCount > 1
+                ? `Shared equally across ${cart.serviceFee.orderCount} orders`
+                : undefined
+            }
+            additionalFees={cart.additionalFees.map((fee) => ({
+              label: fee.label ?? fee.code,
+              amount: formatDT(fee.amount),
+            }))}
+            total={formatDT(cart.total)}
+            updating={isUpdating || !optionsInSync}
+            onServiceFeeInfo={() => setFeeSheet('service')}
+            onDeliveryFeeInfo={() => setFeeSheet('delivery')}
+          />
+        ) : (
+          <View style={styles.summaryLoading}>
+            <ActivityIndicator color={Palette.primary} />
           </View>
-
-          <View style={styles.priceRow}>
-            <View style={styles.priceLabelRow}>
-              <Text style={styles.priceLabel}>Service Fee</Text>
-              <TouchableOpacity
-                onPress={() => setFeeSheet('service')}
-                accessibilityLabel="What is the service fee?"
-                hitSlop={8}
-              >
-                <Info size={14} color={Palette.textMuted} />
-              </TouchableOpacity>
-            </View>
-            <Text style={styles.priceValue}>
-              {orderCount > 1
-                ? `${orderCount} × ${formatDT(SERVICE_FEE)}`
-                : formatDT(SERVICE_FEE)}
-            </Text>
-          </View>
-
-          <View style={styles.priceRow}>
-            <View style={styles.priceLabelRow}>
-              <Text style={styles.priceLabel}>Delivery Fee</Text>
-              <TouchableOpacity
-                onPress={() => setFeeSheet('delivery')}
-                accessibilityLabel="What is the delivery fee?"
-                hitSlop={8}
-              >
-                <Info size={14} color={Palette.textMuted} />
-              </TouchableOpacity>
-            </View>
-            <View style={styles.deliveryFeeRight}>
-              {DELIVERY_FEE_WAIVED ? (
-                <>
-                  <View style={styles.freeBadge}>
-                    <Text style={styles.freeText}>Free</Text>
-                  </View>
-                  <Text style={styles.strikePrice}>
-                    {orderCount > 1
-                      ? `${orderCount} × ${formatDT(DELIVERY_FEE)}`
-                      : formatDT(DELIVERY_FEE)}
-                  </Text>
-                </>
-              ) : (
-                <Text style={styles.priceValue}>
-                  {orderCount > 1
-                    ? `${orderCount} × ${formatDT(DELIVERY_FEE)}`
-                    : formatDT(DELIVERY_FEE)}
-                </Text>
-              )}
-            </View>
-          </View>
-
-          <View style={styles.totalDivider} />
-
-          <View style={styles.priceRow}>
-            {/* Reads `Total`. The old label said `Delivery Fee` while showing
-                the total, which named the row above it. */}
-            <Text style={styles.totalLabel}>Total</Text>
-            <Text style={styles.totalValue}>{formatDT(totals.total)}</Text>
-          </View>
-        </View>
+        )}
       </ScrollView>
 
       <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 16) }]}>
@@ -685,12 +617,12 @@ export default function OrderDetailsScreen() {
           </Text>
         ) : null}
 
-        {blockerCopy ? (
+        {blockerText ? (
           <View style={styles.blockerRow}>
-            <Text style={styles.blockerText}>{blockerCopy.message}</Text>
-            {needsAddress && blockerCopy.action ? (
+            <Text style={styles.blockerText}>{blockerText}</Text>
+            {blockerAction ? (
               <TouchableOpacity onPress={handleBlockerAction} hitSlop={8}>
-                <Text style={styles.blockerAction}>{blockerCopy.action}</Text>
+                <Text style={styles.blockerAction}>{blockerAction}</Text>
               </TouchableOpacity>
             ) : null}
           </View>
@@ -802,6 +734,10 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     paddingHorizontal: Spacing.xl,
     paddingBottom: Spacing.lg,
+  },
+  summaryLoading: {
+    alignItems: 'center',
+    paddingVertical: Spacing.xl,
   },
   pricingCard: {
     marginHorizontal: Spacing.xl,

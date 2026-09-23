@@ -14,18 +14,16 @@ import { parseOrderComment } from './order-view-model';
  * write anyway (it answers 200 with an empty body and persists nothing) and
  * `updateStatus` is exposed by no endpoint at all.
  *
- * What an order does NOT carry (plan §3.3,
- * `docs/plans/checkout-order-creation-plan.md`):
+ * Money is the server's. Every order carries its own subtotal, discounts,
+ * delivery / service / additional fees and total, computed and snapshotted when
+ * the order was placed; this module only reads them into a display shape and
+ * invents nothing. (Older builds kept a receipt on the device and fell back to
+ * today's menu prices; both are gone now that the order says what it cost.)
  *
- *   - **any money.** `Order` and `OrderItem` have no price, fee, amount,
- *     subtotal or total column, and there is no pricing endpoint. Nothing in
- *     THIS module invents one. Prices reach the order screens from two sources
- *     that know their own provenance — the receipt this device captured at
- *     checkout, and today's menu prices, labelled as such — assembled by
- *     `services/api/order-price-view-model.ts`;
+ * What an order still does NOT carry:
+ *
  *   - **a delivery ETA**, for the same reason the checkout screen dropped one;
- *   - **the addons and the per-line note** that were sent — the attribute
- *     populator never persists them and `comment` is per-order, not per-line.
+ *   - **the per-line note** — `comment` is per-order, not per-line.
  */
 
 // --- The view type -------------------------------------------------------
@@ -44,6 +42,34 @@ export interface CustomerOrderLine {
   quantity: number;
   /** The product this line was placed for, when the response carries one. */
   productId?: string;
+  /** Per unit, options included, as the server priced it. Zero for a free gift. */
+  unitPrice?: number;
+  /** `unitPrice` times `quantity`. */
+  total?: number;
+  /** A free gift from a promotion. */
+  gift: boolean;
+  /** The chosen options, comma-joined, when the response names any. */
+  optionsText?: string;
+}
+
+/** One discount or fee line of an order, to itemise its total. */
+export interface CustomerOrderAdjustment {
+  type: string;
+  label: string;
+  amount: number;
+  /** True for a discount (taken off), false for a fee (added). */
+  isDiscount: boolean;
+}
+
+/** What the order cost, as the server computed and snapshotted it. */
+export interface CustomerOrderMoney {
+  subtotal: number;
+  discountTotal: number;
+  deliveryFee: number;
+  serviceFee: number;
+  additionalFees: number;
+  total: number;
+  adjustments: CustomerOrderAdjustment[];
 }
 
 export interface CustomerOrder {
@@ -65,6 +91,8 @@ export interface CustomerOrder {
    * rather than showing an order with nothing in it.
    */
   hasLineDetail: boolean;
+  /** The order's money, or `null` when the response carried no total at all. */
+  money: CustomerOrderMoney | null;
   /** The payment method recorded in `comment` by this app, when there is one. */
   paymentLabel: string | null;
   /** Anything else the comment carried. */
@@ -88,6 +116,14 @@ export function toCustomerOrder(order: OrderOutput): CustomerOrder {
         name,
         quantity: item.quantity ?? 1,
         productId: product?.productId ?? product?.id ?? undefined,
+        unitPrice: item.unitPrice ?? undefined,
+        total: item.total ?? undefined,
+        gift: item.gift === true,
+        optionsText:
+          (product?.attributes ?? [])
+            .map((attribute) => attribute.name)
+            .filter((name): name is string => !!name)
+            .join(', ') || undefined,
       };
     });
 
@@ -102,8 +138,31 @@ export function toCustomerOrder(order: OrderOutput): CustomerOrder {
     createdAt: order.createdAt ?? undefined,
     lines,
     hasLineDetail: lines.length > 0,
+    money: toMoney(order),
     paymentLabel: payment,
     note,
+  };
+}
+
+/** The order's money, or `null` when it has no total (a response from before the server priced orders). */
+function toMoney(order: OrderOutput): CustomerOrderMoney | null {
+  if (order.total == null && order.subtotal == null) return null;
+
+  const adjustments: CustomerOrderAdjustment[] = (order.adjustments ?? []).map((adjustment) => ({
+    type: adjustment.type,
+    label: adjustment.label ?? adjustment.code ?? adjustment.type,
+    amount: adjustment.amount,
+    isDiscount: adjustment.type.endsWith('DISCOUNT'),
+  }));
+
+  return {
+    subtotal: order.subtotal ?? order.total ?? 0,
+    discountTotal: order.discountTotal ?? 0,
+    deliveryFee: order.deliveryFee ?? 0,
+    serviceFee: order.serviceFee ?? 0,
+    additionalFees: order.additionalFees ?? 0,
+    total: order.total ?? order.subtotal ?? 0,
+    adjustments,
   };
 }
 

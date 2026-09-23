@@ -1,15 +1,28 @@
-import { CartItem, CheckoutButton, OrderSummary, SyncBadge } from '@/components/cart';
+import { CartItem, CheckoutButton, OrderSummary } from '@/components/cart';
 import { DeliveryFeeModal, ServiceFeeModal } from '@/components/checkout';
-import { DELIVERY_FEE, DELIVERY_FEE_WAIVED, SERVICE_FEE } from '@/constants/fees';
+import { QueryError } from '@/components/ui/query-state';
 import { Fonts, FontSize, Palette, Radius, Spacing } from '@/constants/theme';
-import { useStoredImageSource } from '@/hooks/use-restaurant-image';
-import { checkoutTotals } from '@/services/api/order-view-model';
-import { formatDT, groupByRestaurant, useCartStore } from '@/store/cart-store';
+import {
+  useActiveCart,
+  useIsCartUpdating,
+  useRemoveCartItem,
+  useSetItemQuantity,
+} from '@/hooks/use-cart';
+import { useCartArtwork } from '@/hooks/use-cart-artwork';
+import { discountPromotions, groupCartByRestaurant } from '@/services/api/cart-view-model';
+import { formatDT } from '@/services/api/money';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import { ArrowLeft, Plus } from 'lucide-react-native';
 import { useState } from 'react';
-import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import {
+  ActivityIndicator,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 /*
@@ -25,18 +38,21 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
  * One cart, however many restaurants: the grouping is there because checkout
  * places one order PER restaurant, and the customer should see that split —
  * and the fees it implies — before tapping Continue, not after.
+ *
+ * Every figure on this screen is the server's. Tapping `+` sends the new
+ * quantity and the server answers with the recalculated cart (promotions,
+ * delivery, service and additional fees, totals); the line moves at once, the
+ * summary says "Updating…" until that answer lands.
  */
 export default function CartScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
 
-  const items = useCartStore((s) => s.items);
-  // Read-only here: the sync engine is mounted on the cart tab, so this screen
-  // reports the last known state rather than driving a write of its own.
-  const syncStatus = useCartStore((s) => s.remote.status);
-  const increment = useCartStore((s) => s.increment);
-  const decrement = useCartStore((s) => s.decrement);
-  const removeItem = useCartStore((s) => s.removeItem);
+  const { data: cart, isPending, error, refetch } = useActiveCart();
+  const setQuantity = useSetItemQuantity();
+  const removeItem = useRemoveCartItem();
+  const isUpdating = useIsCartUpdating();
+  const artwork = useCartArtwork(cart);
 
   // Which fee explanation is open, if any. The two designs
   // (`design/Cart Service Fee Info.png`, `design/Cart Delivery Fee Info.png`)
@@ -44,22 +60,9 @@ export default function CartScreen() {
   // piece of state rather than a boolean each.
   const [feeSheet, setFeeSheet] = useState<'service' | 'delivery' | null>(null);
 
-  // Stored artwork is a relative path or a bundled module id; it becomes a
-  // renderable source only here, against the current API base.
-  const toImageSource = useStoredImageSource();
-
-  const groups = groupByRestaurant(items);
-  const orderCount = groups.length;
-
-  // Lines rebuilt from the server carry no addons and no note — `CartItem` is
-  // `{cart, product, quantity}`, so those were never stored in the first place.
-  // Say so plainly rather than letting an empty description read as "plain".
-  const hasHydratedLines = items.some((line) => line.hydrated);
-
-  // Fees apply PER ORDER, and there is one order per restaurant — see
-  // `checkoutTotals`. Both fee amounts are client-side placeholders
-  // (`constants/fees.ts`).
-  const totals = checkoutTotals(groups);
+  const groups = groupCartByRestaurant(cart);
+  const orderCount = cart?.orders.length ?? groups.length;
+  const hasItems = !!cart && cart.items.length > 0;
 
   const handleBackPress = () => router.back();
 
@@ -77,120 +80,136 @@ export default function CartScreen() {
         <View style={styles.headerSpacer} />
       </View>
 
-      {items.length > 0 ? (
-        <View style={styles.syncRow}>
-          <SyncBadge status={syncStatus} />
-        </View>
-      ) : null}
-
       <ScrollView
         style={styles.scrollView}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
       >
         <View style={styles.itemsSection}>
-          {hasHydratedLines ? (
-            <Text style={styles.note}>
-              This cart was restored from your account. Extras and notes you
-              added on another device weren&apos;t saved, so they aren&apos;t
-              applied here.
-            </Text>
-          ) : null}
-
-          {orderCount > 1 ? (
-            <Text style={styles.note}>
-              Your cart has dishes from {orderCount} restaurants. They will be
-              placed as {orderCount} separate orders, each with its own service
-              and delivery fee.
-            </Text>
-          ) : null}
-
-          {items.length === 0 ? (
+          {isPending ? (
+            <View style={styles.centered}>
+              <ActivityIndicator color={Palette.primary} />
+            </View>
+          ) : error && !cart ? (
+            <QueryError error={error} onRetry={() => void refetch()} />
+          ) : !hasItems ? (
             <Text style={styles.emptyText}>Your cart is empty.</Text>
           ) : (
-            groups.map((group) => (
-              <View key={group.restaurantId} style={styles.group}>
-                <View style={styles.groupHeader}>
-                  <Image
-                    source={toImageSource(group.restaurantLogo)}
-                    style={styles.groupLogo}
-                    contentFit="cover"
-                  />
-                  <View style={styles.groupTitleBlock}>
-                    <Text style={styles.groupTitle} numberOfLines={1}>
-                      {group.restaurantName}
-                    </Text>
-                    <Text style={styles.groupMeta}>
-                      {group.totalQuantity} {group.totalQuantity === 1 ? 'item' : 'items'} ·{' '}
-                      {formatDT(group.totalPrice)}
-                    </Text>
-                  </View>
-                  <TouchableOpacity
-                    style={styles.addItemsButton}
-                    onPress={() => router.push(`/restaurant/${group.restaurantId}`)}
-                    accessibilityLabel={`Add items from ${group.restaurantName}`}
-                  >
-                    <Plus size={16} color="#1A2B3D" />
-                    <Text style={styles.addItemsText}>Add</Text>
-                  </TouchableOpacity>
-                </View>
+            <>
+              {orderCount > 1 ? (
+                <Text style={styles.note}>
+                  Your cart has dishes from {orderCount} restaurants. They will
+                  be placed as {orderCount} separate orders, each with its own
+                  delivery fee; the service fee is shared between them.
+                </Text>
+              ) : null}
 
-                {group.items.map((line) => {
-                  const description =
-                    line.addons.map((a) => a.name).join(', ') || line.note || '';
-                  return (
-                    <CartItem
-                      key={line.lineId}
-                      id={line.lineId}
-                      name={line.name}
-                      description={description}
-                      price={formatDT(line.unitPrice * line.quantity)}
-                      quantity={line.quantity}
-                      image={toImageSource(line.image)}
-                      onIncrement={() => increment(line.lineId)}
-                      onDecrement={() => decrement(line.lineId)}
-                      onDelete={() => removeItem(line.lineId)}
+              {groups.map((group) => (
+                <View key={group.restaurantId} style={styles.group}>
+                  <View style={styles.groupHeader}>
+                    <Image
+                      source={artwork.logoOf(group.restaurantId)}
+                      style={styles.groupLogo}
+                      contentFit="cover"
                     />
-                  );
-                })}
-              </View>
-            ))
+                    <View style={styles.groupTitleBlock}>
+                      <Text style={styles.groupTitle} numberOfLines={1}>
+                        {group.restaurantName}
+                      </Text>
+                      <Text style={styles.groupMeta}>
+                        {group.totalQuantity} {group.totalQuantity === 1 ? 'item' : 'items'} ·{' '}
+                        {formatDT(
+                          group.order?.subtotal ??
+                            group.items.reduce((sum, line) => sum + line.lineTotal, 0)
+                        )}
+                      </Text>
+                    </View>
+                    <TouchableOpacity
+                      style={styles.addItemsButton}
+                      onPress={() => router.push(`/restaurant/${group.restaurantId}`)}
+                      accessibilityLabel={`Add items from ${group.restaurantName}`}
+                    >
+                      <Plus size={16} color="#1A2B3D" />
+                      <Text style={styles.addItemsText}>Add</Text>
+                    </TouchableOpacity>
+                  </View>
+
+                  {group.items.map((line) => {
+                    const description =
+                      line.options.map((option) => option.name).filter(Boolean).join(', ') ||
+                      line.note ||
+                      '';
+                    return (
+                      <CartItem
+                        key={line.id}
+                        id={line.id}
+                        name={line.productName ?? ''}
+                        description={line.giftItem ? 'A gift from a promotion' : description}
+                        price={line.giftItem ? 'Free' : formatDT(line.lineTotal)}
+                        quantity={line.quantity}
+                        image={artwork.imageOf(line.productId)}
+                        // A gift is the server's to give and to take back: the customer cannot edit it.
+                        onIncrement={
+                          line.giftItem
+                            ? undefined
+                            : () => setQuantity.mutate({ itemId: line.id, quantity: line.quantity + 1 })
+                        }
+                        onDecrement={
+                          line.giftItem
+                            ? undefined
+                            : () =>
+                                line.quantity > 1
+                                  ? setQuantity.mutate({ itemId: line.id, quantity: line.quantity - 1 })
+                                  : removeItem.mutate(line.id)
+                        }
+                        onDelete={line.giftItem ? undefined : () => removeItem.mutate(line.id)}
+                      />
+                    );
+                  })}
+                </View>
+              ))}
+            </>
           )}
         </View>
 
-        {items.length > 0 && (
+        {cart && hasItems ? (
           <OrderSummary
-            subtotal={formatDT(totals.subtotal)}
-            serviceFee={
-              orderCount > 1
-                ? `${orderCount} × ${formatDT(SERVICE_FEE)}`
-                : formatDT(SERVICE_FEE)
-            }
-            deliveryFee={
-              DELIVERY_FEE_WAIVED
-                ? 'Free'
-                : orderCount > 1
-                  ? `${orderCount} × ${formatDT(DELIVERY_FEE)}`
-                  : formatDT(DELIVERY_FEE)
-            }
-            originalDeliveryFee={
-              DELIVERY_FEE_WAIVED
-                ? orderCount > 1
-                  ? `${orderCount} × ${formatDT(DELIVERY_FEE)}`
-                  : formatDT(DELIVERY_FEE)
+            subtotal={formatDT(cart.subtotal)}
+            discounts={discountPromotions(cart).map((promotion) => ({
+              label: promotion.message ?? promotion.promotionRuleCode ?? 'Discount',
+              amount: formatDT(promotion.amount ?? 0),
+            }))}
+            deliveryFees={cart.deliveryFees.map((fee) => ({
+              label:
+                cart.deliveryFees.length > 1
+                  ? `Delivery · ${fee.restaurantName ?? 'Restaurant'}`
+                  : 'Delivery Fee',
+              amount: formatDT(fee.amount),
+            }))}
+            serviceFee={cart.serviceFee ? formatDT(cart.serviceFee.amount) : null}
+            serviceFeeNote={
+              cart.serviceFee && cart.serviceFee.orderCount > 1
+                ? `Shared equally across ${cart.serviceFee.orderCount} orders`
                 : undefined
             }
-            isFreeDelivery={DELIVERY_FEE_WAIVED}
-            total={formatDT(totals.total)}
+            additionalFees={cart.additionalFees.map((fee) => ({
+              label: fee.label ?? fee.code,
+              amount: formatDT(fee.amount),
+            }))}
+            total={formatDT(cart.total)}
+            updating={isUpdating}
             onServiceFeeInfo={() => setFeeSheet('service')}
             onDeliveryFeeInfo={() => setFeeSheet('delivery')}
           />
-        )}
+        ) : null}
       </ScrollView>
 
-      {items.length > 0 && (
-        <CheckoutButton total={formatDT(totals.total)} onPress={handleCheckout} />
-      )}
+      {cart && hasItems ? (
+        <CheckoutButton
+          total={isUpdating ? 'Updating…' : formatDT(cart.total)}
+          onPress={handleCheckout}
+        />
+      ) : null}
 
       <ServiceFeeModal
         visible={feeSheet === 'service'}
@@ -232,6 +251,11 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingBottom: 20,
   },
+  centered: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: Spacing.xxxl,
+  },
   itemsSection: {
     padding: 20,
     gap: 16,
@@ -270,10 +294,6 @@ const styles = StyleSheet.create({
     color: '#8A8A8A',
     textAlign: 'center',
     paddingVertical: 24,
-  },
-  syncRow: {
-    paddingHorizontal: Spacing.xl,
-    paddingTop: Spacing.md,
   },
   note: {
     fontSize: FontSize.sm,

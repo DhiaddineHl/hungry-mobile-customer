@@ -1,119 +1,166 @@
-import { cartOutputSchema } from '@/schemas/cart';
-import { pageSchema } from '@/schemas/page';
+import { cartOutputSchema, isKnownBlocker } from '@/schemas/cart';
 
 const CART_ID = '3f1b9c44-0d2a-4c6e-9b1f-7a5c2e8d4b30';
-const CUSTOMER_ID = 'c1c1c1c1-2222-3333-4444-555555555555';
-const RESTAURANT_ID = 'r2r2r2r2-2222-3333-4444-666666666666';
+const PIZZERIA = '11111111-1111-1111-1111-111111111111';
+const SUSHI = '22222222-2222-2222-2222-222222222222';
 const PRODUCT_ID = '8f3c1c2e-2f1a-4a1b-9d0e-1c2b3a4d5e6f';
 
+/** What `GET /carts/active` answers for a two-restaurant cart. */
 const FULL_CART = {
   id: CART_ID,
-  code: `hc:${CUSTOMER_ID}:${RESTAURANT_ID}`,
-  name: 'Baguette & Baguette',
-  customerId: CUSTOMER_ID,
-  customerCode: 'kc-sub-1',
-  customerFullName: 'Amine Ben Salah',
   status: 'ACTIVE',
+  currency: 'TND',
   comment: null,
+  couponCode: null,
+  paymentMethod: 'cash',
+  deliveryAddress: {
+    formattedAddress: '1 Rue Habib Bourguiba, Sousse',
+    coordinates: { latitude: 35.8256, longitude: 10.6084 },
+    country: 'Tunisia',
+  },
   items: [
     {
       id: 'item-1',
-      code: null,
-      name: null,
       productId: PRODUCT_ID,
-      productCode: 'CRISPY',
-      productName: 'Crispy Chicken',
+      productCode: 'margherita',
+      productName: 'Margherita',
       quantity: 2,
+      restaurantId: PIZZERIA,
+      restaurantName: 'Pizza Palace',
+      unitPrice: 15.5,
+      lineTotal: 31,
+      note: 'no onions',
+      giftItem: false,
+      options: [{ attributeId: 'opt-1', name: 'Extra cheese', price: 1 }],
+    },
+    {
+      id: 'item-2',
+      productId: 'p2',
+      productName: 'Salmon nigiri',
+      quantity: 1,
+      restaurantId: SUSHI,
+      restaurantName: 'Sushi Bar',
+      unitPrice: 9.25,
+      lineTotal: 9.25,
+      giftItem: false,
+      options: [],
     },
   ],
-  createdAt: '2026-08-23T12:34:56',
+  applicablePromotions: [
+    {
+      promotionRuleId: 'rule-1',
+      promotionRuleCode: 'TEN_OFF',
+      effectType: 'CartDiscountEffect',
+      amount: 4,
+      currency: 'TND',
+      message: '10% off',
+      restaurantId: null,
+    },
+  ],
+  deliveryFees: [
+    { restaurantId: PIZZERIA, restaurantName: 'Pizza Palace', distanceKm: 1.1, amount: 1.5 },
+    { restaurantId: SUSHI, restaurantName: 'Sushi Bar', distanceKm: 2.2, amount: 1.9 },
+  ],
+  serviceFee: { amount: 1, orderCount: 2 },
+  additionalFees: [{ code: 'NIGHT', label: 'Night surcharge', scope: 'PER_CART', amount: 1 }],
+  orders: [
+    {
+      restaurantId: PIZZERIA,
+      restaurantName: 'Pizza Palace',
+      itemIds: ['item-1'],
+      subtotal: 31,
+      discount: 3.1,
+      deliveryFee: 1.5,
+      serviceFeeShare: 0.5,
+      additionalFees: [{ code: 'NIGHT', label: 'Night surcharge', scope: 'PER_CART', amount: 0.5 }],
+      total: 30.4,
+    },
+  ],
+  subtotal: 40.25,
+  discountTotal: 4,
+  feesTotal: 5.4,
+  total: 41.65,
+  blockers: [],
+  createdAt: '2026-09-25T12:34:56',
 };
 
 describe('cartOutputSchema', () => {
-  it('parses a full cart payload', () => {
-    const result = cartOutputSchema.safeParse(FULL_CART);
+  it('parses a complete server cart, keeping every figure the server computed', () => {
+    const cart = cartOutputSchema.parse(FULL_CART);
 
-    expect(result.success).toBe(true);
-    expect(result.data?.id).toBe(CART_ID);
-    expect(result.data?.items).toHaveLength(1);
-    expect(result.data?.items[0].productName).toBe('Crispy Chicken');
+    expect(cart.items).toHaveLength(2);
+    expect(cart.items[0].options[0]).toEqual({ attributeId: 'opt-1', name: 'Extra cheese', price: 1 });
+    expect(cart.applicablePromotions[0].effectType).toBe('CartDiscountEffect');
+    expect(cart.deliveryFees.map((fee) => fee.amount)).toEqual([1.5, 1.9]);
+    expect(cart.serviceFee).toEqual({ amount: 1, orderCount: 2 });
+    expect(cart.additionalFees[0].code).toBe('NIGHT');
+    expect(cart.orders[0].serviceFeeShare).toBe(0.5);
+    expect(cart.subtotal).toBe(40.25);
+    expect(cart.total).toBe(41.65);
+    expect(cart.deliveryAddress?.coordinates?.latitude).toBe(35.8256);
   });
 
-  it('parses a cart carrying nothing but an id, defaulting items to []', () => {
-    const result = cartOutputSchema.safeParse({ id: CART_ID });
+  it('parses a brand-new empty cart', () => {
+    const cart = cartOutputSchema.parse({ id: CART_ID, status: 'ACTIVE', items: [], blockers: ['EMPTY_CART'] });
 
-    expect(result.success).toBe(true);
-    // `.catch([])` — callers iterate `items` without optional-chaining first.
-    expect(result.data?.items).toEqual([]);
+    expect(cart.items).toEqual([]);
+    expect(cart.orders).toEqual([]);
+    expect(cart.deliveryFees).toEqual([]);
+    expect(cart.serviceFee).toBeUndefined();
+    expect(cart.blockers).toEqual(['EMPTY_CART']);
   });
 
-  it('parses an item whose `name` is null — it always is on the wire', () => {
-    const result = cartOutputSchema.safeParse({
-      ...FULL_CART,
-      items: [{ ...FULL_CART.items[0], name: null, code: null }],
+  it('defaults the totals to zero rather than refusing a cart the customer must still be able to empty', () => {
+    const cart = cartOutputSchema.parse({ id: CART_ID });
+
+    expect(cart.subtotal).toBe(0);
+    expect(cart.discountTotal).toBe(0);
+    expect(cart.feesTotal).toBe(0);
+    expect(cart.total).toBe(0);
+  });
+
+  it('requires an id: a cart that cannot be addressed is not worth carrying', () => {
+    expect(cartOutputSchema.safeParse({ items: [] }).success).toBe(false);
+  });
+
+  it('degrades an unknown status to null instead of discarding the cart', () => {
+    const cart = cartOutputSchema.parse({ id: CART_ID, status: 'SOMETHING_NEW' });
+
+    expect(cart.status).toBeNull();
+  });
+
+  it('treats a malformed items list as empty rather than failing the whole cart', () => {
+    const cart = cartOutputSchema.parse({ id: CART_ID, items: 'nope' });
+
+    expect(cart.items).toEqual([]);
+  });
+
+  it('marks a free gift and gives a line without one a false default', () => {
+    const cart = cartOutputSchema.parse({
+      id: CART_ID,
+      items: [
+        { id: 'a', quantity: 1, unitPrice: 6, lineTotal: 0, giftItem: true, options: [] },
+        { id: 'b', quantity: 1, unitPrice: 6, lineTotal: 6 },
+      ],
     });
 
-    expect(result.success).toBe(true);
-    expect(result.data?.items[0].name).toBeNull();
-    // The readable label lives on `productName`, which survives.
-    expect(result.data?.items[0].productName).toBe('Crispy Chicken');
+    expect(cart.items[0].giftItem).toBe(true);
+    expect(cart.items[1].giftItem).toBe(false);
+    expect(cart.items[1].options).toEqual([]);
   });
 
-  it('keeps the rest of the cart when `status` is a value the app does not know', () => {
-    const result = cartOutputSchema.safeParse({ ...FULL_CART, status: 'FROZEN' });
+  it('keeps unknown blockers as strings so a newer backend does not break an older app', () => {
+    const cart = cartOutputSchema.parse({ id: CART_ID, blockers: ['NO_DELIVERY_ADDRESS', 'BRAND_NEW_BLOCKER'] });
 
-    expect(result.success).toBe(true);
-    // The unknown member degrades to null; the cart is still addressable.
-    expect(result.data?.status).toBeNull();
-    expect(result.data?.id).toBe(CART_ID);
-    expect(result.data?.items).toHaveLength(1);
-  });
-
-  it('parses a cart whose `status` is absent altogether', () => {
-    const { status: _status, ...withoutStatus } = FULL_CART;
-
-    const result = cartOutputSchema.safeParse(withoutStatus);
-
-    expect(result.success).toBe(true);
-    expect(result.data?.status).toBeUndefined();
-  });
-
-  it('fails with `id` in the issue path when the cart has no id', () => {
-    const { id: _id, ...withoutId } = FULL_CART;
-
-    const result = cartOutputSchema.safeParse(withoutId);
-
-    expect(result.success).toBe(false);
-    expect(result.error?.issues[0].path).toContain('id');
+    expect(cart.blockers).toEqual(['NO_DELIVERY_ADDRESS', 'BRAND_NEW_BLOCKER']);
   });
 });
 
-describe('pageSchema(cartOutputSchema)', () => {
-  it('parses the flat PageImpl envelope /carts/all returns', () => {
-    const result = pageSchema(cartOutputSchema).safeParse({
-      content: [FULL_CART],
-      number: 0,
-      totalPages: 1,
-      totalElements: 1,
-      last: true,
-      size: 20,
-      first: true,
-      numberOfElements: 1,
-      empty: false,
-      sort: { sorted: false },
-      pageable: { pageNumber: 0 },
-    });
-
-    expect(result.success).toBe(true);
-    expect(result.data?.content).toHaveLength(1);
-  });
-
-  it('surfaces an unparseable cart as an error rather than dropping it', () => {
-    // `content` is deliberately NOT `.catch([])` — see schemas/page.ts.
-    const result = pageSchema(cartOutputSchema).safeParse({
-      content: [{ code: 'hc:a:b' }],
-    });
-
-    expect(result.success).toBe(false);
+describe('isKnownBlocker', () => {
+  it('recognises the blockers the app has wording for and no others', () => {
+    for (const blocker of ['EMPTY_CART', 'NO_DELIVERY_ADDRESS', 'NO_ADDRESS_COORDINATES', 'RESTAURANT_LOCATION_MISSING']) {
+      expect(isKnownBlocker(blocker)).toBe(true);
+    }
+    expect(isKnownBlocker('BRAND_NEW_BLOCKER')).toBe(false);
   });
 });

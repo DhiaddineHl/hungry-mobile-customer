@@ -20,7 +20,7 @@ const PRODUCT_ID = '8f3c1c2e-2f1a-4a1b-9d0e-1c2b3a4d5e6f';
 function output(overrides: Partial<OrderOutput> = {}): OrderOutput {
   return {
     id: ORDER_ID,
-    code: `ho:${CUSTOMER_ID}:${RESTAURANT_ID}:1756000000000`,
+    code: 'ORD-20260828-K3F9QX',
     name: 'Baguette & Baguette',
     restaurantId: RESTAURANT_ID,
     restaurantName: 'Baguette & Baguette',
@@ -50,8 +50,48 @@ describe('toCustomerOrder', () => {
 
     expect(order.hasLineDetail).toBe(true);
     expect(order.lines).toEqual([
-      { id: 'item-1', name: 'Crispy Chicken', quantity: 2, productId: PRODUCT_ID },
+      {
+        id: 'item-1',
+        name: 'Crispy Chicken',
+        quantity: 2,
+        productId: PRODUCT_ID,
+        gift: false,
+        unitPrice: undefined,
+        total: undefined,
+        optionsText: undefined,
+      },
     ]);
+  });
+
+  it('reads each line\'s price and chosen options from the order itself', () => {
+    const order = toCustomerOrder(
+      output({
+        items: [
+          {
+            id: 'item-1',
+            quantity: 2,
+            unitPrice: 15.5,
+            total: 31,
+            product: {
+              productId: PRODUCT_ID,
+              name: 'Margherita',
+              attributes: [{ name: 'Extra cheese', price: 1 }, { name: 'Olives', price: 0.5 }],
+            },
+          },
+        ],
+      })
+    );
+
+    expect(order.lines[0]).toMatchObject({ unitPrice: 15.5, total: 31, optionsText: 'Extra cheese, Olives', gift: false });
+  });
+
+  it('marks a free gift', () => {
+    const order = toCustomerOrder(
+      output({ items: [{ id: 'g', quantity: 1, unitPrice: 0, total: 0, gift: true, product: { productId: PRODUCT_ID, attributes: [] } }] })
+    );
+
+    expect(order.lines[0].gift).toBe(true);
+    expect(order.lines[0].total).toBe(0);
   });
 
   it('marks an order with no returned lines as missing detail, not as empty', () => {
@@ -156,8 +196,8 @@ describe('orderItemCount', () => {
   it('counts units, not lines', () => {
     const order = view({
       lines: [
-        { id: 'a', name: 'A', quantity: 2 },
-        { id: 'b', name: 'B', quantity: 3 },
+        { id: 'a', name: 'A', quantity: 2, gift: false },
+        { id: 'b', name: 'B', quantity: 3, gift: false },
       ],
     });
     expect(orderItemCount(order)).toBe(5);
@@ -187,5 +227,51 @@ describe('formatOrderDate', () => {
   it('renders an em dash rather than "Invalid Date"', () => {
     expect(formatOrderDate('not-a-date')).toBe('—');
     expect(formatOrderDate(null)).toBe('—');
+  });
+});
+
+describe('the order\'s money', () => {
+  it('reads the server\'s snapshot: subtotal, discounts, fees and total', () => {
+    const order = toCustomerOrder(
+      output({
+        subtotal: 40,
+        discountTotal: 4,
+        deliveryFee: 1.5,
+        serviceFee: 0.5,
+        additionalFees: 1,
+        total: 39,
+        adjustments: [
+          { type: 'PRODUCT_DISCOUNT', code: 'TEN_OFF', label: '10% off', amount: 4 },
+          { type: 'DELIVERY_FEE', code: 'DELIVERY', label: 'Delivery', amount: 1.5 },
+          { type: 'ADDITIONAL_FEE', code: 'NIGHT', label: 'Night surcharge', amount: 1 },
+        ],
+      })
+    );
+
+    expect(order.money).toMatchObject({ subtotal: 40, discountTotal: 4, deliveryFee: 1.5, serviceFee: 0.5, additionalFees: 1, total: 39 });
+    expect(order.money?.adjustments.map((a) => [a.label, a.isDiscount])).toEqual([
+      ['10% off', true],
+      ['Delivery', false],
+      ['Night surcharge', false],
+    ]);
+  });
+
+  it('treats a fee the order does not have as zero', () => {
+    const order = toCustomerOrder(output({ subtotal: 12, total: 12 }));
+
+    expect(order.money).toMatchObject({ subtotal: 12, discountTotal: 0, deliveryFee: 0, serviceFee: 0, additionalFees: 0, total: 12 });
+    expect(order.money?.adjustments).toEqual([]);
+  });
+
+  it('is null when the response carries no total at all, rather than inventing one', () => {
+    expect(toCustomerOrder(output()).money).toBeNull();
+  });
+
+  it('falls back to a label from the code when an adjustment has none', () => {
+    const order = toCustomerOrder(
+      output({ total: 5, adjustments: [{ type: 'SERVICE_FEE', code: 'SERVICE', amount: 1 }] })
+    );
+
+    expect(order.money?.adjustments[0].label).toBe('SERVICE');
   });
 });

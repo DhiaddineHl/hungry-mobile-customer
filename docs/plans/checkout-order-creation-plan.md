@@ -1,5 +1,12 @@
 # Plan — Checkout: Fee Modals, Payment Method, and Order Creation
 
+> **SUPERSEDED (2026-09-25) — checkout is one server call.** This plan describes the app placing
+> one `POST /orders` per restaurant, with client-side fees and a partial-failure path. Checkout is
+> now `POST /checkout` with **no parameters**: the server turns the customer's active cart into one
+> order per restaurant, atomically, with server-computed fees and discounts snapshotted on each
+> order. There is no partial failure, no on-device receipt and no fee constants. See
+> [`server-cart-checkout.md`](./server-cart-checkout.md).
+
 **Status:** UI ready for implementation; order creation blocked on backend defects, see §2
 **Task file:** [`docs/tasks/checkout-order-ORDER-01.md`](../tasks/checkout-order-ORDER-01.md) — trigger with `/task "ORDER-01"`
 **Depends on:** [`CART-01`](../tasks/cart-sync-CART-01.md) — must be `status: done` first (chain: `RESTO-01` → `MENU-01` → `CART-01`)

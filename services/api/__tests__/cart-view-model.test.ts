@@ -1,296 +1,149 @@
+import { cartOutputSchema, type CartOutput } from '@/schemas/cart';
 import {
-  CART_CODE_PREFIX,
-  cartCodeFor,
-  cartNameFor,
-  customerCartCodePrefix,
-  parseCartCode,
-  syncSignature,
-  toCartInput,
+  blockerMessage,
+  cartItemCount,
+  discountPromotions,
+  groupCartByRestaurant,
+  withItemQuantity,
+  withoutItem,
+  withoutRestaurant,
 } from '@/services/api/cart-view-model';
-import type { CartLine } from '@/store/cart-store';
 
-const CUSTOMER_ID = 'c1c1c1c1-2222-3333-4444-555555555555';
-const RESTAURANT_ID = 'r2r2r2r2-2222-3333-4444-666666666666';
-const PIZZA = '8f3c1c2e-2f1a-4a1b-9d0e-1c2b3a4d5e6f';
-const SALAD = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+const PIZZERIA = '11111111-1111-1111-1111-111111111111';
+const SUSHI = '22222222-2222-2222-2222-222222222222';
 
-function line(overrides: Partial<CartLine> & Pick<CartLine, 'foodId'>): CartLine {
-  return {
-    lineId: `${overrides.foodId}-${JSON.stringify(overrides.addons ?? [])}`,
-    name: 'Pizza',
-    unitPrice: 10,
-    basePrice: 10,
-    quantity: 1,
-    addons: [],
-    restaurantId: RESTAURANT_ID,
-    restaurantName: 'Baguette & Baguette',
+function cart(overrides: Record<string, unknown> = {}): CartOutput {
+  return cartOutputSchema.parse({
+    id: 'cart-1',
+    items: [
+      { id: 'a', productName: 'Margherita', quantity: 2, restaurantId: PIZZERIA, restaurantName: 'Pizza Palace', unitPrice: 10, lineTotal: 20 },
+      { id: 'b', productName: 'Salmon', quantity: 1, restaurantId: SUSHI, restaurantName: 'Sushi Bar', unitPrice: 9, lineTotal: 9 },
+      { id: 'c', productName: 'Calzone', quantity: 3, restaurantId: PIZZERIA, restaurantName: 'Pizza Palace', unitPrice: 12, lineTotal: 36 },
+      { id: 'g', productName: 'Free tiramisu', quantity: 1, restaurantId: PIZZERIA, restaurantName: 'Pizza Palace', unitPrice: 6, lineTotal: 0, giftItem: true },
+    ],
+    orders: [
+      { restaurantId: PIZZERIA, restaurantName: 'Pizza Palace', subtotal: 56, total: 60 },
+      { restaurantId: SUSHI, restaurantName: 'Sushi Bar', subtotal: 9, total: 12 },
+    ],
+    applicablePromotions: [
+      { promotionRuleCode: 'CART10', effectType: 'CartDiscountEffect', amount: 5, message: '10% off' },
+      { promotionRuleCode: 'PROD', effectType: 'ProductDiscountEffect', amount: 2 },
+      { promotionRuleCode: 'GIFT', effectType: 'FreeGiftEffect', amount: 6 },
+      { promotionRuleCode: 'MSG', effectType: 'MessageEffect', amount: null },
+      { promotionRuleCode: 'ZERO', effectType: 'CartDiscountEffect', amount: 0 },
+    ],
     ...overrides,
-  };
+  });
 }
 
-describe('cartCodeFor / parseCartCode', () => {
-  it('round-trips a customer through a code — one cart per customer, no restaurant', () => {
-    const code = cartCodeFor(CUSTOMER_ID);
+describe('groupCartByRestaurant', () => {
+  it('groups lines under their restaurant in the order the restaurants first appear', () => {
+    const groups = groupCartByRestaurant(cart());
 
-    expect(code).toBe(`hc:${CUSTOMER_ID}`);
-    expect(parseCartCode(code)).toEqual({ customerId: CUSTOMER_ID, restaurantId: null });
+    expect(groups.map((group) => group.restaurantId)).toEqual([PIZZERIA, SUSHI]);
+    expect(groups[0].items.map((item) => item.id)).toEqual(['a', 'c', 'g']);
+    expect(groups[1].items.map((item) => item.id)).toEqual(['b']);
   });
 
-  it('still reads a LEGACY per-restaurant code, naming its restaurant', () => {
-    // An earlier build wrote one row per restaurant; hydration folds those
-    // into the single cart, and needs to know which restaurant each was.
-    expect(parseCartCode(`hc:${CUSTOMER_ID}:${RESTAURANT_ID}`)).toEqual({
-      customerId: CUSTOMER_ID,
-      restaurantId: RESTAURANT_ID,
-    });
+  it('counts units per restaurant and leaves free gifts out of the count', () => {
+    const [pizzeria, sushi] = groupCartByRestaurant(cart());
+
+    expect(pizzeria.totalQuantity).toBe(5);
+    expect(sushi.totalQuantity).toBe(1);
   });
 
-  it('returns null for null, undefined and the empty string', () => {
-    expect(parseCartCode(null)).toBeNull();
-    expect(parseCartCode(undefined)).toBeNull();
-    expect(parseCartCode('')).toBeNull();
+  it('attaches the order the server says checkout will create for each restaurant', () => {
+    const [pizzeria, sushi] = groupCartByRestaurant(cart());
+
+    expect(pizzeria.order?.total).toBe(60);
+    expect(sushi.order?.subtotal).toBe(9);
   });
 
-  it('returns null for a code this app did not write', () => {
-    // /carts/all is not scoped to the caller, so foreign rows do turn up.
-    expect(parseCartCode('other:a:b')).toBeNull();
-    expect(parseCartCode('other:a')).toBeNull();
-  });
-
-  it('returns null for too few and too many segments', () => {
-    expect(parseCartCode('hc')).toBeNull();
-    expect(parseCartCode('hc:a:b:c')).toBeNull();
-  });
-
-  it('returns null when a segment is empty', () => {
-    expect(parseCartCode('hc:')).toBeNull();
-    expect(parseCartCode('hc::b')).toBeNull();
-    expect(parseCartCode('hc:a:')).toBeNull();
-  });
-
-  it('never throws on a malformed code', () => {
-    expect(() => parseCartCode('::::')).not.toThrow();
-    expect(parseCartCode('::::')).toBeNull();
-  });
-
-  it("parses a code belonging to a DIFFERENT customer — matching the customer is the caller's job", () => {
-    const foreign = cartCodeFor('someone-else');
-
-    // This function reports what the code SAYS. `fetchCustomerCarts` is what
-    // decides whether that customer is the one we asked about; putting the
-    // check here would make the parser lie about the data it was given.
-    expect(parseCartCode(foreign)).toEqual({ customerId: 'someone-else', restaurantId: null });
-  });
-});
-
-describe('customerCartCodePrefix', () => {
-  it('starts with the app prefix and the customer id', () => {
-    expect(customerCartCodePrefix(CUSTOMER_ID)).toBe(`${CART_CODE_PREFIX}:${CUSTOMER_ID}`);
-  });
-
-  it('is contained in the current code AND in a legacy per-restaurant code', () => {
-    // `LIKE` is a substring match, and one needle has to find both kinds of
-    // row so the legacy ones can be folded in and deleted.
-    expect(cartCodeFor(CUSTOMER_ID)).toContain(customerCartCodePrefix(CUSTOMER_ID));
-    expect(`hc:${CUSTOMER_ID}:${RESTAURANT_ID}`).toContain(customerCartCodePrefix(CUSTOMER_ID));
-  });
-});
-
-describe('cartNameFor', () => {
-  it('lists each restaurant once, in first-appearance order', () => {
-    const lines = [
-      line({ foodId: PIZZA, restaurantName: 'Baguette & Baguette' }),
-      line({ foodId: SALAD, restaurantId: 'r-2', restaurantName: 'Chez Ali' }),
-      line({ foodId: 'p-3', restaurantName: 'Baguette & Baguette' }),
-    ];
-
-    expect(cartNameFor(lines)).toBe('Baguette & Baguette, Chez Ali');
-  });
-
-  it('is the empty string for an empty cart', () => {
-    expect(cartNameFor([])).toBe('');
-  });
-});
-
-describe('toCartInput', () => {
-  const base = { customerId: CUSTOMER_ID };
-
-  it('collapses two lines of the same product into ONE item with summed quantity', () => {
-    const input = toCartInput({
-      ...base,
-      lines: [
-        line({ foodId: PIZZA, quantity: 1, addons: [{ id: 'a1', name: 'Cheese', price: 2 }] }),
-        line({ foodId: PIZZA, quantity: 2, addons: [] }),
-      ],
-    });
-
-    // Two rows for one product would read back as the pizza appearing twice.
-    expect(input.items).toEqual([{ productId: PIZZA, quantity: 3 }]);
-  });
-
-  it('keeps two different products as two items with their own quantities', () => {
-    const input = toCartInput({
-      ...base,
-      lines: [
-        line({ foodId: PIZZA, quantity: 2 }),
-        line({ foodId: SALAD, quantity: 5 }),
-      ],
-    });
-
-    expect(input.items).toHaveLength(2);
-    expect(input.items).toEqual(
-      expect.arrayContaining([
-        { productId: PIZZA, quantity: 2 },
-        { productId: SALAD, quantity: 5 },
-      ])
+  it('keeps a line with no restaurant visible under an empty id rather than dropping it', () => {
+    const groups = groupCartByRestaurant(
+      cartOutputSchema.parse({ id: 'c', items: [{ id: 'x', quantity: 1, unitPrice: 1, lineTotal: 1 }] })
     );
+
+    expect(groups).toHaveLength(1);
+    expect(groups[0].restaurantId).toBe('');
+    expect(groups[0].order).toBeNull();
   });
 
-  it('excludes a line whose quantity is 0', () => {
-    const input = toCartInput({
-      ...base,
-      lines: [line({ foodId: PIZZA, quantity: 0 }), line({ foodId: SALAD, quantity: 1 })],
-    });
-
-    expect(input.items).toEqual([{ productId: SALAD, quantity: 1 }]);
-  });
-
-  it('excludes a line with no backend product id — it would 500 the whole cart', () => {
-    const input = toCartInput({
-      ...base,
-      lines: [line({ foodId: '', quantity: 2 }), line({ foodId: PIZZA, quantity: 1 })],
-    });
-
-    expect(input.items).toEqual([{ productId: PIZZA, quantity: 1 }]);
-  });
-
-  it('maps an empty group to items: [], never undefined', () => {
-    const input = toCartInput({ ...base, lines: [] });
-
-    expect(input.items).toEqual([]);
-  });
-
-  it('always carries a non-empty code', () => {
-    const input = toCartInput({ ...base, lines: [] });
-
-    expect(input.code).toBeTruthy();
-    expect(input.code).toBe(cartCodeFor(CUSTOMER_ID));
-  });
-
-  it('names the cart after its restaurants — the one label that is persisted', () => {
-    const input = toCartInput({
-      ...base,
-      lines: [
-        line({ foodId: PIZZA }),
-        line({ foodId: SALAD, restaurantId: 'r-2', restaurantName: 'Chez Ali' }),
-      ],
-    });
-
-    expect(input.name).toBe('Baguette & Baguette, Chez Ali');
-  });
-
-  it('puts lines from DIFFERENT restaurants into the same payload', () => {
-    // One cart, however many restaurants: the split happens at checkout, not
-    // here. The backend cart has no restaurant column to disagree.
-    const input = toCartInput({
-      ...base,
-      lines: [
-        line({ foodId: PIZZA, quantity: 1 }),
-        line({ foodId: SALAD, quantity: 2, restaurantId: 'r-2', restaurantName: 'Chez Ali' }),
-      ],
-    });
-
-    expect(input.items).toEqual([
-      { productId: PIZZA, quantity: 1 },
-      { productId: SALAD, quantity: 2 },
-    ]);
-  });
-
-  it('sends no status, addon, note or price key anywhere in the payload', () => {
-    const input = toCartInput({
-      ...base,
-      lines: [
-        line({
-          foodId: PIZZA,
-          quantity: 1,
-          unitPrice: 12,
-          note: 'no onions',
-          addons: [{ id: 'a1', name: 'Cheese', price: 2 }],
-        }),
-      ],
-    });
-
-    const serialized = JSON.stringify(input);
-    for (const forbidden of ['status', 'addons', 'note', 'price', 'unitPrice', 'basePrice']) {
-      expect(serialized).not.toContain(forbidden);
-    }
-    expect(Object.keys(input.items[0]).sort()).toEqual(['productId', 'quantity']);
-  });
-
-  it('omits `comment` entirely when none was given', () => {
-    const input = toCartInput({ ...base, lines: [line({ foodId: PIZZA })] });
-
-    expect('comment' in input).toBe(false);
+  it('is empty for no cart', () => {
+    expect(groupCartByRestaurant(undefined)).toEqual([]);
+    expect(groupCartByRestaurant(null)).toEqual([]);
   });
 });
 
-describe('syncSignature', () => {
-  it('is stable across line reordering', () => {
-    const a = [line({ foodId: PIZZA, quantity: 1 }), line({ foodId: SALAD, quantity: 2 })];
-    const b = [line({ foodId: SALAD, quantity: 2 }), line({ foodId: PIZZA, quantity: 1 })];
-
-    expect(syncSignature(a)).toBe(syncSignature(b));
+describe('cartItemCount', () => {
+  it('counts units, not lines, so bumping a dish from 1 to 2 moves the badge', () => {
+    expect(cartItemCount(cart())).toBe(6);
   });
 
-  it('changes when a quantity changes', () => {
-    const before = [line({ foodId: PIZZA, quantity: 1 })];
-    const after = [line({ foodId: PIZZA, quantity: 2 })];
+  it('does not count a gift the customer did not add', () => {
+    const onlyGift = cartOutputSchema.parse({ id: 'c', items: [{ id: 'g', quantity: 1, giftItem: true }] });
 
-    expect(syncSignature(before)).not.toBe(syncSignature(after));
+    expect(cartItemCount(onlyGift)).toBe(0);
   });
 
-  it('changes when a product is added', () => {
-    const before = [line({ foodId: PIZZA, quantity: 1 })];
-    const after = [...before, line({ foodId: SALAD, quantity: 1 })];
+  it('is zero before the cart has loaded', () => {
+    expect(cartItemCount(undefined)).toBe(0);
+  });
+});
 
-    expect(syncSignature(before)).not.toBe(syncSignature(after));
+describe('discountPromotions', () => {
+  it('keeps only promotions that take money off', () => {
+    expect(discountPromotions(cart()).map((promotion) => promotion.promotionRuleCode)).toEqual(['CART10', 'PROD']);
+  });
+});
+
+describe('blockerMessage', () => {
+  it('words every blocker the app knows in the customer\'s terms', () => {
+    expect(blockerMessage('EMPTY_CART')).toMatch(/empty/i);
+    expect(blockerMessage('NO_DELIVERY_ADDRESS')).toMatch(/deliver/i);
+    expect(blockerMessage('NO_ADDRESS_COORDINATES')).toMatch(/map/i);
+    expect(blockerMessage('RESTAURANT_LOCATION_MISSING')).toMatch(/restaurant/i);
   });
 
-  it('changes when a product is removed', () => {
-    const before = [line({ foodId: PIZZA, quantity: 1 }), line({ foodId: SALAD, quantity: 1 })];
-    const after = [line({ foodId: PIZZA, quantity: 1 })];
+  it('has a generic line for a blocker from a newer backend rather than showing a raw code', () => {
+    const message = blockerMessage('BRAND_NEW_BLOCKER');
 
-    expect(syncSignature(before)).not.toBe(syncSignature(after));
+    expect(message).not.toContain('BRAND_NEW_BLOCKER');
+    expect(message.length).toBeGreaterThan(0);
+  });
+});
+
+describe('optimistic edits', () => {
+  it('sets a line quantity and its line total, leaving the other lines and the server totals alone', () => {
+    const before = cart({ total: 65 });
+
+    const after = withItemQuantity(before, 'a', 5);
+
+    expect(after.items.find((item) => item.id === 'a')).toMatchObject({ quantity: 5, lineTotal: 50 });
+    expect(after.items.find((item) => item.id === 'b')).toEqual(before.items.find((item) => item.id === 'b'));
+    expect(after.total).toBe(65);
   });
 
-  it('is UNCHANGED when only a note changes — the backend cannot store one', () => {
-    const before = [line({ foodId: PIZZA, quantity: 1, note: undefined })];
-    const after = [line({ foodId: PIZZA, quantity: 1, note: 'extra crispy' })];
-
-    expect(syncSignature(before)).toBe(syncSignature(after));
+  it('removes a line when its quantity reaches zero', () => {
+    expect(withItemQuantity(cart(), 'b', 0).items.map((item) => item.id)).toEqual(['a', 'c', 'g']);
   });
 
-  it('is UNCHANGED when only an addon set changes', () => {
-    const before = [line({ foodId: PIZZA, quantity: 1, addons: [] })];
-    const after = [
-      line({ foodId: PIZZA, quantity: 1, addons: [{ id: 'a1', name: 'Cheese', price: 2 }] }),
-    ];
-
-    expect(syncSignature(before)).toBe(syncSignature(after));
+  it('removes one line', () => {
+    expect(withoutItem(cart(), 'a').items.map((item) => item.id)).toEqual(['b', 'c', 'g']);
   });
 
-  it('is UNCHANGED when two lines of one product merge but the total does not move', () => {
-    // The payload is byte-identical either way, so a resync would be pure waste.
-    const split = [
-      line({ foodId: PIZZA, quantity: 1, addons: [{ id: 'a1', name: 'Cheese', price: 2 }] }),
-      line({ foodId: PIZZA, quantity: 2, addons: [] }),
-    ];
-    const merged = [line({ foodId: PIZZA, quantity: 3, addons: [] })];
-
-    expect(syncSignature(split)).toBe(syncSignature(merged));
+  it('removes a restaurant\'s own lines but leaves a gift until the server re-evaluates', () => {
+    expect(withoutRestaurant(cart(), PIZZERIA).items.map((item) => item.id)).toEqual(['b', 'g']);
   });
 
-  it('maps an empty cart to an empty signature', () => {
-    expect(syncSignature([])).toBe('');
+  it('never mutates the cart it was given', () => {
+    const before = cart();
+    const snapshot = JSON.stringify(before);
+
+    withItemQuantity(before, 'a', 9);
+    withoutItem(before, 'a');
+    withoutRestaurant(before, PIZZERIA);
+
+    expect(JSON.stringify(before)).toBe(snapshot);
   });
 });

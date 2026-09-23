@@ -19,7 +19,8 @@ import Animated, {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Fonts, FontSize, Palette, Radius } from '@/constants/theme';
 import { useTranslation, type TranslationKey } from '@/i18n';
-import { selectCartItemCount, useCartStore } from '@/store/cart-store';
+import { useCartItemCount } from '@/hooks/use-cart';
+import { useMigrateLegacyCart } from '@/hooks/use-legacy-cart-migration';
 
 const TAB_ICONS = {
   index: Home,
@@ -160,8 +161,12 @@ export function CustomTabBar({
   navigation,
   cartItemCount,
 }: CustomTabBarProps) {
-  const storeCartItemCount = useCartStore(selectCartItemCount);
-  const badgeCount = cartItemCount ?? storeCartItemCount;
+  // The badge counts what the server's cart holds. The bar is mounted for as
+  // long as the customer is in the tabs, which makes it the right place to also
+  // carry over a cart that an older version of the app kept on the device.
+  const serverCartItemCount = useCartItemCount();
+  useMigrateLegacyCart();
+  const badgeCount = cartItemCount ?? serverCartItemCount;
   const insets = useSafeAreaInsets();
   const { t } = useTranslation();
   const [barWidth, setBarWidth] = useState(0);

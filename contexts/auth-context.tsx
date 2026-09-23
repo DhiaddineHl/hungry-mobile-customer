@@ -14,7 +14,6 @@ import { resolveCustomerForAccount } from '@/hooks/use-customer';
 import { deleteCurrentAccount } from '@/services/api/customer-service';
 import { isApiError } from '@/services/api/client';
 import { clearPushRegistration } from '@/services/notifications/push-service';
-import { useCartStore } from '@/store/cart-store';
 import { useCustomerStore } from '@/store/customer-store';
 import { useFavoritesStore } from '@/store/favorites-store';
 import { useDeliveryAddressStore } from '@/store/delivery-address-store';
@@ -288,7 +287,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // The inbox is this account's order history in another form.
       useNotificationStore.getState().clear();
       if (options.local) {
-        useCartStore.getState().clear();
+        // The cart lives on the server with the account, so there is nothing on
+        // the device to wipe; `queryClient.clear()` below drops the cached copy.
         useFavoritesStore.getState().clear();
       }
       queryClient.clear();

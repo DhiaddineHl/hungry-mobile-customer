@@ -14,6 +14,7 @@ import {
   useProductConfiguration,
   useProductImageUrl,
 } from "@/hooks/use-products";
+import { useAddToCart } from "@/hooks/use-cart";
 import { useRestaurantImageSourceFromPath } from "@/hooks/use-restaurant-image";
 import { useRestaurant } from "@/hooks/use-restaurants";
 import {
@@ -21,7 +22,6 @@ import {
   selectPrice,
   toggleAddonSelection,
 } from "@/services/api/product-view-model";
-import { type CartAddon, useCartStore } from "@/store/cart-store";
 import { useFavoritesStore, useIsFavorite } from "@/store/favorites-store";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { ChevronLeft, ShoppingBag } from "lucide-react-native";
@@ -79,7 +79,11 @@ export default function FoodDetailsScreen() {
   const [showSticky, setShowSticky] = useState(false);
   const [selections, setSelections] = useState<Record<string, string[]>>({});
 
-  const addItem = useCartStore((s) => s.addItem);
+  // The cart lives on the server; adding is a request, and its answer is the
+  // whole recalculated cart. The server works out which restaurant the dish
+  // belongs to, so nothing about the restaurant travels with the request.
+  const addToCart = useAddToCart();
+  const [addError, setAddError] = useState<string | null>(null);
   const toggleFavorite = useFavoritesStore((s) => s.toggle);
   const isFavorite = useIsFavorite("food", id ?? "");
 
@@ -174,12 +178,11 @@ export default function FoodDetailsScreen() {
   const totalLabel = formatAmount(unitAmount * quantity, basePrice?.currency);
   const priceLabel = basePrice?.formatted;
 
+  // No restaurant is needed here any more: the server derives it from the
+  // product itself, so a dish opened from favorites or search can be ordered
+  // just like one opened from its restaurant's menu.
   const canAddToCart =
-    !!basePrice &&
-    !!product &&
-    !!restaurant &&
-    !isConfigurationPending &&
-    !isConfigurationBroken;
+    !!basePrice && !!product && !isConfigurationPending && !isConfigurationBroken;
 
   const handleGoToCart = () => router.push("/cart/review");
 
@@ -188,38 +191,31 @@ export default function FoodDetailsScreen() {
     // again because what reaches the cart must never depend on a control's
     // enabled-ness alone.
     if (!allRequiredSatisfied) return;
-    // No applicable price, or no restaurant resolved from the route: the line
-    // could not be priced or attributed, so it must not reach the cart.
-    if (!canAddToCart || !product) return;
+    // No applicable price: the line could not be priced, so it must not be sent.
+    if (!canAddToCart || !product || addToCart.isPending) return;
 
-    const selectedAddons: CartAddon[] = addonGroups.flatMap((group) => {
+    // Only the chosen options travel, and never a price: the server prices the
+    // dish and every option itself.
+    const attributes = addonGroups.flatMap((group) => {
       const selected = selections[group.id] ?? [];
       return group.options
         .filter((option) => selected.includes(option.id))
-        .map((option) => ({
-          id: option.id,
-          name: option.name,
-          price: addonAmounts.get(option.id) ?? 0,
-        }));
+        .map((option) => ({ attributeId: option.id, checked: true }));
     });
 
-    addItem({
-      foodId: product.id,
-      name: product.name ?? "",
-      image: imageUrl ?? undefined,
-      unitPrice: unitAmount,
-      basePrice: basePrice.amount,
-      quantity,
-      addons: selectedAddons,
-      note: specialNote.trim() || undefined,
-      restaurantId: restaurant.id,
-      restaurantName: restaurant.name,
-      // The RELATIVE path, resolved at render time so a stored line survives a
-      // change of EXPO_PUBLIC_API_URL.
-      restaurantLogo: restaurant.logoPath,
-    });
-
-    router.back();
+    setAddError(null);
+    addToCart.mutate(
+      {
+        productId: product.id,
+        quantity,
+        note: specialNote.trim() || undefined,
+        attributes,
+      },
+      {
+        onSuccess: () => router.back(),
+        onError: (error) => setAddError(error.message),
+      },
+    );
   };
 
   const handleToggleFavorite = () => {
@@ -368,11 +364,12 @@ export default function FoodDetailsScreen() {
           onDecrement={() => setQuantity((q) => Math.max(1, q - 1))}
           onIncrement={() => setQuantity((q) => q + 1)}
           onAddToCart={handleAddToCart}
-          disabled={!allRequiredSatisfied}
+          disabled={!allRequiredSatisfied || addToCart.isPending}
           hint={
-            allRequiredSatisfied
+            addError ??
+            (allRequiredSatisfied
               ? undefined
-              : "Choose an option in every required section to continue."
+              : "Choose an option in every required section to continue.")
           }
         />
       ) : (
@@ -389,9 +386,7 @@ export default function FoodDetailsScreen() {
               ? "Loading this dish's options…"
               : isConfigurationBroken
                 ? "We couldn't load the choices this dish needs, so it can't be ordered yet."
-                : basePrice
-                  ? "Open this dish from its restaurant to order it."
-                  : "This dish isn't available to order right now."}
+                : "This dish isn't available to order right now."}
           </Text>
         </View>
       )}

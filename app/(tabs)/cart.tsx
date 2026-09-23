@@ -2,49 +2,38 @@ import {
   CartHeader,
   CheckoutButton,
   RestaurantCartCard,
-  SyncBadge,
 } from '@/components/cart';
 import { PressableScale } from '@/components/ui/pressable-scale';
-import { useCartSync, useHydrateCart } from '@/hooks/use-cart-sync';
+import { QueryError } from '@/components/ui/query-state';
+import { useActiveCart, useClearRestaurantItems, useIsCartUpdating } from '@/hooks/use-cart';
+import { useCartArtwork } from '@/hooks/use-cart-artwork';
 import { useCustomerOrders } from '@/hooks/use-customer-orders';
-import { useStoredImageSource } from '@/hooks/use-restaurant-image';
-import {
-  cartSubtotal,
-  formatDT,
-  groupByRestaurant,
-  useCartStore,
-} from '@/store/cart-store';
+import { groupCartByRestaurant } from '@/services/api/cart-view-model';
+import { formatDT } from '@/services/api/money';
 import { Fonts, FontSize, Palette, Radius, Spacing } from '@/constants/theme';
 import { useRouter } from 'expo-router';
 import { PackageSearch, ShoppingCart, UtensilsCrossed } from 'lucide-react-native';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 /**
  * The customer's ONE cart, shown one restaurant at a time.
  *
+ * The cart is the server's: this screen reads the latest recalculated state
+ * every time it opens, and shows what came back — nothing is priced here.
  * Grouping is presentation and a preview of checkout — every restaurant here
  * becomes its own order — not a separate cart per restaurant. There is one
- * sync badge, one total and one "View Cart" for the lot.
+ * total and one "View Cart" for the lot.
  */
 export default function CartScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
 
-  const items = useCartStore((s) => s.items);
-  const syncStatus = useCartStore((s) => s.remote.status);
-  const clearRestaurant = useCartStore((s) => s.clearRestaurant);
-  const groups = groupByRestaurant(items);
-
-  // The cart tab is where the backend projection is kept in step: hydration
-  // restores the server cart onto an empty device, and the sync engine pushes
-  // every later change back up. Both no-op when signed out.
-  useHydrateCart();
-  const { retry } = useCartSync();
-
-  // Stored artwork is a relative path or a bundled module id; it becomes a
-  // renderable source only here, against the current API base.
-  const toImageSource = useStoredImageSource();
+  const { data: cart, isPending, error, refetch } = useActiveCart();
+  const clearRestaurant = useClearRestaurantItems();
+  const isUpdating = useIsCartUpdating();
+  const artwork = useCartArtwork(cart);
+  const groups = groupCartByRestaurant(cart);
 
   // Whether "track your orders" is worth offering on an empty cart: only when
   // something is actually in progress. Same cache entry as My Orders.
@@ -65,12 +54,14 @@ export default function CartScreen() {
       >
         <View style={styles.divider} />
 
-        {groups.length > 0 ? (
+        {isPending ? (
+          <View style={styles.centered}>
+            <ActivityIndicator color={Palette.primary} />
+          </View>
+        ) : error && !cart ? (
+          <QueryError error={error} onRetry={() => void refetch()} />
+        ) : groups.length > 0 ? (
           <View style={styles.cartsSection}>
-            <View style={styles.syncRow}>
-              <SyncBadge status={syncStatus} onRetry={retry} />
-            </View>
-
             {groups.length > 1 ? (
               <Text style={styles.splitNote}>
                 Dishes from {groups.length} restaurants — at checkout they are
@@ -87,16 +78,19 @@ export default function CartScreen() {
               <RestaurantCartCard
                 key={group.restaurantId}
                 restaurantName={group.restaurantName}
-                restaurantLogo={toImageSource(group.restaurantLogo)}
+                restaurantLogo={artwork.logoOf(group.restaurantId)}
                 items={group.items.map((line) => ({
-                  id: line.lineId,
-                  name: line.name,
+                  id: line.id,
+                  name: line.productName ?? '',
                   quantity: line.quantity,
-                  image: toImageSource(line.image),
+                  image: artwork.imageOf(line.productId),
                 }))}
                 totalItems={group.totalQuantity}
-                totalPrice={formatDT(group.totalPrice)}
-                onDelete={() => clearRestaurant(group.restaurantId)}
+                totalPrice={formatDT(
+                  group.order?.subtotal ??
+                    group.items.reduce((sum, line) => sum + line.lineTotal, 0)
+                )}
+                onDelete={() => clearRestaurant.mutate(group.restaurantId)}
                 onAddMore={() => router.push(`/restaurant/${group.restaurantId}`)}
               />
             ))}
@@ -148,10 +142,10 @@ export default function CartScreen() {
         )}
       </ScrollView>
 
-      {items.length > 0 ? (
+      {cart && cart.items.length > 0 ? (
         <CheckoutButton
           label="View Cart"
-          total={formatDT(cartSubtotal(items))}
+          total={isUpdating ? 'Updating…' : formatDT(cart.total)}
           onPress={() => router.push('/cart/review')}
         />
       ) : null}
@@ -176,14 +170,16 @@ const styles = StyleSheet.create({
     marginHorizontal: 20,
     marginBottom: 20,
   },
+  centered: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: Spacing.xxxl,
+  },
   cartsSection: {
     marginBottom: 16,
     gap: 16,
   },
-  // The card brings its own marginHorizontal; the badge and note match it.
-  syncRow: {
-    paddingHorizontal: Spacing.xl,
-  },
+  // The card brings its own marginHorizontal; the note matches it.
   splitNote: {
     paddingHorizontal: Spacing.xl,
     fontSize: FontSize.sm,

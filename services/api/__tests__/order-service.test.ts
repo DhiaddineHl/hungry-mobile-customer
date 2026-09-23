@@ -1,7 +1,5 @@
-import type { OrderInput } from '@/schemas/order';
 import { ApiError, apiClient } from '@/services/api/client';
 import {
-  createOrder,
   fetchCustomerOrders,
   fetchOrderById,
   isUuid,
@@ -30,40 +28,11 @@ const ORDER_ID = '9a7b6c5d-4e3f-2a1b-0c9d-8e7f6a5b4c3d';
 const CUSTOMER_ID = 'c1c1c1c1-2222-3333-4444-555555555555';
 const RESTAURANT_ID = 'r2r2r2r2-2222-3333-4444-666666666666';
 const PRODUCT_ID = '8f3c1c2e-2f1a-4a1b-9d0e-1c2b3a4d5e6f';
-const ATTRIBUTE_ID = 'a4a4a4a4-1111-2222-3333-444444444444';
-
-const INPUT: OrderInput = {
-  code: `ho:${CUSTOMER_ID}:${RESTAURANT_ID}:1756000000000`,
-  name: 'Baguette & Baguette',
-  restaurantId: RESTAURANT_ID,
-  customerId: CUSTOMER_ID,
-  comment: 'Payment: Cash',
-  items: [
-    {
-      code: 'line-1',
-      name: 'Crispy Chicken',
-      quantity: 2,
-      orderedProduct: {
-        code: PRODUCT_ID,
-        name: 'Crispy Chicken',
-        productId: PRODUCT_ID,
-        attributes: [
-          {
-            code: ATTRIBUTE_ID,
-            name: 'Extra cheese',
-            attributeId: ATTRIBUTE_ID,
-            checked: true,
-          },
-        ],
-      },
-    },
-  ],
-};
 
 function order(overrides: Record<string, unknown> = {}) {
   return {
     id: ORDER_ID,
-    code: INPUT.code,
+    code: 'ORD-20260925-K3F9QX',
     name: 'Baguette & Baguette',
     restaurantId: RESTAURANT_ID,
     customerId: CUSTOMER_ID,
@@ -165,55 +134,6 @@ describe('isUuid', () => {
   });
 });
 
-describe('createOrder', () => {
-  it('POSTs to /orders with the payload untouched', async () => {
-    mockedPost.mockResolvedValueOnce({ data: order() });
-
-    await createOrder(INPUT);
-
-    expect(mockedPost).toHaveBeenCalledTimes(1);
-    const [url, body] = mockedPost.mock.calls[0];
-    expect(url).toBe('/orders');
-    expect(body).toEqual(INPUT);
-    // The input nesting key, which the response calls `product`.
-    expect((body as OrderInput).items[0].orderedProduct.productId).toBe(PRODUCT_ID);
-  });
-
-  it('returns the parsed order', async () => {
-    mockedPost.mockResolvedValueOnce({ data: order() });
-
-    const created = await createOrder(INPUT);
-
-    expect(created.id).toBe(ORDER_ID);
-    expect(created.items).toHaveLength(1);
-  });
-
-  it('throws when a 2xx carries an empty body — the PUT no-op signature', async () => {
-    // `DefaultCrudService.update()` returns null and the controller answers
-    // `ResponseEntity.ok(null)`. Reporting that as a created order would tell
-    // the customer a delivery is coming that no one will make.
-    mockedPost.mockResolvedValueOnce({ data: null });
-
-    await expect(createOrder(INPUT)).rejects.toBeInstanceOf(ApiError);
-  });
-
-  it('throws an ApiError naming the field path when the response does not parse', async () => {
-    const { id: _id, ...withoutId } = order();
-    mockedPost.mockResolvedValueOnce({ data: withoutId });
-
-    await expect(createOrder(INPUT)).rejects.toThrow(/id/);
-  });
-
-  it('does not swallow a 500 — and issues exactly one POST', async () => {
-    // No retry at this layer: a create that reached the database enqueues a
-    // driver, so a second attempt risks a second delivery (plan §3.6).
-    mockedPost.mockRejectedValueOnce(new ApiError('A populator has failed', 500));
-
-    await expect(createOrder(INPUT)).rejects.toBeInstanceOf(ApiError);
-    expect(mockedPost).toHaveBeenCalledTimes(1);
-  });
-});
-
 describe('fetchOrderById', () => {
   it('GETs /orders/{id} and returns the parsed order', async () => {
     mockedGet.mockResolvedValueOnce({ data: order() });
@@ -254,46 +174,52 @@ describe('fetchOrderById', () => {
   });
 });
 
-describe('forbidden calls', () => {
-  it('never calls PUT /orders, on any path', async () => {
-    mockedPost.mockResolvedValueOnce({ data: order() });
+describe('what this module never does', () => {
+  it('never writes: orders are created by POST /checkout, not from here', async () => {
     mockedGet.mockResolvedValueOnce({ data: order() });
+    mockedGet.mockResolvedValueOnce({ data: page([order()], { last: true }) });
 
-    await createOrder(INPUT);
     await fetchOrderById(ORDER_ID);
+    await fetchCustomerOrders(CUSTOMER_ID);
 
-    // 200 OK, empty body, writes nothing. Never called.
+    expect(mockedPost).not.toHaveBeenCalled();
     expect(mockedPut).not.toHaveBeenCalled();
   });
 
   it('reads one order by id without touching the list endpoint', async () => {
-    mockedPost.mockResolvedValueOnce({ data: order() });
     mockedGet.mockResolvedValueOnce({ data: order() });
 
-    await createOrder(INPUT);
     await fetchOrderById(ORDER_ID);
 
-    const requested = JSON.stringify([
-      ...mockedGet.mock.calls,
-      ...mockedPost.mock.calls,
-    ]);
-
+    const requested = JSON.stringify(mockedGet.mock.calls);
     expect(requested).not.toContain('/orders/all');
     expect(requested).not.toContain('filter');
   });
 
-  it('never emits a filter key that the backend answers 500 to', async () => {
+  it('sends NO filter at all when listing', async () => {
+    // Orders used to carry an app-made `ho:<customer>:...` code and a `LIKE`
+    // filter on it was a harmless no-op. They now get server-generated codes
+    // (`ORD-20260925-K3F9QX`), so a filter on the old prefix that the backend
+    // honoured would hide every order. The list is narrowed on the device.
     mockedGet.mockResolvedValueOnce({ data: page([order()], { last: true }) });
 
     await fetchCustomerOrders(CUSTOMER_ID);
 
-    const requested = JSON.stringify(mockedGet.mock.calls);
+    const params = mockedGet.mock.calls[0][1]?.params as Record<string, unknown>;
+    expect(params).not.toHaveProperty('filter');
+    expect(JSON.stringify(mockedGet.mock.calls)).not.toContain('ho:');
+  });
 
-    // `restaurantIds`/`customerIds` answer 500 and `statuses` compares a bare
-    // ORDINAL enum to a String. Only `codes` — ignored, never fatal — is sent.
-    for (const key of ['restaurantIds', 'customerIds', 'statuses']) {
-      expect(requested).not.toContain(key);
-    }
-    expect(requested).toContain('codes');
+  it('still narrows the list to the customer even though it asks for no filter', async () => {
+    mockedGet.mockResolvedValueOnce({
+      data: page(
+        [order({ id: ORDER_ID }), order({ id: 'f0f0f0f0-1111-2222-3333-444444444444', customerId: 'someone-else' })],
+        { last: true }
+      ),
+    });
+
+    const orders = await fetchCustomerOrders(CUSTOMER_ID);
+
+    expect(orders.map((o) => o.id)).toEqual([ORDER_ID]);
   });
 });
