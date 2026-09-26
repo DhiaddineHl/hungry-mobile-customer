@@ -1,7 +1,7 @@
 import { getOrderDelivery } from '@/services/api/delivery-service';
 import { deliveryKeys } from '@/services/api/query-keys';
 import { subscribeToTopic } from '@/services/realtime/stomp-client';
-import type { OrderDeliveryOutput } from '@/schemas/delivery';
+import type { DeliveryStatus, OrderDeliveryOutput } from '@/schemas/delivery';
 import { useQuery, useQueryClient, type UseQueryOptions } from '@tanstack/react-query';
 import { useEffect } from 'react';
 
@@ -17,7 +17,13 @@ import { useEffect } from 'react';
  */
 
 /** Delivery statuses still worth polling for — a terminal one needs no more reads. */
-const IN_PROGRESS_DELIVERY_STATUSES = ['QUEUED', 'BATCH_ASSIGNED', 'DRIVER_ACCEPTED', 'PICKED_UP'];
+export const IN_PROGRESS_DELIVERY_STATUSES: readonly DeliveryStatus[] = [
+  'CREATED',
+  'QUEUED',
+  'BATCH_ASSIGNED',
+  'ACCEPTED',
+  'PICKED_UP',
+];
 
 const DELIVERY_POLL_MS = 20_000;
 const DELIVERY_STALE_TIME = 10_000;
@@ -41,6 +47,11 @@ export function orderDeliveryQueryOptions(
 
 export interface OrderDeliveryResult {
   delivery: OrderDeliveryOutput | null;
+  /**
+   * The delivery status as `CustomerOrder.deliveryStatus` expects it:
+   * `undefined` until the read has succeeded, `null` when there is no delivery.
+   */
+  status: DeliveryStatus | null | undefined;
   /** No `Delivery` row exists for this order yet — not an error, just "no driver yet". */
   isUnassigned: boolean;
   isLoading: boolean;
@@ -64,6 +75,7 @@ export function useOrderDelivery(orderId: string | null | undefined): OrderDeliv
 
   return {
     delivery: query.data ?? null,
+    status: query.isSuccess ? (query.data?.status ?? null) : undefined,
     isUnassigned: query.isSuccess && query.data === null,
     isLoading: query.isLoading,
     error: query.error,

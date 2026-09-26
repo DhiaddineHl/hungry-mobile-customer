@@ -42,6 +42,11 @@ export function notificationCopy(
       };
     case 'ORDER_CANCELLED':
       return { title: 'Order cancelled', body: `Your order${from} was cancelled.` };
+    case 'ORDER_REJECTED':
+      return {
+        title: 'Order declined',
+        body: `${who} couldn’t accept your order.`,
+      };
     case 'DRIVER_ASSIGNED':
       return {
         title: 'Driver on the way',
@@ -69,18 +74,24 @@ const ORDER_STATUS_EVENT: Partial<Record<OrderStatus, NotificationType>> = {
   PREPARING: 'ORDER_PREPARING',
   READY: 'ORDER_READY',
   CANCELLED: 'ORDER_CANCELLED',
+  REJECTED: 'ORDER_REJECTED',
+  // FINISHED is written at pickup — the delivery's PICKED_UP already says so.
 };
 
 /**
  * The inbox row a delivery status maps to. `QUEUED` and `BATCH_ASSIGNED` are
  * dispatch internals — the customer has nothing to act on until a driver has
- * actually accepted — and `DRIVER_REJECTED` just means the search continues.
+ * actually accepted. `FINISHED` follows `DELIVERED` straight away, so it maps
+ * to the same row (de-duplicated on its key) in case a poll skipped
+ * `DELIVERED`.
  */
 const DELIVERY_STATUS_EVENT: Partial<Record<DeliveryStatus, NotificationType>> = {
-  DRIVER_ACCEPTED: 'DRIVER_ASSIGNED',
+  ACCEPTED: 'DRIVER_ASSIGNED',
   PICKED_UP: 'DRIVER_PICKED_UP',
   DELIVERED: 'ORDER_DELIVERED',
+  FINISHED: 'ORDER_DELIVERED',
   FAILED: 'DELIVERY_FAILED',
+  RETURNED: 'DELIVERY_FAILED',
 };
 
 /**

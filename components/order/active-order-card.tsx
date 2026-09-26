@@ -33,14 +33,14 @@ export function ActiveOrderCard({ order, onPress }: ActiveOrderCardProps) {
       style={styles.card}
       onPress={onPress}
       scaleTo={0.985}
-      accessibilityLabel={`${order.restaurantName}, ${orderStatusLabel(order.status)}`}
+      accessibilityLabel={`${order.restaurantName}, ${orderStatusLabel(order)}`}
       accessibilityHint="Opens the order details"
     >
       <View style={styles.header}>
         <Text style={styles.restaurant} numberOfLines={1}>
           {order.restaurantName}
         </Text>
-        <OrderStatusChip status={order.status} compact />
+        <OrderStatusChip order={order} compact />
       </View>
 
       <View style={styles.metaRow}>
@@ -52,7 +52,7 @@ export function ActiveOrderCard({ order, onPress }: ActiveOrderCardProps) {
 
       <OrderProgress
         step={orderProgressStep(order)}
-        statusLabel={orderStatusLabel(order.status)}
+        statusLabel={orderStatusLabel(order)}
       />
 
       <View style={styles.itemsBlock}>

@@ -16,6 +16,7 @@ import {
   orderBucket,
   orderProgressStep,
   orderStatusLabel,
+  withDeliveryStatus,
 } from "@/services/api/order-list-view-model";
 import { priceOrder } from "@/services/api/order-price-view-model";
 import { formatDT } from "@/store/cart-store";
@@ -65,10 +66,23 @@ export default function CustomerOrderDetailsScreen() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
 
-  const { order, isLoading, isRefetching, isMissing, error, refetch } =
-    useCustomerOrder(id);
-  const { data: restaurant } = useRestaurant(order?.restaurantId);
-  const { delivery } = useOrderDelivery(order?.id);
+  const {
+    order: baseOrder,
+    isLoading,
+    isRefetching,
+    isMissing,
+    error,
+    refetch,
+  } = useCustomerOrder(id);
+  const { data: restaurant } = useRestaurant(baseOrder?.restaurantId);
+  const { delivery, status: deliveryStatus } = useOrderDelivery(baseOrder?.id);
+
+  // The order closes (`FINISHED`) at pickup — where it stands after that is
+  // the delivery's to say, so the two are read together (`orderStage`).
+  const order = useMemo(
+    () => (baseOrder ? withDeliveryStatus(baseOrder, deliveryStatus) : null),
+    [baseOrder, deliveryStatus],
+  );
 
   // The receipt captured at checkout, when this device is the one that placed
   // the order. It is exact, and it costs no request.
@@ -156,7 +170,7 @@ export default function CustomerOrderDetailsScreen() {
               {formatOrderDateTime(order.createdAt)}
             </Text>
           </View>
-          <OrderStatusChip status={order.status} />
+          <OrderStatusChip order={order} />
           <View style={styles.restaurantRow}>
             <Store size={16} color={Palette.textSecondary} />
             <Text style={styles.restaurantName}>
@@ -169,7 +183,7 @@ export default function CustomerOrderDetailsScreen() {
           <View style={styles.card}>
             <OrderProgress
               step={orderProgressStep(order)}
-              statusLabel={orderStatusLabel(order.status)}
+              statusLabel={orderStatusLabel(order)}
             />
             <Text style={styles.footnote}>
               Updates as the restaurant and your delivery agent move the order

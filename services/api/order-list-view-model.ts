@@ -1,3 +1,8 @@
+import {
+  DELIVERED_STATUSES,
+  UNDELIVERED_STATUSES,
+  type DeliveryStatus,
+} from '@/schemas/delivery';
 import type { OrderOutput, OrderStatus } from '@/schemas/order';
 import { parseOrderComment } from './order-view-model';
 
@@ -53,6 +58,18 @@ export interface CustomerOrder {
   restaurantId?: string;
   restaurantName: string;
   status: OrderStatus | null;
+  /**
+   * The status of the delivery attached to this order, read separately from
+   * `GET /orders/{id}/delivery` and folded in with `withDeliveryStatus`.
+   *
+   *   - `undefined` — not read (yet): nothing is known about the delivery;
+   *   - `null` — read, and there is none (no driver has accepted yet), or the
+   *     backend sent a member this app does not know.
+   *
+   * It matters most for `FINISHED`, which the backend sets at PICKUP: only the
+   * delivery says whether the food has arrived since.
+   */
+  deliveryStatus?: DeliveryStatus | null;
   /** The backend's `createdAt`: a LOCAL date-time with no offset (plan §3.7). */
   createdAt?: string;
   lines: CustomerOrderLine[];
@@ -107,39 +124,177 @@ export function toCustomerOrder(order: OrderOutput): CustomerOrder {
   };
 }
 
+// --- Delivery ------------------------------------------------------------
+
+/** Folds a delivery read into an order. `undefined` keeps it unread. */
+export function withDeliveryStatus(
+  order: CustomerOrder,
+  deliveryStatus: DeliveryStatus | null | undefined
+): CustomerOrder {
+  if (deliveryStatus === undefined || deliveryStatus === order.deliveryStatus) {
+    return order;
+  }
+  return { ...order, deliveryStatus };
+}
+
+/**
+ * How long after it was placed a `FINISHED` order is still worth asking about
+ * its delivery.
+ *
+ * `FINISHED` arrives at pickup, so a recent one may still be on its way — but
+ * an old one cannot be, and reading the delivery of every order in a
+ * customer's history on each launch would cost a request per order. Wide on
+ * purpose: `createdAt` is the SERVER's local time with no offset (plan §3.7),
+ * so against this device's clock it can be off by a timezone difference.
+ */
+export const FINISHED_TRACKING_WINDOW_MS = 48 * 60 * 60 * 1000;
+
+function isRecent(createdAt: string | undefined, now: number): boolean {
+  if (!createdAt) return false;
+  const placed = new Date(createdAt).getTime();
+  if (Number.isNaN(placed)) return false;
+  return now - placed < FINISHED_TRACKING_WINDOW_MS;
+}
+
+/**
+ * Whether the delivery of this order has to be read to know where it stands.
+ *
+ * From `PREPARING` (dispatch starts there, so a driver can be matched before
+ * the food is ready) until the food has arrived. A `FINISHED` order only
+ * while recent — see `FINISHED_TRACKING_WINDOW_MS`.
+ */
+export function needsDeliveryRead(
+  order: Pick<CustomerOrder, 'status' | 'createdAt'>,
+  now: number = Date.now()
+): boolean {
+  switch (order.status) {
+    case 'PREPARING':
+    case 'READY':
+      return true;
+    case 'FINISHED':
+      return isRecent(order.createdAt, now);
+    default:
+      return false;
+  }
+}
+
+// --- Stage ---------------------------------------------------------------
+
+/**
+ * Where an order stands for the customer — the order status and the delivery
+ * status read together.
+ *
+ * Neither is enough alone: the backend closes the ORDER (`FINISHED`) when the
+ * driver picks the food up, and only the DELIVERY moves on to `DELIVERED`.
+ *
+ *   - `READY`           — cooked, waiting for the driver to pick it up;
+ *   - `ON_THE_WAY`      — the driver has it (delivery `PICKED_UP`);
+ *   - `DELIVERED`       — the driver confirmed the drop-off (delivery
+ *                         `DELIVERED`/`FINISHED`);
+ *   - `DELIVERY_FAILED` — picked up, then returned or failed;
+ *   - `COMPLETED`       — `FINISHED` long ago and the delivery not read:
+ *                         closed, but this app will not claim it was delivered;
+ *   - `UNKNOWN`         — a status the app cannot read.
+ */
+export type OrderStage =
+  | 'PLACED'
+  | 'CONFIRMED'
+  | 'PREPARING'
+  | 'READY'
+  | 'ON_THE_WAY'
+  | 'DELIVERED'
+  | 'DELIVERY_FAILED'
+  | 'COMPLETED'
+  | 'REJECTED'
+  | 'CANCELLED'
+  | 'UNKNOWN';
+
+type StagedOrder = Pick<CustomerOrder, 'status' | 'deliveryStatus' | 'createdAt'>;
+
+export function orderStage(order: StagedOrder, now: number = Date.now()): OrderStage {
+  const { status, deliveryStatus } = order;
+
+  if (!status) return 'UNKNOWN';
+  if (status === 'CANCELLED') return 'CANCELLED';
+  if (status === 'REJECTED') return 'REJECTED';
+
+  if (deliveryStatus && DELIVERED_STATUSES.includes(deliveryStatus)) {
+    return 'DELIVERED';
+  }
+
+  if (status === 'FINISHED') {
+    // FINISHED is written at pickup, so the driver has had the food.
+    if (deliveryStatus && UNDELIVERED_STATUSES.includes(deliveryStatus)) {
+      return 'DELIVERY_FAILED';
+    }
+    if (deliveryStatus) return 'ON_THE_WAY';
+    // Not read yet while recent: still on its way as far as anyone knows.
+    // Otherwise (old, or no delivery at all) closed, without a claim.
+    return deliveryStatus === undefined && isRecent(order.createdAt, now)
+      ? 'ON_THE_WAY'
+      : 'COMPLETED';
+  }
+
+  // The two statuses are separate requests, so the delivery can be seen
+  // picked up while the order still reads READY.
+  if (deliveryStatus === 'PICKED_UP') return 'ON_THE_WAY';
+
+  switch (status) {
+    case 'CREATED':
+      return 'PLACED';
+    case 'CONFIRMED':
+      return 'CONFIRMED';
+    case 'PREPARING':
+      return 'PREPARING';
+    case 'READY':
+      return 'READY';
+    default:
+      return 'UNKNOWN';
+  }
+}
+
 // --- Status --------------------------------------------------------------
 
-/** What each backend status means to a customer, in full. */
-export const ORDER_STATUS_LABELS: Record<OrderStatus, string> = {
-  CREATED: 'Order placed',
+/** What each stage means to a customer, in full. */
+export const ORDER_STAGE_LABELS: Record<OrderStage, string> = {
+  PLACED: 'Order placed',
   CONFIRMED: 'Confirmed by the restaurant',
   PREPARING: 'Preparing your food…',
-  READY: 'Ready — on its way to you',
+  READY: 'Ready — waiting for the driver',
+  ON_THE_WAY: 'Your driver is on the way',
+  DELIVERED: 'Delivered',
+  DELIVERY_FAILED: 'The delivery couldn’t be completed',
+  COMPLETED: 'Completed',
+  REJECTED: 'Declined by the restaurant',
   CANCELLED: 'Cancelled',
+  UNKNOWN: 'Status unavailable',
 };
 
 /** The short form, for a chip. */
-export const ORDER_STATUS_SHORT_LABELS: Record<OrderStatus, string> = {
-  CREATED: 'Placed',
+export const ORDER_STAGE_SHORT_LABELS: Record<OrderStage, string> = {
+  PLACED: 'Placed',
   CONFIRMED: 'Confirmed',
   PREPARING: 'Preparing',
-  READY: 'On the way',
+  READY: 'Ready',
+  ON_THE_WAY: 'On the way',
+  DELIVERED: 'Delivered',
+  DELIVERY_FAILED: 'Not delivered',
+  COMPLETED: 'Completed',
+  REJECTED: 'Declined',
   CANCELLED: 'Cancelled',
+  UNKNOWN: 'Unknown',
 };
 
 /**
- * The label an order carries, unknown statuses included.
+ * The label an order carries, read from both of its statuses.
  *
  * A status the app cannot read renders as "Status unavailable" rather than
  * defaulting to a cheerful one: an order the backend will not describe must not
  * be presented as progressing.
  */
-export function orderStatusLabel(
-  status: OrderStatus | null,
-  short = false
-): string {
-  if (!status) return short ? 'Unknown' : 'Status unavailable';
-  return short ? ORDER_STATUS_SHORT_LABELS[status] : ORDER_STATUS_LABELS[status];
+export function orderStatusLabel(order: StagedOrder, short = false): string {
+  const stage = orderStage(order);
+  return short ? ORDER_STAGE_SHORT_LABELS[stage] : ORDER_STAGE_LABELS[stage];
 }
 
 // --- Buckets -------------------------------------------------------------
@@ -147,30 +302,27 @@ export function orderStatusLabel(
 export type OrderBucket = 'active' | 'completed';
 
 /**
- * The statuses that mean the order is still running.
+ * The stages after which nothing more will happen to an order.
  *
- * `READY` is in this set deliberately. It is the LAST status the backend can
- * report — there is no `DELIVERED` or `COMPLETED` member and no endpoint moves
- * an order past it — so treating it as finished would tell a customer their
- * food has arrived while it is still with the driver. When the backend gains a
- * delivered status, removing it from this set is the whole change.
+ * `FINISHED` alone is not one of them: that is the pickup, and the order stays
+ * in progress until its delivery says the food arrived.
  */
-export const IN_PROGRESS_STATUSES: OrderStatus[] = [
-  'CREATED',
-  'CONFIRMED',
-  'PREPARING',
-  'READY',
+const COMPLETED_STAGES: readonly OrderStage[] = [
+  'DELIVERED',
+  'DELIVERY_FAILED',
+  'COMPLETED',
+  'REJECTED',
+  'CANCELLED',
 ];
 
 /**
- * Which tab an order belongs in, decided by the backend's status alone.
+ * Which tab an order belongs in.
  *
  * An order whose status could not be read stays in progress: one that might
  * still be coming must not be filed away as finished.
  */
-export function orderBucket(order: Pick<CustomerOrder, 'status'>): OrderBucket {
-  if (!order.status) return 'active';
-  return IN_PROGRESS_STATUSES.includes(order.status) ? 'active' : 'completed';
+export function orderBucket(order: StagedOrder, now: number = Date.now()): OrderBucket {
+  return COMPLETED_STAGES.includes(orderStage(order, now)) ? 'completed' : 'active';
 }
 
 /** Splits a customer's orders into the two tabs in one pass. */
@@ -178,47 +330,59 @@ export function splitOrders(orders: CustomerOrder[]): {
   active: CustomerOrder[];
   completed: CustomerOrder[];
 } {
+  const now = Date.now();
   const active: CustomerOrder[] = [];
   const completed: CustomerOrder[] = [];
   for (const order of orders) {
-    (orderBucket(order) === 'active' ? active : completed).push(order);
+    (orderBucket(order, now) === 'active' ? active : completed).push(order);
   }
   return { active, completed };
 }
 
 // --- Progress ------------------------------------------------------------
 
-/** The stages the tracker shows, in the order the backend moves through them. */
+/**
+ * The stages the tracker shows, in order. The first three move with the
+ * order status (the restaurant), the last two with the delivery status (the
+ * driver).
+ */
 export const ORDER_PROGRESS_STEPS = [
   'Placed',
   'Confirmed',
   'Preparing',
   'On the way',
+  'Delivered',
 ] as const;
 
 export const ORDER_STEP_COUNT = ORDER_PROGRESS_STEPS.length;
 
 /**
- * How many stages are done, 0–4, straight from the backend status.
+ * How many stages are done, 0–5, straight from the two backend statuses.
  *
- * The four stages are exactly the four statuses the backend reports on the way
- * through — nothing is inferred from elapsed time, and there is no stage the
- * app advances on its own. A cancelled order has no progress and returns 0.
+ * Nothing is inferred from elapsed time, and there is no stage the app
+ * advances on its own. `READY` stays on "Preparing": the food is done, but
+ * "On the way" lights only once the driver has actually picked it up, and
+ * "Delivered" only once they confirm the drop-off. A declined or cancelled
+ * order has no progress and returns 0.
  */
-export function orderProgressStep(order: Pick<CustomerOrder, 'status'>): number {
-  switch (order.status) {
+export function orderProgressStep(order: StagedOrder): number {
+  switch (orderStage(order)) {
     case 'CANCELLED':
+    case 'REJECTED':
       return 0;
-    case 'READY':
+    case 'DELIVERED':
+      return 5;
+    case 'ON_THE_WAY':
+    case 'DELIVERY_FAILED':
+    case 'COMPLETED':
       return 4;
     case 'PREPARING':
+    case 'READY':
       return 3;
     case 'CONFIRMED':
       return 2;
-    case 'CREATED':
-      return 1;
     default:
-      // Unknown status: it was placed, and that much is certain.
+      // PLACED — and an unknown status: it was placed, that much is certain.
       return 1;
   }
 }

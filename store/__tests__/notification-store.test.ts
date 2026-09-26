@@ -86,7 +86,7 @@ describe('diffOrderEvents', () => {
     expect(
       diffOrderEvents(
         { orderStatus: 'PREPARING', deliveryStatus: null },
-        { orderStatus: 'READY', deliveryStatus: 'DRIVER_ACCEPTED' }
+        { orderStatus: 'READY', deliveryStatus: 'ACCEPTED' }
       )
     ).toEqual(['ORDER_READY', 'DRIVER_ASSIGNED']);
   });
@@ -101,7 +101,7 @@ describe('diffOrderEvents', () => {
     expect(
       diffOrderEvents(
         { orderStatus: 'READY', deliveryStatus: 'QUEUED' },
-        { orderStatus: 'READY', deliveryStatus: 'DRIVER_REJECTED' }
+        { orderStatus: 'READY', deliveryStatus: 'REJECTED' }
       )
     ).toEqual([]);
   });
@@ -109,7 +109,7 @@ describe('diffOrderEvents', () => {
   it('maps pickup and delivery', () => {
     expect(
       diffOrderEvents(
-        { orderStatus: 'READY', deliveryStatus: 'DRIVER_ACCEPTED' },
+        { orderStatus: 'READY', deliveryStatus: 'ACCEPTED' },
         { orderStatus: 'READY', deliveryStatus: 'PICKED_UP' }
       )
     ).toEqual(['DRIVER_PICKED_UP']);
@@ -119,6 +119,41 @@ describe('diffOrderEvents', () => {
         { orderStatus: 'READY', deliveryStatus: 'DELIVERED' }
       )
     ).toEqual(['ORDER_DELIVERED']);
+  });
+
+  it('files nothing for the order closing at pickup — the delivery already says it', () => {
+    // The backend moves the order READY → FINISHED in the same transaction as
+    // the delivery's ACCEPTED → PICKED_UP.
+    expect(
+      diffOrderEvents(
+        { orderStatus: 'READY', deliveryStatus: 'ACCEPTED' },
+        { orderStatus: 'FINISHED', deliveryStatus: 'PICKED_UP' }
+      )
+    ).toEqual(['DRIVER_PICKED_UP']);
+  });
+
+  it('counts a finished delivery as delivered when the poll skipped DELIVERED', () => {
+    expect(
+      diffOrderEvents(
+        { orderStatus: 'FINISHED', deliveryStatus: 'PICKED_UP' },
+        { orderStatus: 'FINISHED', deliveryStatus: 'FINISHED' }
+      )
+    ).toEqual(['ORDER_DELIVERED']);
+  });
+
+  it('maps a returned delivery and a declined order', () => {
+    expect(
+      diffOrderEvents(
+        { orderStatus: 'FINISHED', deliveryStatus: 'PICKED_UP' },
+        { orderStatus: 'FINISHED', deliveryStatus: 'RETURNED' }
+      )
+    ).toEqual(['DELIVERY_FAILED']);
+    expect(
+      diffOrderEvents(
+        { orderStatus: 'CREATED', deliveryStatus: null },
+        { orderStatus: 'REJECTED', deliveryStatus: null }
+      )
+    ).toEqual(['ORDER_REJECTED']);
   });
 });
 

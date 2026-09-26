@@ -3,22 +3,23 @@ import {
   ORDER_PROGRESS_STEPS,
   ORDER_STEP_COUNT,
 } from '@/services/api/order-list-view-model';
-import { Bike, ChefHat, CircleCheck, Receipt } from 'lucide-react-native';
+import { Bike, ChefHat, CircleCheck, PackageCheck, Receipt } from 'lucide-react-native';
 import { StyleSheet, Text, View } from 'react-native';
 
 /**
- * The four-stage bar on an active order: Placed → Confirmed → Preparing → On
- * the way.
+ * The five-stage bar on an active order: Placed → Confirmed → Preparing → On
+ * the way → Delivered.
  *
- * The stages ARE the four backend statuses an order moves through; nothing is
+ * The first three move with the order status (the restaurant), the last two
+ * with the delivery status (the driver's pickup, then drop-off). Nothing is
  * inferred from elapsed time and the customer app never advances one.
  * `orderProgressStep` in `order-list-view-model.ts` owns the mapping.
  */
 
-const STEP_ICONS = [Receipt, CircleCheck, ChefHat, Bike];
+const STEP_ICONS = [Receipt, CircleCheck, ChefHat, Bike, PackageCheck];
 
 interface OrderProgressProps {
-  /** How many stages are done, 0–4. 0 renders every stage as pending. */
+  /** How many stages are done, 0–5. 0 renders every stage as pending. */
   step: number;
   /** The sentence above the bar, e.g. "Preparing your food…". */
   statusLabel: string;

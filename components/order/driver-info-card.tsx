@@ -19,12 +19,15 @@ import { StyleSheet, Text, View } from 'react-native';
  */
 
 const DELIVERY_STATUS_LABELS: Record<DeliveryStatus, string> = {
+  CREATED: 'Looking for a driver…',
   QUEUED: 'Looking for a driver…',
   BATCH_ASSIGNED: 'Driver assigned — waiting for them to accept',
-  DRIVER_ACCEPTED: 'Heading to the restaurant',
-  DRIVER_REJECTED: 'Finding another driver…',
+  ACCEPTED: 'Heading to the restaurant',
+  REJECTED: 'Finding another driver…',
   PICKED_UP: 'On the way to you',
   DELIVERED: 'Delivered',
+  FINISHED: 'Delivered',
+  RETURNED: 'The order is being returned — contact support',
   FAILED: 'There’s an issue with this delivery — contact support',
 };
 

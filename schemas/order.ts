@@ -28,9 +28,15 @@ import { z } from 'zod';
  */
 
 /**
- * `Order.status`. The backend forces `CREATED` on every create
- * (`OrderBasePopulator` ignores whatever the client sends), so the other four
- * members are only ever *read*.
+ * `Order.status` — mirrors the backend's `OrderStatus` enum. The backend forces
+ * `CREATED` on every create (`OrderBasePopulator` ignores whatever the client
+ * sends), so the other members are only ever *read*.
+ *
+ * `FINISHED` does NOT mean delivered: the order workflow closes the order the
+ * moment the driver confirms PICKUP (`DeliveryPickedUpDelegate` →
+ * `OrderFinishedDelegate`). Whether the food actually arrived is the
+ * delivery's status — `orderStage` in `order-list-view-model.ts` combines the
+ * two. `REJECTED` is the restaurant declining a `CREATED` order.
  *
  * Use sites pair this with `.nullish().catch(null)`: a status member the app
  * does not know about must degrade to "unknown status" rather than discard an
@@ -41,6 +47,8 @@ export const orderStatusSchema = z.enum([
   'CONFIRMED',
   'PREPARING',
   'READY',
+  'FINISHED',
+  'REJECTED',
   'CANCELLED',
 ]);
 

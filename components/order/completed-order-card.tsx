@@ -1,13 +1,17 @@
 import { PressableScale } from '@/components/ui/pressable-scale';
 import { RESTAURANT_IMAGE_PLACEHOLDER } from '@/constants/images';
 import { Fonts, FontSize, Palette, Radius, Spacing } from '@/constants/theme';
+import { orderDeliveryQueryOptions } from '@/hooks/use-order-delivery';
 import { useRestaurantImageSource } from '@/hooks/use-restaurant-image';
 import { useRestaurant } from '@/hooks/use-restaurants';
 import {
   formatOrderDate,
   orderItemCount,
+  orderStage,
+  withDeliveryStatus,
   type CustomerOrder,
 } from '@/services/api/order-list-view-model';
+import { useQuery } from '@tanstack/react-query';
 import { Image } from 'expo-image';
 import { RotateCcw } from 'lucide-react-native';
 import { StyleSheet, Text, View } from 'react-native';
@@ -19,6 +23,11 @@ import { OrderStatusChip } from './order-status-chip';
  * The artwork is the restaurant's own, fetched by id — an `Order` carries no
  * image of its own, and the restaurant is already cached by the home and
  * restaurant screens, so this is usually free.
+ *
+ * An order closed long ago (`COMPLETED` — `FINISHED`, delivery not read by the
+ * list) reads its delivery here, once, so the chip can say "Delivered" or "Not
+ * delivered" rather than just "Completed". Only for cards actually rendered,
+ * and a finished delivery never changes, so it is never re-read.
  *
  * "Order again" is navigation, not a re-submission: it opens the restaurant's
  * menu. Nothing here re-creates an order — a create enqueues a real delivery,
@@ -38,6 +47,16 @@ export function CompletedOrderCard({
 }: CompletedOrderCardProps) {
   const { data: restaurant } = useRestaurant(order.restaurantId);
   const toImageSource = useRestaurantImageSource();
+
+  const { data: delivery, isSuccess } = useQuery({
+    ...orderDeliveryQueryOptions(order.id),
+    enabled: orderStage(order) === 'COMPLETED',
+    staleTime: Infinity,
+    refetchInterval: false,
+  });
+  const shown = isSuccess
+    ? withDeliveryStatus(order, delivery?.status ?? null)
+    : order;
 
   const source = restaurant?.bannerImage
     ? toImageSource(restaurant.bannerImage)
@@ -71,7 +90,7 @@ export function CompletedOrderCard({
       </Text>
 
       <View style={styles.footer}>
-        <OrderStatusChip status={order.status} compact />
+        <OrderStatusChip order={shown} compact />
 
         <PressableScale
           style={styles.orderAgainButton}

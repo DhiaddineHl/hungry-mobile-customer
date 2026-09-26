@@ -44,6 +44,7 @@ const VISUALS: Record<NotificationType, RowVisual> = {
   ORDER_PREPARING: { Icon: ChefHat, color: Palette.primary, background: Palette.primarySoft },
   ORDER_READY: { Icon: ShoppingBag, color: Palette.primary, background: Palette.primarySoft },
   ORDER_CANCELLED: { Icon: CircleX, color: Palette.danger, background: Palette.dangerSoft },
+  ORDER_REJECTED: { Icon: CircleX, color: Palette.danger, background: Palette.dangerSoft },
   DRIVER_ASSIGNED: { Icon: Bike, color: Palette.primary, background: Palette.primarySoft },
   DRIVER_PICKED_UP: { Icon: Bike, color: Palette.success, background: Palette.successSoft },
   ORDER_DELIVERED: { Icon: PackageCheck, color: Palette.success, background: Palette.successSoft },

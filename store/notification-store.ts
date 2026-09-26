@@ -23,6 +23,7 @@ export type NotificationType =
   | 'ORDER_PREPARING'
   | 'ORDER_READY'
   | 'ORDER_CANCELLED'
+  | 'ORDER_REJECTED'
   | 'DRIVER_ASSIGNED'
   | 'DRIVER_PICKED_UP'
   | 'ORDER_DELIVERED'
