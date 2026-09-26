@@ -245,7 +245,12 @@ function RootNavigator() {
         {/* My Orders and one placed order — both slide in like the rest of
             the push stack. */}
         <Stack.Screen name="orders/index" />
-        <Stack.Screen name="orders/[id]" />
+        <Stack.Screen name="orders/[id]/index" />
+        {/* The live driver map opens over the order, full height. */}
+        <Stack.Screen
+          name="orders/[id]/track"
+          options={{ presentation: "fullScreenModal", animation: "slide_from_bottom" }}
+        />
         <Stack.Screen name="notifications" />
         <Stack.Screen
           name="modal"

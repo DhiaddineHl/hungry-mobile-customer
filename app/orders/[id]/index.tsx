@@ -18,6 +18,7 @@ import {
   orderStatusLabel,
   withDeliveryStatus,
 } from "@/services/api/order-list-view-model";
+import { isTrackable } from "@/services/api/driver-location-view-model";
 import { priceOrder } from "@/services/api/order-price-view-model";
 import { formatDT } from "@/store/cart-store";
 import { useOrderPriceSnapshot } from "@/store/order-price-store";
@@ -193,13 +194,32 @@ export default function CustomerOrderDetailsScreen() {
         ) : null}
 
         {isActive && order.status !== "CREATED" ? (
-          <View style={styles.card}>
-            <DriverInfoCard
-              status={delivery?.status ?? null}
-              driverName={delivery?.driverName ?? null}
-              driverRating={delivery?.driverRating ?? null}
-            />
-          </View>
+          isTrackable(delivery?.status) ? (
+            // From the accept to the drop-off the driver can be followed live.
+            <PressableScale
+              style={styles.card}
+              onPress={() => router.push(`/orders/${order.id}/track`)}
+              scaleTo={0.98}
+              haptic
+              accessibilityLabel="Track your driver on the map"
+              accessibilityHint="Opens a live map of your driver"
+            >
+              <DriverInfoCard
+                status={delivery?.status ?? null}
+                driverName={delivery?.driverName ?? null}
+                driverRating={delivery?.driverRating ?? null}
+                trackable
+              />
+            </PressableScale>
+          ) : (
+            <View style={styles.card}>
+              <DriverInfoCard
+                status={delivery?.status ?? null}
+                driverName={delivery?.driverName ?? null}
+                driverRating={delivery?.driverRating ?? null}
+              />
+            </View>
+          )
         ) : null}
 
         <View style={styles.card}>

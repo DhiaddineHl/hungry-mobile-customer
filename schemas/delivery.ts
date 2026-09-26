@@ -50,3 +50,25 @@ export const orderDeliveryOutputSchema = z.object({
 });
 
 export type OrderDeliveryOutput = z.infer<typeof orderDeliveryOutputSchema>;
+
+/**
+ * Where the driver of an order is — the backend's `DriverLiveLocation`, both
+ * the body of `GET /orders/{id}/delivery/location` and every frame of
+ * `/topic/orders/{orderId}/driver-location`.
+ *
+ * `latitude`/`longitude` are null only on the LAST frame of a delivery, sent
+ * when it ends (`deliveryStatus` then DELIVERED, RETURNED or FAILED).
+ * `capturedAt` is an ISO-8601 UTC instant (with a `Z`), unlike the orders'
+ * offset-less local times — so it CAN be compared with the device clock.
+ */
+export const driverLocationSchema = z.object({
+  orderId: z.string(),
+  deliveryId: z.string().nullish(),
+  driverId: z.string().nullish(),
+  latitude: z.number().nullish(),
+  longitude: z.number().nullish(),
+  capturedAt: z.string(),
+  deliveryStatus: deliveryStatusSchema.nullish().catch(null),
+});
+
+export type DriverLocation = z.infer<typeof driverLocationSchema>;

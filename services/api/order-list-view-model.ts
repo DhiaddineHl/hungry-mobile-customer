@@ -86,6 +86,18 @@ export interface CustomerOrder {
   paymentLabel: string | null;
   /** Anything else the comment carried. */
   note: string | null;
+  /** The restaurant's position, when the order carries one — the map's pickup pin. */
+  pickup?: { latitude: number; longitude: number };
+  /** Where the order goes (the order's own address, not the customer's default). */
+  dropoff?: { latitude: number; longitude: number };
+  dropoffAddress?: string;
+}
+
+function point(
+  latitude: number | null | undefined,
+  longitude: number | null | undefined
+): { latitude: number; longitude: number } | undefined {
+  return latitude != null && longitude != null ? { latitude, longitude } : undefined;
 }
 
 /** Adapts one `OrderOutputData` for the screens. */
@@ -121,6 +133,9 @@ export function toCustomerOrder(order: OrderOutput): CustomerOrder {
     hasLineDetail: lines.length > 0,
     paymentLabel: payment,
     note,
+    pickup: point(order.pickupLatitude, order.pickupLongitude),
+    dropoff: point(order.dropoffLatitude, order.dropoffLongitude),
+    dropoffAddress: order.dropoffAddress ?? undefined,
   };
 }
 

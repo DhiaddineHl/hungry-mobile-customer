@@ -110,13 +110,17 @@ export const orderKeys = {
 };
 
 /**
- * Delivery cache entries — "who's delivering this order, and what's its
- * status." One leaf only: `GET /orders/{id}/delivery` is the only read this
- * app does, so there is no `list`/`lists()` pair here.
+ * Delivery cache entries — "who's delivering this order, what's its status,
+ * and where are they." No `list`/`lists()` pair: every read is per order.
  */
 export const deliveryKeys = {
   all: ['deliveries'] as const,
   details: () => [...deliveryKeys.all, 'detail'] as const,
   /** Keyed by the ORDER's UUID, not the delivery's — that's how the endpoint addresses it. */
   detail: (orderId: string) => [...deliveryKeys.details(), orderId] as const,
+  /**
+   * The driver's live position for an order — `GET /orders/{id}/delivery/location`,
+   * then every frame of `/topic/orders/{id}/driver-location` written over it.
+   */
+  location: (orderId: string) => [...deliveryKeys.all, 'location', orderId] as const,
 };

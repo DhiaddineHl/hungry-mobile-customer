@@ -4,8 +4,25 @@
 with a map that shows the driver moving in real time, plus the restaurant and
 the delivery address.
 
-**Status.** Plan only. Needs backend work first: today the backend throws away
-the position of a driver who is on a delivery (§1).
+**Status (2026-09-26).** Implemented on `feature/live-driver-tracking` in all
+three repos, uncommitted and not yet tested end-to-end on devices (step 8).
+Background location (§3.6) is still deferred.
+
+Differences from the plan below:
+- **Active-delivery lookup** (§3.1 step 2): a DB query per ping
+  (`DeliveryJpaRepository.findFirstByDriver_IdAndStatusInOrderByAcceptedAtDesc`)
+  instead of a Redis `driverId → delivery` cache. `LocationController` already
+  does one DB read per ping (`assertOwnDriver`), so the cost is the same order,
+  and a stale cache entry is impossible. Worth revisiting at fleet scale.
+- **Refused SUBSCRIBE** (§3.4) is dropped, not rejected with an ERROR frame. An
+  ERROR closes the whole connection, and the clients would reconnect and resend
+  the same subscription forever.
+- **Deliverer app**: in tracking mode (accept → delivered) it uses a tighter
+  watch, sends one report right away, and re-sends the last position every
+  30 s. Without this, a driver standing still sends nothing (the watch has a
+  20 m threshold), and the backend drops a position after 2 min without a ping.
+- **Customer route**: the order screen moved to `app/orders/[id]/index.tsx` so
+  that `app/orders/[id]/track.tsx` can sit next to it.
 
 **Decisions (2026-09-26).**
 - A **new feed**, `/topic/orders/{orderId}/driver-location`, separate from
