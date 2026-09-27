@@ -72,6 +72,23 @@ export const productKeys = {
 };
 
 /**
+ * Search-index cache entries (`/search/**`, see `services/api/search-service.ts`) — kept
+ * separate from `restaurantKeys`/`productKeys` even though they read overlapping data, since
+ * they're a different source (the eventually-consistent Solr index, not the JPA CRUD read) with
+ * its own freshness expectations.
+ */
+export const searchKeys = {
+  all: ['search'] as const,
+  /** The blended `q` search (restaurants + dishes, grouped) — keyed by the query text and page. */
+  all_: (q: string, page: number) => [...searchKeys.all, 'all', q, page] as const,
+  restaurants: (params: object) => [...searchKeys.all, 'restaurants', params] as const,
+  popularRestaurants: (customerId: string | undefined, page: number) =>
+    [...searchKeys.all, 'popular-restaurants', customerId ?? null, page] as const,
+  products: (params: object) => [...searchKeys.all, 'products', params] as const,
+  nearbyRestaurants: (params: object) => [...searchKeys.all, 'nearby-restaurants', params] as const,
+};
+
+/**
  * Cart cache entries. There is one cart the app can see — the signed-in
  * customer's ACTIVE one on the server — so there is one leaf.
  *

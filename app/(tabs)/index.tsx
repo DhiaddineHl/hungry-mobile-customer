@@ -34,8 +34,11 @@ export default function HomeScreen() {
     router.push('/notifications');
   };
 
-  const handleSearch = (text: string) => {
-    console.log('Search:', text);
+  // The home search bar is an entry point, not its own input: tapping it opens the
+  // dedicated results screen (its own field, auto-focused), which is where a query
+  // actually runs — see app/search-results.tsx.
+  const handleSearchFocus = () => {
+    router.push('/search-results');
   };
 
   const handleCategoryPress = (categoryId: string) => {
@@ -77,7 +80,7 @@ export default function HomeScreen() {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
       >
-        <SearchBar placeholder="Search the menu" onChangeText={handleSearch} />
+        <SearchBar placeholder="Search restaurants or dishes" onFocus={handleSearchFocus} />
         <CategoriesSlider
           onCategoryPress={handleCategoryPress}
           onSeeAllPress={handleSeeAllCategories}

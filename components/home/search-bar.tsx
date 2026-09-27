@@ -7,6 +7,10 @@ interface SearchBarProps {
   placeholder?: string;
   onChangeText?: (text: string) => void;
   onFocus?: () => void;
+  /** Fires on the keyboard's search/return key — the search results screen navigates on this,
+   *  not on every keystroke, so typing doesn't fire a request per character. */
+  onSubmitEditing?: () => void;
+  autoFocus?: boolean;
 }
 
 export function SearchBar({
@@ -14,6 +18,8 @@ export function SearchBar({
   placeholder = 'Search the menu',
   onChangeText,
   onFocus,
+  onSubmitEditing,
+  autoFocus,
 }: SearchBarProps) {
   return (
     <View style={styles.container}>
@@ -26,6 +32,9 @@ export function SearchBar({
           placeholderTextColor="#B0B0B0"
           onChangeText={onChangeText}
           onFocus={onFocus}
+          onSubmitEditing={onSubmitEditing}
+          returnKeyType="search"
+          autoFocus={autoFocus}
         />
       </View>
     </View>
