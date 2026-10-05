@@ -49,13 +49,63 @@ function view(overrides: Partial<CustomerOrder> = {}): CustomerOrder {
   return { ...toCustomerOrder(output()), ...overrides };
 }
 
+describe('toCustomerOrder — money', () => {
+  it('carries the backend price block and line prices', () => {
+    const order = toCustomerOrder(
+      output({
+        items: [
+          {
+            id: 'item-1',
+            quantity: 2,
+            unitPrice: 4.5,
+            total: 9,
+            product: { productId: PRODUCT_ID, attributes: [] },
+          },
+        ],
+        subtotal: 9,
+        discountTotal: 0,
+        deliveryFee: 2.4,
+        serviceFee: 1,
+        additionalFees: null,
+        total: 12.4,
+        adjustments: [
+          { type: 'DELIVERY_FEE', code: 'DELIVERY', label: 'Delivery', amount: 2.4 },
+          { type: 'SERVICE_FEE', code: 'SERVICE', label: 'Service fee', amount: 1 },
+        ],
+      })
+    );
+
+    expect(order.lines[0]).toMatchObject({ unitPrice: 4.5, total: 9 });
+    expect(order.charges).toEqual({
+      subtotal: 9,
+      discount: 0,
+      serviceFee: 1,
+      deliveryFee: 2.4,
+      additionalFees: 0,
+      total: 12.4,
+      itemized: true,
+    });
+  });
+
+  it('has no charges when the response carries no total', () => {
+    expect(toCustomerOrder(output()).charges).toBeUndefined();
+  });
+});
+
 describe('toCustomerOrder', () => {
   it('reads the lines the server returned', () => {
     const order = toCustomerOrder(output());
 
     expect(order.hasLineDetail).toBe(true);
     expect(order.lines).toEqual([
-      { id: 'item-1', name: 'Crispy Chicken', quantity: 2, productId: PRODUCT_ID },
+      {
+        id: 'item-1',
+        name: 'Crispy Chicken',
+        quantity: 2,
+        productId: PRODUCT_ID,
+        unitPrice: null,
+        total: null,
+      },
     ]);
   });
 
@@ -287,8 +337,8 @@ describe('orderItemCount', () => {
   it('counts units, not lines', () => {
     const order = view({
       lines: [
-        { id: 'a', name: 'A', quantity: 2 },
-        { id: 'b', name: 'B', quantity: 3 },
+        { id: 'a', name: 'A', quantity: 2, unitPrice: null, total: null },
+        { id: 'b', name: 'B', quantity: 3, unitPrice: null, total: null },
       ],
     });
     expect(orderItemCount(order)).toBe(5);

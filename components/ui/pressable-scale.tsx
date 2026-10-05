@@ -1,5 +1,5 @@
 import { ReactNode } from 'react';
-import { StyleProp, ViewStyle } from 'react-native';
+import { AccessibilityActionEvent, AccessibilityActionInfo, StyleProp, ViewStyle } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
@@ -25,6 +25,9 @@ interface PressableScaleProps {
   disabled?: boolean;
   accessibilityLabel?: string;
   accessibilityHint?: string;
+  /** Extra screen-reader actions, e.g. a "Delete" standing in for a swipe. */
+  accessibilityActions?: AccessibilityActionInfo[];
+  onAccessibilityAction?: (event: AccessibilityActionEvent) => void;
 }
 
 function triggerHaptic() {
@@ -50,6 +53,8 @@ export function PressableScale({
   disabled = false,
   accessibilityLabel,
   accessibilityHint,
+  accessibilityActions,
+  onAccessibilityAction,
 }: PressableScaleProps) {
   const pressed = useSharedValue(0);
 
@@ -93,6 +98,8 @@ export function PressableScale({
         accessibilityState={{ disabled }}
         accessibilityLabel={accessibilityLabel}
         accessibilityHint={accessibilityHint}
+        accessibilityActions={accessibilityActions}
+        onAccessibilityAction={onAccessibilityAction}
       >
         {children}
       </Animated.View>

@@ -2,6 +2,7 @@ import { AuthButton, AuthInput } from '@/components/auth';
 import { Fonts, FontSize, Palette, Spacing } from '@/constants/theme';
 import { useAuth } from '@/contexts/auth-context';
 import { useUpdateCustomer } from '@/hooks/use-customer';
+import { useCurrentCustomer } from '@/hooks/use-delivery-address';
 import { AccountSettingsFormData, accountSettingsSchema } from '@/schemas/auth';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useRouter } from 'expo-router';
@@ -24,23 +25,30 @@ export default function AccountSettingsScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { user, reloadUser } = useAuth();
+  const { data: customer } = useCurrentCustomer();
   const updateCustomer = useUpdateCustomer();
 
   const [formError, setFormError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
+  // The customer record is the source of truth for the profile. The phone in
+  // particular is only there: Keycloak's userinfo never returns it (no mapper,
+  // and the realm's user profile does not declare the `phoneNumber` attribute
+  // the backend mirrors). Token claims are only the fallback while it loads.
   const {
     control,
     handleSubmit,
     formState: { errors, isDirty },
   } = useForm<AccountSettingsFormData>({
     resolver: zodResolver(accountSettingsSchema),
-    defaultValues: {
-      firstName: user?.given_name ?? '',
-      lastName: user?.family_name ?? '',
-      email: user?.email ?? '',
-      phoneNumber: user?.phoneNumber ?? '',
+    values: {
+      firstName: customer?.fullname?.firstName ?? user?.given_name ?? '',
+      lastName: customer?.fullname?.lastName ?? user?.family_name ?? '',
+      email: customer?.contact?.email ?? user?.email ?? '',
+      phoneNumber: customer?.contact?.phones?.[0] ?? user?.phoneNumber ?? '',
     },
+    // A refetch landing mid-edit must not wipe what the user typed.
+    resetOptions: { keepDirtyValues: true },
   });
 
   const onSubmit = async (data: AccountSettingsFormData) => {
@@ -63,9 +71,9 @@ export default function AccountSettingsScreen() {
           phones: data.phoneNumber ? [data.phoneNumber] : [],
         },
       });
-      // Refresh the local user from Keycloak; keep the phone number, which
-      // userinfo only returns when the attribute is mapped into the claims.
-      await reloadUser({ phoneNumber: data.phoneNumber || undefined });
+      // Refresh the token claims (name/email shown elsewhere). The phone is
+      // read from the customer record, which the mutation already re-cached.
+      await reloadUser();
       Alert.alert('Saved', 'Your profile has been updated.', [
         { text: 'OK', onPress: () => router.back() },
       ]);

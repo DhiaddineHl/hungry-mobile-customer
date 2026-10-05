@@ -72,21 +72,20 @@ export const productKeys = {
 };
 
 /**
- * Cart cache entries, in the same shape as the three factories above.
- *
- * `list` is keyed by the CUSTOMER and `detail` by the cart `code`, not by ids:
- * `Cart` has no restaurant column and the `customerIds` filter answers 500, so
- * the `"hc:<customerId>:<restaurantId>"` code is what actually addresses a cart
- * (see `services/api/cart-view-model.ts`).
+ * Cart cache entries. There is one cart per customer (`/carts/active`), so
+ * the leaves are keyed by the CUSTOMER — re-using one across accounts would
+ * show the previous customer's cart to the next one.
  */
 export const cartKeys = {
   all: ['carts'] as const,
-  lists: () => [...cartKeys.all, 'list'] as const,
-  /** Keyed by the backend `Customer.id` UUID — never the Keycloak `sub`. */
-  list: (customerId: string) => [...cartKeys.lists(), customerId] as const,
-  details: () => [...cartKeys.all, 'detail'] as const,
-  /** Keyed by the cart `code`, the only field that identifies a cart by restaurant. */
-  detail: (code: string) => [...cartKeys.details(), code] as const,
+  /**
+   * The server cart as last read or written — priced by the backend. The sync
+   * engine writes every mutation response here, so it is always the newest
+   * price the app has seen. Keyed by the backend `Customer.id` UUID.
+   */
+  active: (customerId: string) => [...cartKeys.all, 'active', customerId] as const,
+  /** The one-shot restore of the server cart onto an empty device. */
+  hydration: (customerId: string) => [...cartKeys.all, 'hydration', customerId] as const,
 };
 
 /**

@@ -51,11 +51,10 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
  * opens the restaurant's menu — it does not re-submit anything, because a
  * create enqueues a real delivery.
  *
- * Prices are shown, and they do not come from the order — nothing on `Order` or
- * `OrderItem` holds money (plan §3.3). They come from the receipt this device
- * captured when it placed the order, and failing that from today's menu prices,
- * which the screen labels as such. See `services/api/order-price-view-model.ts`
- * for why those two are different answers to different questions.
+ * Prices come from the order itself — line prices and the fees it was placed
+ * with, as the backend recorded them at checkout. An order placed before that
+ * falls back to the receipt this device kept, then to today's menu prices,
+ * labelled as such. See `services/api/order-price-view-model.ts`.
  *
  * Still absent, because no source supplies them: a delivery ETA, and the addons
  * and per-line note that were sent at checkout. The payment line is the one this
@@ -85,20 +84,24 @@ export default function CustomerOrderDetailsScreen() {
     [baseOrder, deliveryStatus],
   );
 
-  // The receipt captured at checkout, when this device is the one that placed
-  // the order. It is exact, and it costs no request.
+  // The legacy receipt, for an order this device placed before checkout moved
+  // to the backend. Orders placed since carry their own price block.
   const snapshot = useOrderPriceSnapshot(order?.id);
 
-  // Only when there is no receipt: one product read per distinct dish, to price
-  // the lines from today's menu. Empty otherwise, so the common case is free.
+  // Only when neither the backend nor a receipt prices the lines: one product
+  // read per distinct dish, from today's menu. Empty otherwise.
+  const needsMenuPrices =
+    !order?.charges?.itemized &&
+    !snapshot &&
+    (order?.lines ?? []).some((line) => line.unitPrice == null);
   const productIds = useMemo(
     () =>
-      snapshot
-        ? []
-        : (order?.lines ?? [])
+      needsMenuPrices
+        ? (order?.lines ?? [])
             .map((line) => line.productId)
-            .filter((productId): productId is string => !!productId),
-    [order?.lines, snapshot],
+            .filter((productId): productId is string => !!productId)
+        : [],
+    [order?.lines, needsMenuPrices],
   );
   const menuUnitPrices = useMenuUnitPrices(productIds);
 
@@ -106,10 +109,11 @@ export default function CustomerOrderDetailsScreen() {
     () =>
       priceOrder({
         lines: order?.lines ?? [],
+        charges: order?.charges,
         snapshot,
         menuUnitPrices,
       }),
-    [order?.lines, snapshot, menuUnitPrices],
+    [order?.lines, order?.charges, snapshot, menuUnitPrices],
   );
 
   if (isLoading) {
@@ -255,9 +259,9 @@ export default function CustomerOrderDetailsScreen() {
           )}
 
           {/*
-            The receipt this device kept: the numbers the customer agreed to,
-            fees included. Shown even when the item list came back empty (plan
-            §2.2) — what the order cost is true either way.
+            What the order cost, fees included — the backend's own price block,
+            or for an older order the receipt this device kept. Shown even when
+            the item list came back empty (plan §2.2).
           */}
           {pricing.totals ? (
             <>
@@ -268,6 +272,14 @@ export default function CustomerOrderDetailsScreen() {
                   {formatDT(pricing.totals.subtotal)}
                 </Text>
               </View>
+              {pricing.totals.discount > 0 ? (
+                <View style={styles.priceRow}>
+                  <Text style={styles.priceLabel}>Discount</Text>
+                  <Text style={styles.priceValue}>
+                    −{formatDT(pricing.totals.discount)}
+                  </Text>
+                </View>
+              ) : null}
               <View style={styles.priceRow}>
                 <Text style={styles.priceLabel}>Service Fee</Text>
                 <Text style={styles.priceValue}>
@@ -282,6 +294,14 @@ export default function CustomerOrderDetailsScreen() {
                     : formatDT(pricing.totals.deliveryFee)}
                 </Text>
               </View>
+              {pricing.totals.additionalFees > 0 ? (
+                <View style={styles.priceRow}>
+                  <Text style={styles.priceLabel}>Additional Fees</Text>
+                  <Text style={styles.priceValue}>
+                    {formatDT(pricing.totals.additionalFees)}
+                  </Text>
+                </View>
+              ) : null}
               <View style={styles.rowDivider} />
               <View style={styles.priceRow}>
                 <Text style={styles.totalLabel}>Total</Text>
@@ -293,9 +313,9 @@ export default function CustomerOrderDetailsScreen() {
           ) : null}
 
           {/*
-            No receipt — these are the CURRENT menu prices of the same dishes,
-            which is not the same claim. Say so rather than letting them read as
-            what was charged, and show a total only when every line resolved.
+            An older order with no receipt — these are the CURRENT prices of
+            the same dishes, with no fees, which is not the same claim. Say so
+            rather than letting them read as what was charged.
           */}
           {pricing.source === "menu" ? (
             <>
@@ -311,8 +331,8 @@ export default function CustomerOrderDetailsScreen() {
                 </>
               ) : null}
               <Text style={styles.footnote}>
-                Today’s menu prices, not a receipt — this order was placed on
-                another device, and the server keeps no prices.
+                Today’s menu prices, not a receipt — this order was placed
+                before prices were recorded with orders.
               </Text>
             </>
           ) : null}

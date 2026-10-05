@@ -1,17 +1,17 @@
 import type { CartOutput } from '@/schemas/cart';
 import {
-  deleteCart,
-  fetchCustomerCarts,
-  replaceCart,
+  addActiveCartItem,
+  fetchActiveCart,
+  removeActiveCartItem,
+  updateActiveCartItem,
 } from '@/services/api/cart-service';
 import {
-  parseCartCode,
+  planCartSync,
   syncSignature,
-  toCartInput,
+  toCartQuote,
+  type CartQuote,
+  type CartSyncOp,
 } from '@/services/api/cart-view-model';
-import { fetchRestaurantIdForSection } from '@/services/api/menu-service';
-import { fetchProductById } from '@/services/api/product-service';
-import { selectPrice } from '@/services/api/product-view-model';
 import { cartKeys } from '@/services/api/query-keys';
 import { fetchRestaurantById } from '@/services/api/restaurant-service';
 import {
@@ -23,21 +23,19 @@ import {
   useCartStore,
   type CartLine,
 } from '@/store/cart-store';
-import { useQuery } from '@tanstack/react-query';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useCurrentCustomer } from './use-delivery-address';
 
 /**
- * Keeps the local cart and its backend projection in step.
+ * Keeps the local cart and the customer's server cart (`/carts/active`) in
+ * step, and hands the screens the PRICE the backend puts on it.
  *
- * ONE cart per customer. The local store stays authoritative: it holds
- * addons, per-line notes, prices and — crucially — which restaurant each line
- * is from, none of which `Cart` has a column for. The backend cart is a
- * durable copy so a cart survives a reinstall — not a second opinion about
- * what is in it (plan §4.1).
- *
- * Every write is a DELETE followed by a POST, because `PUT /carts` answers 200
- * with an empty body and persists nothing. See `services/api/cart-service.ts`.
+ * ONE cart per customer. The local store stays authoritative for what the
+ * customer is building — it answers instantly and works offline — while the
+ * server cart is what gets priced (delivery, service and additional fees from
+ * the backend's fee rules) and what `POST /checkout` turns into orders. The
+ * server stores the full line: product, chosen options and note.
  */
 
 /**
@@ -48,55 +46,58 @@ const SYNC_DEBOUNCE_MS = 800;
 
 // --- Pushing local state up ---------------------------------------------
 
-/**
- * One full pass of the sync engine, against whatever the store holds RIGHT NOW.
- *
- * Deliberately a plain async function rather than something buried in an
- * effect: this is where every backend write decision is made, so it has to be
- * unit-testable without a renderer — the same reason `cart-view-model.ts` is a
- * pure module.
- */
-export async function syncCart(customerId: string | null): Promise<void> {
-  // Signed out: do nothing, and leave the local cart completely alone. An
-  // unsynced cart is still a usable cart.
-  if (!customerId) return;
-
-  const state = useCartStore.getState();
-  const { setSyncState, resetSyncState } = state;
-  const sync = state.remote;
-
-  // 1. The customer emptied the cart: the server copy has to go.
-  if (state.items.length === 0) {
-    if (!sync.cartId) return;
-    try {
-      await deleteCart(sync.cartId);
-      resetSyncState();
-    } catch {
-      // Left in place on purpose; the next pass tries again.
-    }
-    return;
+function runOp(op: CartSyncOp): Promise<CartOutput> {
+  switch (op.type) {
+    case 'remove':
+      return removeActiveCartItem(op.itemId);
+    case 'update':
+      return updateActiveCartItem(op.itemId, op.quantity);
+    case 'add':
+      return addActiveCartItem(op.input);
   }
+}
 
-  // 2. The contents no longer match what was last written.
+async function runSync(
+  customerId: string,
+  queryClient?: QueryClient
+): Promise<CartOutput | null> {
+  const state = useCartStore.getState();
+  const { setSyncState } = state;
+
+  // Nothing here and nothing ever written: there is no server cart to empty,
+  // and reading one would only create it.
+  if (state.items.length === 0 && !state.remote.cartId) return null;
+
   const signature = syncSignature(state.items);
-  if (sync.syncedSignature === signature && sync.status === 'synced') return;
+  const cached = queryClient?.getQueryData<CartOutput>(cartKeys.active(customerId));
+  if (
+    cached &&
+    state.remote.status === 'synced' &&
+    state.remote.syncedSignature === signature
+  ) {
+    return cached;
+  }
 
   setSyncState({ status: 'syncing', error: undefined });
 
   try {
-    const saved = await replaceCart(
-      toCartInput({ customerId, lines: state.items }),
-      sync.cartId ?? undefined
-    );
+    // Read first: the server cart may have been changed from another device,
+    // and the diff has to be against what it holds, not what we last wrote.
+    let cart = await fetchActiveCart();
+    for (const op of planCartSync(state.items, cart)) {
+      cart = await runOp(op);
+    }
 
-    // Written only once the create has returned — never optimistically, so
+    // Written only once the calls have returned — never optimistically, so
     // the UI cannot show "saved" for a cart the server does not have.
     setSyncState({
-      cartId: saved?.id ?? null,
+      cartId: cart.id,
       syncedSignature: signature,
       status: 'synced',
       error: undefined,
     });
+    queryClient?.setQueryData(cartKeys.active(customerId), cart);
+    return cart;
   } catch (error) {
     // `syncedSignature` deliberately keeps its old value, so the next change
     // still sees a mismatch and retries.
@@ -104,23 +105,47 @@ export async function syncCart(customerId: string | null): Promise<void> {
       status: 'error',
       error: error instanceof Error ? error.message : 'Could not save your cart.',
     });
+    throw error;
   }
+}
+
+/** The tail of the pass queue — see {@link syncCart}. */
+let queue: Promise<unknown> = Promise.resolve();
+
+/**
+ * One full pass of the sync engine against whatever the store holds when the
+ * pass STARTS, resolving to the priced server cart (`null` when there is
+ * none). Throws when the server could not be brought in step.
+ *
+ * Passes are queued, never concurrent: two interleaved diffs would each add
+ * the same missing line. That is also what lets checkout simply await a pass
+ * and know the server holds exactly the local cart.
+ */
+export function syncCart(
+  customerId: string | null,
+  queryClient?: QueryClient
+): Promise<CartOutput | null> {
+  // Signed out: do nothing, and leave the local cart completely alone. An
+  // unsynced cart is still a usable cart.
+  if (!customerId) return Promise.resolve(null);
+
+  const pass = queue.then(() => runSync(customerId, queryClient));
+  queue = pass.catch(() => undefined);
+  return pass;
 }
 
 /**
  * Watches the cart and writes it to the backend.
  *
- * Mount once, from the cart screen. All this adds to {@link syncCart} is the
- * debounce — tapping `+` five times has to issue one sync, not five — and a
- * guard so a second pass cannot start while the first is still writing.
+ * Mount once, from the cart tab. All this adds to {@link syncCart} is the
+ * debounce — tapping `+` five times has to issue one sync, not five.
  */
 export function useCartSync() {
   const { data: customer } = useCurrentCustomer();
   const customerId = customer?.id ?? null;
+  const queryClient = useQueryClient();
 
   const items = useCartStore((s) => s.items);
-
-  const inFlight = useRef(false);
 
   /**
    * Bumped by {@link retry}. A failed cart's contents have not changed, so
@@ -134,132 +159,123 @@ export function useCartSync() {
   }, []);
 
   // What the server SHOULD hold, as a plain string: the effect re-arms when
-  // this changes and only then. Deriving it from `syncSignature` means an
-  // addon or note edit — which the backend cannot store — does not re-arm it.
+  // this changes and only then.
   const desired = syncSignature(items);
 
   useEffect(() => {
     if (!customerId) return;
 
-    const timer = setTimeout(async () => {
-      if (inFlight.current) return;
-      inFlight.current = true;
-      try {
-        await syncCart(customerId);
-      } finally {
-        inFlight.current = false;
-      }
+    const timer = setTimeout(() => {
+      // Failure is already on the store (the sync badge shows it).
+      syncCart(customerId, queryClient).catch(() => undefined);
     }, SYNC_DEBOUNCE_MS);
 
     return () => clearTimeout(timer);
-  }, [customerId, desired, retryNonce]);
+  }, [customerId, desired, retryNonce, queryClient]);
 
   return { retry };
 }
 
-// --- Reading remote carts back down -------------------------------------
+// --- The price --------------------------------------------------------------
+
+/**
+ * What the backend charges for the cart as it stands — or `null` while the
+ * server cart does not match the local one yet (a change still syncing), when
+ * signed out, or when the cart is empty.
+ *
+ * Reads the same cache entry the sync engine writes, so every sync pass
+ * refreshes it for free; the query itself only fetches when nothing is cached.
+ */
+export function useCartQuote(): {
+  quote: CartQuote | null;
+  isUpdating: boolean;
+  error: unknown;
+} {
+  const { data: customer } = useCurrentCustomer();
+  const customerId = customer?.id ?? null;
+  const items = useCartStore((s) => s.items);
+  const syncStatus = useCartStore((s) => s.remote.status);
+  const syncError = useCartStore((s) => s.remote.error);
+
+  const query = useQuery({
+    queryKey: cartKeys.active(customerId ?? ''),
+    queryFn: fetchActiveCart,
+    enabled: !!customerId && items.length > 0,
+    staleTime: 60_000,
+  });
+
+  const signature = syncSignature(items);
+  const quote = useMemo(() => (query.data ? toCartQuote(query.data) : null), [query.data]);
+  const current = quote && quote.signature === signature ? quote : null;
+
+  return {
+    quote: current,
+    isUpdating: !current && items.length > 0 && syncStatus !== 'error' && !query.error,
+    error: syncStatus === 'error' ? syncError : query.error,
+  };
+}
+
+// --- Reading the server cart back down ------------------------------------
 
 export interface HydratedCart {
-  /**
-   * The server row these lines came from — set only when they came from
-   * exactly ONE cart written under the current code scheme. Lines folded
-   * together from legacy per-restaurant rows have no single row to point at;
-   * the sync engine writes one and deletes the rest.
-   */
-  cartId: string | null;
+  cart: CartOutput;
   /** The signature of the lines below, so hydration does not trigger a resync. */
   signature: string;
   lines: CartLine[];
 }
 
 /**
- * Per-hydration memo, so one restored cart resolves each restaurant and each
- * menu section once rather than once per line.
+ * Rebuilds the server cart into local lines. Free gifts are the promotion
+ * engine's, not the customer's, and are not restored as lines. A line without
+ * a restaurant has no order to go into and is dropped.
  */
-interface HydrationCache {
-  restaurants: Map<string, Promise<RestaurantDetail | null>>;
-  sections: Map<string, Promise<string | null>>;
-}
-
-function restaurantFor(cache: HydrationCache, restaurantId: string) {
-  let pending = cache.restaurants.get(restaurantId);
-  if (!pending) {
-    pending = fetchRestaurantById(restaurantId).then((output) =>
-      output ? toRestaurantDetail(output) : null
-    );
-    cache.restaurants.set(restaurantId, pending);
-  }
-  return pending;
-}
-
-function restaurantIdForSection(cache: HydrationCache, sectionId: string) {
-  let pending = cache.sections.get(sectionId);
-  if (!pending) {
-    pending = fetchRestaurantIdForSection(sectionId);
-    cache.sections.set(sectionId, pending);
-  }
-  return pending;
-}
-
-/**
- * Rebuilds one backend cart into local lines. The result may be empty.
- *
- * Every line needs a restaurant: without one there is no order for checkout
- * to put it in. A legacy cart names its restaurant in its code; a current
- * cart does not, so the restaurant is resolved from the product's own menu
- * section (`fetchRestaurantIdForSection`). A line whose restaurant cannot be
- * resolved is dropped, as is one whose product is gone or has no applicable
- * price: rendering a nameless, unpriced or un-orderable line is worse than
- * not restoring it.
- */
-async function hydrateLines(cart: CartOutput, cache: HydrationCache): Promise<CartLine[]> {
-  const identity = parseCartCode(cart.code);
-  if (!identity) return [];
+export async function hydrateLines(cart: CartOutput): Promise<CartLine[]> {
+  const restaurants = new Map<string, Promise<RestaurantDetail | null>>();
+  const restaurantFor = (id: string) => {
+    let pending = restaurants.get(id);
+    if (!pending) {
+      pending = fetchRestaurantById(id)
+        .then((output) => (output ? toRestaurantDetail(output) : null))
+        .catch(() => null);
+      restaurants.set(id, pending);
+    }
+    return pending;
+  };
 
   const lines: CartLine[] = [];
 
-  for (const item of cart.items) {
-    if (!item.productId) continue;
+  for (const item of cart.items ?? []) {
+    if (item.giftItem || !item.productId || !item.restaurantId) continue;
 
-    const quantity = typeof item.quantity === 'number' ? item.quantity : 0;
-    if (quantity <= 0) continue;
+    const quantity = item.quantity ?? 0;
+    if (quantity <= 0 || item.unitPrice == null) continue;
 
-    const product = await fetchProductById(item.productId);
-    if (!product) continue;
+    const addons = (item.options ?? [])
+      .filter((option) => !!option.attributeId)
+      .map((option) => ({
+        id: option.attributeId!,
+        name: option.name ?? '',
+        price: option.price ?? 0,
+      }));
 
-    const price = selectPrice(product.prices, new Date());
-    if (!price) continue;
-
-    let restaurantId = identity.restaurantId;
-    if (!restaurantId) {
-      for (const section of product.subcategories) {
-        if (!section.id) continue;
-        restaurantId = await restaurantIdForSection(cache, section.id);
-        if (restaurantId) break;
-      }
-    }
-    if (!restaurantId) continue;
-
-    const restaurant = await restaurantFor(cache, restaurantId);
-    if (!restaurant) continue;
+    // Only for the logo — the name is already on the line.
+    const restaurant = await restaurantFor(item.restaurantId);
 
     const line = {
-      foodId: product.id,
-      name: product.name ?? item.productName ?? '',
+      foodId: item.productId,
+      name: item.productName ?? '',
       // Artwork is a separate request per product; fanning that out across a
       // whole cart is an N+1, so hydrated lines fall through to the
       // placeholder (MENU-01 §3.5).
       image: undefined,
-      unitPrice: price.amount,
-      basePrice: price.amount,
+      unitPrice: item.unitPrice,
+      basePrice: item.unitPrice - addons.reduce((sum, addon) => sum + addon.price, 0),
       quantity,
-      // NOT "the customer chose none" — `CartItem` is `{cart, product,
-      // quantity}`, so addons and notes were never stored to begin with.
-      addons: [],
-      note: undefined,
-      restaurantId: restaurant.id,
-      restaurantName: restaurant.name,
-      restaurantLogo: restaurant.logoPath,
+      addons,
+      note: item.note ?? undefined,
+      restaurantId: item.restaurantId,
+      restaurantName: restaurant?.name ?? item.restaurantName ?? '',
+      restaurantLogo: restaurant?.logoPath,
       hydrated: true,
     };
 
@@ -271,60 +287,18 @@ async function hydrateLines(cart: CartOutput, cache: HydrationCache): Promise<Ca
   return lines;
 }
 
-/**
- * Two hydrated lines of the same dish — from two legacy rows, say — collapse
- * into one, exactly as two `addItem` calls would.
- */
-function mergeLines(lines: CartLine[]): CartLine[] {
-  const merged = new Map<string, CartLine>();
-  for (const line of lines) {
-    const existing = merged.get(line.lineId);
-    merged.set(
-      line.lineId,
-      existing ? { ...existing, quantity: existing.quantity + line.quantity } : line
-    );
-  }
-  return Array.from(merged.values());
-}
-
-/**
- * The customer's cart as the server holds it, rebuilt into local lines — or
- * `null` when there is nothing restorable.
- *
- * Every cart row of the customer is read, not just the current one: an
- * earlier build wrote one row per restaurant, and a customer upgrading with
- * three of those must get all three restaurants' dishes back in the one cart.
- */
-export async function fetchHydratedCart(customerId: string): Promise<HydratedCart | null> {
-  const carts = await fetchCustomerCarts(customerId);
-  if (carts.length === 0) return null;
-
-  const cache: HydrationCache = { restaurants: new Map(), sections: new Map() };
-  const perCart = await Promise.all(carts.map((cart) => hydrateLines(cart, cache)));
-  const lines = mergeLines(perCart.flat());
+/** The customer's server cart rebuilt into local lines, or `null` when it is empty. */
+export async function fetchHydratedCart(): Promise<HydratedCart | null> {
+  const cart = await fetchActiveCart();
+  const lines = await hydrateLines(cart);
   if (lines.length === 0) return null;
-
-  // Only a lone current-scheme row is "already synced". Anything else — legacy
-  // rows, or several rows — has to be consolidated by the engine, which needs
-  // a null id and signature to know that.
-  const current = carts.length === 1 && parseCartCode(carts[0].code)?.restaurantId === null
-    ? carts[0]
-    : null;
-
-  return {
-    cartId: current?.id ?? null,
-    signature: syncSignature(lines),
-    lines,
-  };
+  return { cart, signature: syncSignature(lines), lines };
 }
 
 /**
  * Writes a hydrated cart into the store, unless the customer has meanwhile put
- * something in their cart on this device.
- *
- * Returns whether anything was applied. The emptiness check lives here rather
- * than only at the call site because the request is in flight for a while: the
- * customer may add a dish while it is, and that add must win (plan §4.5).
+ * something in their cart on this device — that add must win (plan §4.5).
+ * Returns whether anything was applied.
  */
 export function applyHydratedCart(cart: HydratedCart | null): boolean {
   const store = useCartStore.getState();
@@ -332,20 +306,13 @@ export function applyHydratedCart(cart: HydratedCart | null): boolean {
   if (!cart || cart.lines.length === 0) return false;
 
   store.replaceAll(cart.lines);
-
-  if (cart.cartId) {
-    // Already synced by definition — these lines came FROM that row.
-    store.setSyncState({
-      cartId: cart.cartId,
-      syncedSignature: cart.signature,
-      status: 'synced',
-      error: undefined,
-    });
-  } else {
-    // Folded together from legacy rows: the engine must write the single cart
-    // and delete them, which a fresh sync state is what makes it do.
-    store.resetSyncState();
-  }
+  // Already synced by definition — these lines came FROM the server cart.
+  store.setSyncState({
+    cartId: cart.cart.id,
+    syncedSignature: cart.signature,
+    status: 'synced',
+    error: undefined,
+  });
 
   return true;
 }
@@ -354,39 +321,38 @@ export function applyHydratedCart(cart: HydratedCart | null): boolean {
  * Restores the customer's server cart onto an EMPTY local cart, once.
  *
  * A non-empty local cart suppresses hydration entirely — local wins (plan
- * §4.5). Merging two carts that disagree about addons has no correct answer,
- * and the device in the customer's hand is the better source.
+ * §4.5): the device in the customer's hand is the better source.
  */
 export function useHydrateCart() {
   const { data: customer } = useCurrentCustomer();
   const customerId = customer?.id ?? null;
+  const queryClient = useQueryClient();
 
   const isLocalCartEmpty = useCartStore((s) => s.items.length === 0);
 
   /**
-   * Hydration is a one-shot per session, not a subscription.
-   *
-   * Read only inside the effect, never in `enabled`: emptying the cart
-   * re-enables the query, which then serves its cached result — and without
-   * this guard that would restore the very cart the customer just deleted.
+   * Hydration is a one-shot per session, not a subscription. Read only inside
+   * the effect, never in `enabled`: emptying the cart re-enables the query,
+   * which then serves its cached result — and without this guard that would
+   * restore the very cart the customer just emptied.
    */
   const done = useRef(false);
 
   const query = useQuery({
-    queryKey: cartKeys.list(customerId ?? ''),
-    queryFn: () => fetchHydratedCart(customerId!),
+    queryKey: cartKeys.hydration(customerId ?? ''),
+    queryFn: fetchHydratedCart,
     enabled: !!customerId && isLocalCartEmpty,
-    // `query-client` retries 500s twice, and this path reads carts whose
-    // not-found IS a 500 — that would triple every probe for nothing.
     retry: false,
     staleTime: Infinity,
   });
 
   useEffect(() => {
-    if (done.current || query.data === undefined) return;
+    if (done.current || query.data === undefined || !customerId) return;
     done.current = true;
-    applyHydratedCart(query.data);
-  }, [query.data]);
+    if (applyHydratedCart(query.data) && query.data) {
+      queryClient.setQueryData(cartKeys.active(customerId), query.data.cart);
+    }
+  }, [query.data, customerId, queryClient]);
 
   return { isHydrating: query.isFetching };
 }

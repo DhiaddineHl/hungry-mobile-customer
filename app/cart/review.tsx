@@ -1,10 +1,9 @@
 import { CartItem, CheckoutButton, OrderSummary, SyncBadge } from '@/components/cart';
 import { DeliveryFeeModal, ServiceFeeModal } from '@/components/checkout';
-import { DELIVERY_FEE, DELIVERY_FEE_WAIVED, SERVICE_FEE } from '@/constants/fees';
 import { Fonts, FontSize, Palette, Radius, Spacing } from '@/constants/theme';
+import { useCartQuote } from '@/hooks/use-cart-sync';
 import { useStoredImageSource } from '@/hooks/use-restaurant-image';
-import { checkoutTotals } from '@/services/api/order-view-model';
-import { formatDT, groupByRestaurant, useCartStore } from '@/store/cart-store';
+import { cartSubtotal, formatDT, groupByRestaurant, useCartStore } from '@/store/cart-store';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import { ArrowLeft, Plus } from 'lucide-react-native';
@@ -51,15 +50,30 @@ export default function CartScreen() {
   const groups = groupByRestaurant(items);
   const orderCount = groups.length;
 
-  // Lines rebuilt from the server carry no addons and no note — `CartItem` is
-  // `{cart, product, quantity}`, so those were never stored in the first place.
-  // Say so plainly rather than letting an empty description read as "plain".
-  const hasHydratedLines = items.some((line) => line.hydrated);
+  // The price the BACKEND puts on this cart — subtotal, delivery fee per
+  // restaurant order, service fee and any additional fee, from its fee rules.
+  // `null` while a change is still being saved: fees for a different cart
+  // would be wrong, so the local subtotal stands in until then.
+  const { quote, isUpdating, error: quoteError } = useCartQuote();
 
-  // Fees apply PER ORDER, and there is one order per restaurant — see
-  // `checkoutTotals`. Both fee amounts are client-side placeholders
-  // (`constants/fees.ts`).
-  const totals = checkoutTotals(groups);
+  const feeRows = quote
+    ? [
+        ...(quote.discountTotal > 0
+          ? [{ label: 'Discount', value: `−${formatDT(quote.discountTotal)}` }]
+          : []),
+        ...quote.additionalFees.map((fee) => ({ label: fee.label, value: formatDT(fee.amount) })),
+      ]
+    : [];
+  const total = quote ? quote.total : cartSubtotal(items);
+  const priceFootnote = quote
+    ? quote.deliveryPriced
+      ? undefined
+      : 'The delivery fee is calculated from your delivery address at checkout.'
+    : isUpdating
+      ? 'Updating prices…'
+      : quoteError
+        ? "Fees couldn't be loaded — they are shown at checkout."
+        : 'Service and delivery fees are added at checkout.';
 
   const handleBackPress = () => router.back();
 
@@ -89,19 +103,11 @@ export default function CartScreen() {
         contentContainerStyle={styles.scrollContent}
       >
         <View style={styles.itemsSection}>
-          {hasHydratedLines ? (
-            <Text style={styles.note}>
-              This cart was restored from your account. Extras and notes you
-              added on another device weren&apos;t saved, so they aren&apos;t
-              applied here.
-            </Text>
-          ) : null}
-
           {orderCount > 1 ? (
             <Text style={styles.note}>
               Your cart has dishes from {orderCount} restaurants. They will be
-              placed as {orderCount} separate orders, each with its own service
-              and delivery fee.
+              placed as {orderCount} separate orders, each with its own delivery
+              fee.
             </Text>
           ) : null}
 
@@ -160,28 +166,15 @@ export default function CartScreen() {
 
         {items.length > 0 && (
           <OrderSummary
-            subtotal={formatDT(totals.subtotal)}
-            serviceFee={
-              orderCount > 1
-                ? `${orderCount} × ${formatDT(SERVICE_FEE)}`
-                : formatDT(SERVICE_FEE)
-            }
+            subtotal={formatDT(quote ? quote.subtotal : cartSubtotal(items))}
+            serviceFee={quote ? formatDT(quote.serviceFee) : '—'}
             deliveryFee={
-              DELIVERY_FEE_WAIVED
-                ? 'Free'
-                : orderCount > 1
-                  ? `${orderCount} × ${formatDT(DELIVERY_FEE)}`
-                  : formatDT(DELIVERY_FEE)
+              quote && quote.deliveryPriced ? formatDT(quote.deliveryFee) : '—'
             }
-            originalDeliveryFee={
-              DELIVERY_FEE_WAIVED
-                ? orderCount > 1
-                  ? `${orderCount} × ${formatDT(DELIVERY_FEE)}`
-                  : formatDT(DELIVERY_FEE)
-                : undefined
-            }
-            isFreeDelivery={DELIVERY_FEE_WAIVED}
-            total={formatDT(totals.total)}
+            isFreeDelivery={!!quote && quote.deliveryPriced && quote.deliveryFee === 0}
+            extraRows={feeRows}
+            total={formatDT(total)}
+            footnote={priceFootnote}
             onServiceFeeInfo={() => setFeeSheet('service')}
             onDeliveryFeeInfo={() => setFeeSheet('delivery')}
           />
@@ -189,7 +182,7 @@ export default function CartScreen() {
       </ScrollView>
 
       {items.length > 0 && (
-        <CheckoutButton total={formatDT(totals.total)} onPress={handleCheckout} />
+        <CheckoutButton total={formatDT(total)} onPress={handleCheckout} />
       )}
 
       <ServiceFeeModal

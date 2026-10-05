@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { moneySchema } from './cart';
 
 /**
  * Runtime shape of the Hungry backend's order payloads
@@ -93,6 +94,10 @@ export const orderItemOutputSchema = z.object({
   name: z.string().nullish(),
   quantity: z.number().nullish(),
   product: orderedProductOutputSchema.nullish(),
+  /** Per unit, options included; zero for a free gift. */
+  unitPrice: moneySchema,
+  total: moneySchema,
+  gift: z.boolean().nullish(),
 });
 
 /**
@@ -130,6 +135,31 @@ export const orderOutputSchema = z.object({
   status: orderStatusSchema.nullish().catch(null),
   comment: z.string().nullish(),
   items: z.array(orderItemOutputSchema).catch([]),
+  /**
+   * The money, as the backend priced it at checkout (fee rules, promotions).
+   * `deliveryFee`/`serviceFee`/`additionalFees` are null on an order that has
+   * no charge of that kind — an order placed before checkout moved to the
+   * backend has none at all. `total` = subtotal − discounts + every fee.
+   */
+  subtotal: moneySchema,
+  discountTotal: moneySchema,
+  deliveryFee: moneySchema,
+  serviceFee: moneySchema,
+  additionalFees: moneySchema,
+  /** Every discount and fee line the order was placed with; empty on a legacy order. */
+  adjustments: z
+    .array(
+      z.object({
+        type: z.string().nullish(),
+        code: z.string().nullish(),
+        label: z.string().nullish(),
+        amount: moneySchema,
+      })
+    )
+    .nullish()
+    .catch([]),
+  total: moneySchema,
+  currency: z.string().nullish(),
   /** ISO-8601 local date-time, no offset. */
   createdAt: z.string().nullish(),
 });
@@ -145,45 +175,6 @@ export type OrderOutput = z.infer<typeof orderOutputSchema>;
 // --- Input --------------------------------------------------------------
 
 /**
- * What the app SENDS. Hand-written interfaces rather than zod schemas, exactly
- * as in `schemas/cart.ts`: this side of the wire is constructed by
- * `toOrderInput`, so there is no untrusted value to validate at runtime.
- *
- * Note what is deliberately absent:
- *   - `status` — the backend hard-codes `CREATED` and ignores what is sent;
- *   - any price, fee, total or payment field — no such column exists anywhere
- *     on `Order` or `OrderItem` (plan §3.3), and offering one would invite a
- *     caller to believe the backend charges something.
- */
-export interface OrderedProductAttributeInput {
-  code?: string;
-  name?: string;
-  attributeId: string;
-  /**
-   * IGNORED by the backend — `OrderedProductAttributeDirectBasePopulator`
-   * never copies it (plan §2.3). Sent anyway so the payload is correct the day
-   * that populator is fixed; the app treats a listed attribute as selected.
-   */
-  checked: boolean;
-}
-
-export interface OrderedProductInput {
-  code?: string;
-  name?: string;
-  productId: string;
-  /** Always an array, never `undefined` — `[]` when the line has no addons. */
-  attributes: OrderedProductAttributeInput[];
-}
-
-export interface OrderItemInput {
-  code?: string;
-  name?: string;
-  quantity: number;
-  /** The input nesting key. The OUTPUT calls this `product`. */
-  orderedProduct: OrderedProductInput;
-}
-
-/**
  * A one-off delivery point for ONE order — `Order.deliveryAddress` on the
  * backend, an embedded `Address` whose other fields are left unset.
  *
@@ -194,23 +185,4 @@ export interface OrderItemInput {
 export interface OrderDeliveryAddressInput {
   formattedAddress: string;
   coordinates: { latitude: number; longitude: number };
-}
-
-export interface OrderInput {
-  /**
-   * REQUIRED in practice, for the same reason as `CartInput.code`: nothing on
-   * the backend generates a code, so an omitted one persists as null.
-   */
-  code: string;
-  name?: string;
-  restaurantId: string;
-  /** The backend `Customer.id` UUID — NOT the Keycloak `sub`. */
-  customerId: string;
-  comment?: string;
-  items: OrderItemInput[];
-  /**
-   * Where to deliver THIS order, when not the customer's default address.
-   * Omitted → the backend snapshots the customer's default at create time.
-   */
-  deliveryAddress?: OrderDeliveryAddressInput;
 }

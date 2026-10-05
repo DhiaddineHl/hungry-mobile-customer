@@ -1,21 +1,16 @@
-import type { OrderTotals } from '@/services/api/order-view-model';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 
 /**
- * What each order cost, kept on the device that placed it.
+ * What each order cost, kept on the device that placed it — LEGACY.
  *
- * **This exists because the backend stores no prices at all.** `Order` and
- * `OrderItem` have no price, fee or total column (plan §3.3), so an order read
- * back from the server can say what was ordered but never what it cost. The
- * only moment those numbers exist is checkout, on this device — so that is
- * where they are captured, and this is where they are kept.
+ * Orders placed through `POST /checkout` carry their own prices and fees on
+ * the backend, so nothing records into this store any more. It is kept, read
+ * only, for the orders placed before that: their fees exist nowhere else.
  *
  * It is a RECEIPT, not a source of truth for money: nothing is charged from it
- * and nothing is sent from it. An order placed on another device, or before
- * this shipped, simply has no entry, and the order screen falls back to
- * today's menu prices and says so.
+ * and nothing is sent from it.
  */
 
 export interface OrderPriceAddon {
@@ -40,7 +35,15 @@ export interface OrderPriceLine {
   addons: OrderPriceAddon[];
 }
 
-export interface OrderPriceSnapshot extends OrderTotals {
+/** The price block of a receipt, as the old checkout computed it. */
+export interface ReceiptTotals {
+  subtotal: number;
+  serviceFee: number;
+  deliveryFee: number;
+  total: number;
+}
+
+export interface OrderPriceSnapshot extends ReceiptTotals {
   lines: OrderPriceLine[];
   /** When it was captured — used only to evict the oldest entries. */
   savedAt: string;

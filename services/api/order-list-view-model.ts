@@ -19,15 +19,13 @@ import { parseOrderComment } from './order-view-model';
  * write anyway (it answers 200 with an empty body and persists nothing) and
  * `updateStatus` is exposed by no endpoint at all.
  *
+ * Money comes from the backend — line prices, the fees the order was placed
+ * with and the total, carried as `charges` and turned into the price block by
+ * `services/api/order-price-view-model.ts`.
+ *
  * What an order does NOT carry (plan §3.3,
  * `docs/plans/checkout-order-creation-plan.md`):
  *
- *   - **any money.** `Order` and `OrderItem` have no price, fee, amount,
- *     subtotal or total column, and there is no pricing endpoint. Nothing in
- *     THIS module invents one. Prices reach the order screens from two sources
- *     that know their own provenance — the receipt this device captured at
- *     checkout, and today's menu prices, labelled as such — assembled by
- *     `services/api/order-price-view-model.ts`;
  *   - **a delivery ETA**, for the same reason the checkout screen dropped one;
  *   - **the addons and the per-line note** that were sent — the attribute
  *     populator never persists them and `comment` is per-order, not per-line.
@@ -39,16 +37,39 @@ export interface CustomerOrderLine {
   /** The order item's own id, or the product id when the item has none. */
   id: string;
   /**
-   * The item's `code`, which is the cart line id this app sent on create
-   * (`toOrderInput`). Carried because it is the only EXACT handle back to the
-   * line's price: the same dish ordered twice with different addons shares a
-   * product id but not a code — see `priceOrder`.
+   * The item's `code`. On an order placed before checkout moved to the
+   * backend it is the cart line id this app sent, the only EXACT handle back
+   * to that order's device receipt — see `priceOrder`.
    */
   code?: string;
   name: string;
   quantity: number;
   /** The product this line was placed for, when the response carries one. */
   productId?: string;
+  /** Per unit, options included, as the backend prices the line. `null` = unknown. */
+  unitPrice: number | null;
+  /** `unitPrice × quantity` from the backend. `null` = unknown. */
+  total: number | null;
+}
+
+/**
+ * What an order cost, as the backend recorded it. Fees are the amounts the
+ * order was PLACED with (its adjustments, from the fee rules at checkout).
+ */
+export interface OrderCharges {
+  subtotal: number;
+  discount: number;
+  serviceFee: number;
+  deliveryFee: number;
+  /** Night, weather… surcharges together. */
+  additionalFees: number;
+  total: number;
+  /**
+   * True when the order carries its discount/fee lines — every order placed
+   * through `POST /checkout`. An order placed before that has none, so its
+   * fees read as zero here even though the app showed placeholder fees then.
+   */
+  itemized: boolean;
 }
 
 export interface CustomerOrder {
@@ -73,6 +94,8 @@ export interface CustomerOrder {
   /** The backend's `createdAt`: a LOCAL date-time with no offset (plan §3.7). */
   createdAt?: string;
   lines: CustomerOrderLine[];
+  /** The backend's price block, or `undefined` when the response carries no total. */
+  charges?: OrderCharges;
   /**
    * True when the response carried no lines.
    *
@@ -117,8 +140,23 @@ export function toCustomerOrder(order: OrderOutput): CustomerOrder {
         name,
         quantity: item.quantity ?? 1,
         productId: product?.productId ?? product?.id ?? undefined,
+        unitPrice: item.unitPrice ?? null,
+        total: item.total ?? null,
       };
     });
+
+  const charges: OrderCharges | undefined =
+    order.total == null
+      ? undefined
+      : {
+          subtotal: order.subtotal ?? 0,
+          discount: order.discountTotal ?? 0,
+          serviceFee: order.serviceFee ?? 0,
+          deliveryFee: order.deliveryFee ?? 0,
+          additionalFees: order.additionalFees ?? 0,
+          total: order.total,
+          itemized: (order.adjustments ?? []).length > 0,
+        };
 
   return {
     id: order.id,
@@ -130,6 +168,7 @@ export function toCustomerOrder(order: OrderOutput): CustomerOrder {
     status: order.status ?? null,
     createdAt: order.createdAt ?? undefined,
     lines,
+    charges,
     hasLineDetail: lines.length > 0,
     paymentLabel: payment,
     note,

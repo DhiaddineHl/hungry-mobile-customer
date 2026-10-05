@@ -34,12 +34,9 @@ export interface CartLine {
   restaurantName: string;
   restaurantLogo?: CartImage;
   /**
-   * Rebuilt from the server rather than added on this device.
-   *
-   * The backend stores only `{product, quantity}` per line, so a hydrated line
-   * has NO addons and NO note — not because the customer chose none, but
-   * because those were never persisted. The UI says so plainly instead of
-   * implying the customisations survived.
+   * Rebuilt from the server cart rather than added on this device. Its
+   * options, note and price come from the server; only the dish artwork is
+   * missing (fetching it per line would be an N+1).
    */
   hydrated?: boolean;
 }
@@ -70,16 +67,14 @@ export interface CartSyncState {
  * Lines from several restaurants sit side by side in `items`; each still
  * carries its `restaurantId`, because that is what checkout splits on — one
  * backend `Order` per restaurant, out of the one cart. The backend holds the
- * same shape: `Cart` has no restaurant column, `CartItem` is `{product,
- * quantity}`, and `ux_cart_customer_active` allows a customer exactly one
- * ACTIVE cart row.
+ * same shape: one ACTIVE cart per customer (`/carts/active`), whose lines
+ * belong to whichever restaurant owns each product.
  */
 interface CartState {
   items: CartLine[];
   /**
    * Sync bookkeeping for THE cart — one backend `Cart` row. Persisted so a
-   * restart does not re-issue a delete-and-create for a cart that is already
-   * up to date.
+   * restart does not re-sync a cart that is already up to date.
    */
   remote: CartSyncState;
   addItem: (line: NewCartLine) => void;
@@ -133,9 +128,9 @@ export function lineSignature(line: NewCartLine): string {
  * would silently empty a real cart on first launch after an update.
  *
  * Going from 1 to 2 resets the sync state rather than translating it. The
- * per-restaurant rows it pointed at are not the cart the engine now writes,
- * and `replaceCart` deletes every one of the customer's server carts before
- * creating the single new one — so nothing is lost by forgetting their ids.
+ * per-restaurant rows it pointed at are not the cart the engine now writes
+ * (the backend resolves the customer's one active cart itself), so nothing
+ * is lost by forgetting their ids.
  */
 export function migrateCartState(persisted: unknown, version: number): CartState {
   const previous = (persisted ?? {}) as Partial<CartState>;

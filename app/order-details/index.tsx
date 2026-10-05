@@ -1,20 +1,16 @@
 import { DeliveryFeeModal, PaymentMethodModal, ServiceFeeModal } from '@/components/checkout';
 import { DeliveryLocationCard, OrderInfoRow, OrderRestaurantRow } from '@/components/order';
 import { PressableScale } from '@/components/ui/pressable-scale';
-import { DELIVERY_FEE, DELIVERY_FEE_WAIVED, SERVICE_FEE } from '@/constants/fees';
 import { paymentMethodLabel } from '@/constants/payment-methods';
 import { Fonts, FontSize, Palette, Radius, Spacing } from '@/constants/theme';
 import { formatAddressName, useDeliveryAddress } from '@/hooks/use-delivery-address';
-import { PartialCheckoutError, useCreateOrders } from '@/hooks/use-orders';
+import { useCheckoutQuote, usePlaceCheckout } from '@/hooks/use-orders';
 import { useStoredImageSource } from '@/hooks/use-restaurant-image';
 import { restaurantQueryOptions } from '@/hooks/use-restaurants';
 import { useReverseGeocode } from '@/hooks/use-reverse-geocode';
-import {
-  checkoutBlockers,
-  checkoutTotals,
-  toOrderInput,
-  type CheckoutBlocker,
-} from '@/services/api/order-view-model';
+import type { CartCheckoutOptionsInput } from '@/schemas/cart';
+import { CheckoutNotReadyError } from '@/services/api/cart-service';
+import { toCheckoutBlocker, type CheckoutBlocker } from '@/services/api/cart-view-model';
 import {
   coordinatesDiffer,
   toOrderDeliveryAddress,
@@ -34,17 +30,17 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
  * orders do not exist until the customer taps Continue.
  *
  * ONE cart, ONE order PER RESTAURANT. The backend `Order` has a single
- * `restaurant`, so a cart drawn from three restaurants is placed as three
- * orders, one after the other (`placeCheckoutOrders`). All of them go to the
- * same delivery point and carry the same payment method; what differs is the
- * lines, and the fees — service and delivery are charged per order, which the
- * price block shows as `N × fee` rather than hiding in a total.
+ * `restaurant`, so `POST /checkout` turns a cart drawn from three restaurants
+ * into three orders — in one transaction, all or none. All of them go to the
+ * same delivery point and carry the same payment method; each has its own
+ * delivery fee, and the service fee is split across them.
  *
- * Everything on this screen has a real source (plan §4.3,
- * `docs/plans/checkout-order-creation-plan.md`): each restaurant from
- * `restaurantQueryOptions`, the lines and subtotals from the cart store, the
- * address and phone from the customer record, the payment method from its
- * store, and the fees from `constants/fees.ts`.
+ * Every price on this screen is the BACKEND's (`useCheckoutQuote`): the delivery
+ * address and payment method are written onto the server cart, which answers
+ * re-priced from the fee rules — a per-km delivery fee moves with the address.
+ * What is shown is what `POST /checkout` charges. The restaurants come from
+ * `restaurantQueryOptions`, the address and phone from the customer record,
+ * the payment method from its store.
  *
  * Two things the previous mock showed are deliberately GONE rather than
  * re-sourced:
@@ -55,15 +51,14 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
  *   - the totals row's `Delivery Fee` label, which named the row above it while
  *     showing the total. It reads `Total`.
  *
- * A failed create leaves the cart completely intact and offers a MANUAL retry.
- * Nothing here retries on its own: a create that reached the database enqueues
- * a driver, so a duplicate order is a duplicate delivery (plan §3.6).
+ * A failed checkout leaves the cart completely intact and offers a MANUAL
+ * retry. Nothing here retries on its own: a checkout that reached the database
+ * enqueues drivers, so a duplicate order is a duplicate delivery (plan §3.6).
  */
 
 /**
- * What to tell the customer, and where to send them, for each preflight
- * blocker. Wording is the app's own — the server's failure body says only
- * "A populator has failed (N errors occurred)" and is never relayed.
+ * What to tell the customer, and where to send them, for each blocker — the
+ * app's own preflight and the backend cart's `blockers` alike.
  */
 const BLOCKER_COPY: Record<CheckoutBlocker, { message: string; action?: string }> = {
   'no-customer': { message: 'Loading your account…' },
@@ -75,11 +70,11 @@ const BLOCKER_COPY: Record<CheckoutBlocker, { message: string; action?: string }
     message: 'Pick your address on the map so a driver can find it.',
     action: 'Set on map',
   },
-  'no-restaurant': { message: 'Loading the restaurant…' },
   'no-restaurant-coords': {
     message: 'This restaurant has no map location yet, so it cannot be delivered from.',
   },
   'empty-cart': { message: 'Your cart is empty.' },
+  unknown: { message: "This cart can't be checked out yet." },
 };
 
 /** The blockers whose fix is the address flow rather than an error message. */
@@ -116,10 +111,8 @@ export default function OrderDetailsScreen() {
   const [feeSheet, setFeeSheet] = useState<'service' | 'delivery' | null>(null);
   const [paymentSheetVisible, setPaymentSheetVisible] = useState(false);
   /**
-   * The last checkout attempt's failure, if any. A `PartialCheckoutError`
-   * means SOME orders were placed — those lines are already gone from the
-   * cart — and the message has to say so, or the customer would think nothing
-   * happened and go looking for food that is already on its way.
+   * The last checkout attempt's failure, if any. Nothing was placed then — the
+   * backend creates every order or none — so the cart is exactly as it was.
    */
   const [failure, setFailure] = useState<Error | null>(null);
   /**
@@ -157,7 +150,7 @@ export default function OrderDetailsScreen() {
   const setPaymentMethod = usePaymentMethodStore((s) => s.setMethod);
   const toImageSource = useStoredImageSource();
 
-  const createOrders = useCreateOrders();
+  const placeCheckout = usePlaceCheckout(customer?.id);
 
   // The saved address this order would go to by default. `useDeliveryAddress`
   // resolves the selected entry, falling back to the customer's default
@@ -178,7 +171,7 @@ export default function OrderDetailsScreen() {
   /**
    * Where the order goes as things stand: the confirmed custom point if there
    * is one, the saved address otherwise. Everything below — the map, the
-   * pending comparison, the blockers, the payload — reads THIS, so a confirmed
+   * pending comparison, the blockers, the checkout options — reads THIS, so a confirmed
    * custom point behaves exactly like a saved address would, minus the saving.
    */
   const basePoint = customPoint?.coords ?? savedPoint;
@@ -326,43 +319,47 @@ export default function OrderDetailsScreen() {
   });
   const orderCount = groups.length;
 
-  // Both fees are client-side placeholders — see `constants/fees.ts`. No price,
-  // fee or total field exists anywhere on `Order` (plan §3.3), so none of this
-  // is sent and none of it is charged.
-  //
-  // The arithmetic lives in `checkoutTotals` / `orderTotals` because each
-  // order's exact numbers are captured as its receipt when it is placed, and
-  // shown back on the order screen — computing them twice would let the two
-  // drift.
-  const totals = checkoutTotals(groups);
+  /**
+   * What the server cart is checked out with: this screen's delivery point
+   * (a confirmed custom point, else the selected saved address — `null` means
+   * the customer's default) and payment method. Writing them re-prices the
+   * cart, so the price block below always matches the address on the map.
+   */
+  const checkoutOptions: CartCheckoutOptionsInput = {
+    deliveryAddress: deliveryAddress ?? selectedAddress?.details ?? null,
+    paymentMethod,
+    comment: null,
+    couponCode: null,
+  };
+  const quoteQuery = useCheckoutQuote(customer?.id, checkoutOptions);
+  // A placeholder is the previous address's price, kept on screen while the
+  // new one is computed — never something to check out on.
+  const quote = quoteQuery.data ?? null;
+  const isRepricing = quoteQuery.isPlaceholderData || quoteQuery.isFetching;
 
   /**
-   * Every order's preflight, folded into one list. The customer and address
-   * checks are the same for every order; the restaurant ones are per order,
-   * and the FIRST failing restaurant is the one named below.
+   * The app's own preflight — instant, and it routes each problem to its fix —
+   * followed by whatever else the backend cart reports.
    */
-  const blockers =
-    orderCount === 0
-      ? checkoutBlockers({
-          customerId: customer?.id,
-          address: deliveryAddress ?? address,
-          restaurantId: null,
-          restaurantCoordinates: null,
-          lines: [],
-        }).filter((b) => b !== 'no-restaurant')
-      : restaurants.flatMap((restaurant) =>
-          checkoutBlockers({
-            customerId: customer?.id,
-            // A confirmed custom point satisfies the address preflight on its
-            // own: the order carries it, so no saved address is needed.
-            address: deliveryAddress ?? address,
-            // A restaurant still loading reads as "no restaurant yet" — the
-            // loading message — rather than as one with no coordinates.
-            restaurantId: restaurant.isLoading ? null : restaurant.id,
-            restaurantCoordinates: restaurant.coordinates,
-            lines: restaurant.lines,
-          })
-        );
+  const blockers: CheckoutBlocker[] = [];
+  if (!customer?.id) blockers.push('no-customer');
+  const target = deliveryAddress ?? address;
+  if (!target) {
+    blockers.push('no-address');
+  } else if (
+    typeof target.coordinates?.latitude !== 'number' ||
+    typeof target.coordinates?.longitude !== 'number'
+  ) {
+    blockers.push('no-address-coords');
+  }
+  if (orderCount === 0) blockers.push('empty-cart');
+  if (quote && !quoteQuery.isPlaceholderData) {
+    for (const name of quote.blockers) {
+      const mapped = toCheckoutBlocker(name);
+      if (!blockers.includes(mapped)) blockers.push(mapped);
+    }
+  }
+
   const blocker = blockers[0];
   const blockedRestaurant =
     blocker === 'no-restaurant-coords' && orderCount > 1
@@ -378,11 +375,13 @@ export default function OrderDetailsScreen() {
     : null;
   const needsAddress = !!blocker && ADDRESS_BLOCKERS.includes(blocker);
 
-  const isSubmitting = createOrders.isPending;
+  const isSubmitting = placeCheckout.isPending;
   // An unconfirmed point blocks the order on purpose: the map is showing one
   // place and the order would go to another, and which one the customer meant
-  // is exactly what has not been answered yet.
-  const canSubmit = blockers.length === 0 && !isSubmitting && !pendingPoint;
+  // is exactly what has not been answered yet. And no price, no order: the
+  // customer checks out on the total they were shown.
+  const canSubmit =
+    blockers.length === 0 && !isSubmitting && !pendingPoint && !!quote && !isRepricing;
 
   const handleBlockerAction = () => {
     // An address problem routes to the flow that fixes it rather than showing
@@ -427,56 +426,44 @@ export default function OrderDetailsScreen() {
   };
 
   const handleContinueCheckout = () => {
-    if (!canSubmit || !customer?.id) return;
+    if (!canSubmit) return;
 
     setFailure(null);
-
-    const customerId = customer.id;
-    createOrders.mutate(
-      restaurants.map((restaurant) => ({
-        input: toOrderInput({
-          customerId,
-          restaurantId: restaurant.id,
-          restaurantName: restaurant.name,
-          lines: restaurant.lines,
-          paymentMethod,
-          deliveryAddress,
-        }),
-        restaurantId: restaurant.id,
-      })),
-      {
-        // Each order's lines are cleared inside the mutation itself, never
-        // here: it must happen whether or not this screen is still mounted.
-        // The customer lands on My Orders, where the orders they just placed
-        // are the top cards — the emptied cart would show them nothing.
-        onSuccess: goToPlacedOrder,
-        onError: (error) => setFailure(error),
-      }
-    );
+    placeCheckout.mutate(checkoutOptions, {
+      // The cart is emptied inside the mutation itself, never here: it must
+      // happen whether or not this screen is still mounted. The customer lands
+      // on My Orders, where the orders they just placed are the top cards.
+      onSuccess: goToPlacedOrder,
+      onError: (error) => {
+        setFailure(error);
+        // The cart may have changed server-side (a restaurant lost its
+        // location, a price moved): price it again before the next attempt.
+        void quoteQuery.refetch();
+      },
+    });
   };
 
-  /**
-   * What to say about a failed attempt. After a PARTIAL failure the cart has
-   * already lost the placed orders' lines, so `restaurants` above is now only
-   * what remains — which is exactly what Try Again will send.
-   */
+  /** What to say about a failed attempt. Nothing was placed; the cart is untouched. */
   const failureMessage = (() => {
     if (!failure) return null;
-    if (failure instanceof PartialCheckoutError && failure.placed.length > 0) {
-      const placed = failure.placed.length;
-      const failedName =
-        restaurants.find((restaurant) => restaurant.id === failure.failedRestaurantId)?.name ??
-        'one restaurant';
-      return (
-        `${placed} ${placed === 1 ? 'order was' : 'orders were'} placed, but the order ` +
-        `for ${failedName} couldn't be. Its dishes are still in your cart — tap ` +
-        `Try Again to place the remaining ${orderCount === 1 ? 'order' : 'orders'}.`
-      );
+    if (failure instanceof CheckoutNotReadyError) {
+      const first = failure.blockers.map(toCheckoutBlocker)[0] ?? 'unknown';
+      return BLOCKER_COPY[first].message;
     }
     return orderCount > 1
       ? "We couldn't place your orders. Your cart is untouched — tap Try Again."
       : "We couldn't place your order. Your cart is untouched — tap Try Again.";
   })();
+
+  const quoteMessage = quote
+    ? isRepricing
+      ? 'Updating prices…'
+      : !quote.deliveryPriced
+        ? 'The delivery fee is calculated once your delivery point is set.'
+        : null
+    : quoteQuery.isError
+      ? "We couldn't load the prices for this cart."
+      : 'Calculating prices…';
 
   return (
     <View style={styles.container}>
@@ -567,7 +554,7 @@ export default function OrderDetailsScreen() {
         {orderCount > 1 ? (
           <Text style={styles.splitNote}>
             Each restaurant prepares and delivers separately, so this checkout
-            places {orderCount} orders — with a service and delivery fee each.
+            places {orderCount} orders — each with its own delivery fee.
           </Text>
         ) : null}
 
@@ -586,8 +573,15 @@ export default function OrderDetailsScreen() {
         <View style={styles.pricingCard}>
           <View style={styles.priceRow}>
             <Text style={styles.priceLabel}>Subtotal</Text>
-            <Text style={styles.priceValue}>{formatDT(totals.subtotal)}</Text>
+            <Text style={styles.priceValue}>{quote ? formatDT(quote.subtotal) : '—'}</Text>
           </View>
+
+          {quote && quote.discountTotal > 0 ? (
+            <View style={styles.priceRow}>
+              <Text style={styles.priceLabel}>Discount</Text>
+              <Text style={styles.priceValue}>−{formatDT(quote.discountTotal)}</Text>
+            </View>
+          ) : null}
 
           <View style={styles.priceRow}>
             <View style={styles.priceLabelRow}>
@@ -600,11 +594,7 @@ export default function OrderDetailsScreen() {
                 <Info size={14} color={Palette.textMuted} />
               </TouchableOpacity>
             </View>
-            <Text style={styles.priceValue}>
-              {orderCount > 1
-                ? `${orderCount} × ${formatDT(SERVICE_FEE)}`
-                : formatDT(SERVICE_FEE)}
-            </Text>
+            <Text style={styles.priceValue}>{quote ? formatDT(quote.serviceFee) : '—'}</Text>
           </View>
 
           <View style={styles.priceRow}>
@@ -619,26 +609,25 @@ export default function OrderDetailsScreen() {
               </TouchableOpacity>
             </View>
             <View style={styles.deliveryFeeRight}>
-              {DELIVERY_FEE_WAIVED ? (
-                <>
-                  <View style={styles.freeBadge}>
-                    <Text style={styles.freeText}>Free</Text>
-                  </View>
-                  <Text style={styles.strikePrice}>
-                    {orderCount > 1
-                      ? `${orderCount} × ${formatDT(DELIVERY_FEE)}`
-                      : formatDT(DELIVERY_FEE)}
-                  </Text>
-                </>
+              {quote && quote.deliveryPriced && quote.deliveryFee === 0 ? (
+                <View style={styles.freeBadge}>
+                  <Text style={styles.freeText}>Free</Text>
+                </View>
               ) : (
                 <Text style={styles.priceValue}>
-                  {orderCount > 1
-                    ? `${orderCount} × ${formatDT(DELIVERY_FEE)}`
-                    : formatDT(DELIVERY_FEE)}
+                  {quote && quote.deliveryPriced ? formatDT(quote.deliveryFee) : '—'}
                 </Text>
               )}
             </View>
           </View>
+
+          {/* Situational fees (night, bad weather…) — labelled by their fee rule. */}
+          {quote?.additionalFees.map((fee) => (
+            <View key={fee.code ?? fee.label} style={styles.priceRow}>
+              <Text style={styles.priceLabel}>{fee.label}</Text>
+              <Text style={styles.priceValue}>{formatDT(fee.amount)}</Text>
+            </View>
+          ))}
 
           <View style={styles.totalDivider} />
 
@@ -646,15 +635,25 @@ export default function OrderDetailsScreen() {
             {/* Reads `Total`. The old label said `Delivery Fee` while showing
                 the total, which named the row above it. */}
             <Text style={styles.totalLabel}>Total</Text>
-            <Text style={styles.totalValue}>{formatDT(totals.total)}</Text>
+            <Text style={styles.totalValue}>{quote ? formatDT(quote.total) : '—'}</Text>
           </View>
+
+          {quoteMessage ? (
+            <View style={styles.blockerRow}>
+              <Text style={styles.blockerText}>{quoteMessage}</Text>
+              {quoteQuery.isError && !quote ? (
+                <TouchableOpacity onPress={() => void quoteQuery.refetch()} hitSlop={8}>
+                  <Text style={styles.blockerAction}>Retry</Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
+          ) : null}
         </View>
       </ScrollView>
 
       <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 16) }]}>
         {/*
-          A failed create is stated plainly and retried only by hand. The
-          server's own message says nothing a customer can act on, and an
+          A failed checkout is stated plainly and retried only by hand: an
           automatic retry could put a second driver on the road.
         */}
         {failureMessage ? (
@@ -846,12 +845,6 @@ const styles = StyleSheet.create({
     fontSize: FontSize.sm,
     fontFamily: Fonts.semiBold,
     color: Palette.success,
-  },
-  strikePrice: {
-    fontSize: FontSize.sm,
-    fontFamily: Fonts.regular,
-    color: Palette.textMuted,
-    textDecorationLine: 'line-through',
   },
   totalDivider: {
     height: 1,

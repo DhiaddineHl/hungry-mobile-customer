@@ -6,9 +6,12 @@ interface OrderSummaryProps {
   subtotal: string;
   serviceFee: string;
   deliveryFee: string;
-  originalDeliveryFee?: string;
   isFreeDelivery?: boolean;
+  /** Discounts and situational fees (night, weather…), after the delivery row. */
+  extraRows?: { label: string; value: string }[];
   total: string;
+  /** A line under the card, e.g. while the backend is re-pricing the cart. */
+  footnote?: string;
   /**
    * Opens the fee explanations from `design/Cart Service Fee Info.png` and
    * `design/Cart Delivery Fee Info.png`. Optional so the two `Info` icons stay
@@ -23,9 +26,10 @@ export function OrderSummary({
   subtotal,
   serviceFee,
   deliveryFee,
-  originalDeliveryFee,
   isFreeDelivery,
+  extraRows,
   total,
+  footnote,
   onServiceFeeInfo,
   onDeliveryFeeInfo,
 }: OrderSummaryProps) {
@@ -71,14 +75,16 @@ export function OrderSummary({
                 <Text style={styles.freeText}>Free</Text>
               </View>
             )}
-            {originalDeliveryFee && (
-              <Text style={styles.originalFee}>{originalDeliveryFee}</Text>
-            )}
-            {/* The charged amount, shown whenever it is not waived — without
-                this the row rendered nothing at all once the waiver ends. */}
             {!isFreeDelivery && <Text style={styles.value}>{deliveryFee}</Text>}
           </View>
         </View>
+
+        {extraRows?.map((row) => (
+          <View key={row.label} style={styles.row}>
+            <Text style={styles.label}>{row.label}</Text>
+            <Text style={styles.value}>{row.value}</Text>
+          </View>
+        ))}
 
         <View style={[styles.row, styles.totalRow]}>
           {/* Reads `Total`, not `Delivery Fee`: the row has always shown the
@@ -87,6 +93,7 @@ export function OrderSummary({
           <Text style={styles.totalValue}>{total}</Text>
         </View>
       </View>
+      {footnote ? <Text style={styles.footnote}>{footnote}</Text> : null}
     </View>
   );
 }
@@ -144,11 +151,11 @@ const styles = StyleSheet.create({
     fontFamily: Fonts.semiBold,
     color: '#4CAF50',
   },
-  originalFee: {
-    fontSize: 14,
+  footnote: {
+    fontSize: 12,
     fontFamily: Fonts.regular,
     color: '#8A8A8A',
-    textDecorationLine: 'line-through',
+    marginTop: 8,
   },
   totalRow: {
     paddingTop: 12,

@@ -68,6 +68,30 @@ describe('notification store', () => {
     expect(notifications.find((n) => n.type === 'ORDER_CONFIRMED')?.read).toBe(true);
     expect(notifications.find((n) => n.type === 'DRIVER_PICKED_UP')?.read).toBe(false);
   });
+
+  it('deletes a row and keeps it from being filed again', () => {
+    const { add, remove } = useNotificationStore.getState();
+    add(row('ORDER_CONFIRMED'));
+    add(row('DRIVER_PICKED_UP'));
+
+    remove(notificationKey(ORDER, 'ORDER_CONFIRMED'));
+    expect(useNotificationStore.getState().notifications.map((n) => n.type)).toEqual([
+      'DRIVER_PICKED_UP',
+    ]);
+
+    // The same event arriving again (a late push) must not resurrect it.
+    expect(useNotificationStore.getState().add(row('ORDER_CONFIRMED'))).toBe(false);
+    expect(useNotificationStore.getState().notifications).toHaveLength(1);
+  });
+
+  it('forgets deletions on clear', () => {
+    const { add, remove, clear } = useNotificationStore.getState();
+    add(row('ORDER_CONFIRMED'));
+    remove(notificationKey(ORDER, 'ORDER_CONFIRMED'));
+    clear();
+
+    expect(useNotificationStore.getState().add(row('ORDER_CONFIRMED'))).toBe(true);
+  });
 });
 
 describe('diffOrderEvents', () => {

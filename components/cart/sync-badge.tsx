@@ -5,16 +5,13 @@ import { Check, CloudOff, RefreshCw } from "lucide-react-native";
 import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
 
 /**
- * Whether one restaurant's cart has reached the server.
+ * Whether the cart has reached the server.
  *
  * Deliberately only ever claims success for `synced`, which the sync engine
- * writes after a create has returned — never optimistically. Every other state,
+ * writes after the server calls have returned — never optimistically. Every other state,
  * including a cart that has not been attempted because the customer is signed
  * out, reads as "Not saved", because from the customer's point of view that is
  * exactly what it is.
- *
- * It says nothing about addons, notes or prices: those are never sent, so
- * "Saved" must not be read as covering them (see `cart-view-model.ts`).
  */
 interface SyncBadgeProps {
   status: CartSyncStatus;

@@ -1,13 +1,12 @@
-import type { CustomerOrderLine } from '@/services/api/order-list-view-model';
+import type { CustomerOrderLine, OrderCharges } from '@/services/api/order-list-view-model';
 import { priceOrder } from '@/services/api/order-price-view-model';
 import type { OrderPriceSnapshot } from '@/store/order-price-store';
 
 /**
- * Which of the two price sources answers, and what each is allowed to claim.
- *
- * The backend keeps no money on an order at all, so every case here is about
- * not overstating what the app knows: a receipt is exact, menu prices are
- * today's, and a partial answer is never dressed up as a total.
+ * Which price source answers, and what each is allowed to claim: the backend's
+ * own price block wins; a legacy device receipt is exact for the orders placed
+ * before checkout moved to the backend; menu prices are today's, and a partial
+ * answer is never dressed up as a total.
  */
 
 function line(partial: Partial<CustomerOrderLine> = {}): CustomerOrderLine {
@@ -16,9 +15,77 @@ function line(partial: Partial<CustomerOrderLine> = {}): CustomerOrderLine {
     name: 'Crispy Chicken',
     quantity: 1,
     productId: 'prod-1',
+    unitPrice: null,
+    total: null,
     ...partial,
   };
 }
+
+function charges(partial: Partial<OrderCharges> = {}): OrderCharges {
+  return {
+    subtotal: 19.36,
+    discount: 1,
+    serviceFee: 0.5,
+    deliveryFee: 2.4,
+    additionalFees: 1,
+    total: 22.26,
+    itemized: true,
+    ...partial,
+  };
+}
+
+describe('priceOrder — from the backend', () => {
+  it('uses the order’s own fees and line prices when it carries fee lines', () => {
+    const pricing = priceOrder({
+      lines: [line({ quantity: 2, unitPrice: 9.68, total: 19.36 })],
+      charges: charges(),
+    });
+
+    expect(pricing.source).toBe('server');
+    expect(pricing.byLine.get('item-1')).toEqual({ unit: 9.68, total: 19.36 });
+    expect(pricing.totals).toEqual({
+      subtotal: 19.36,
+      discount: 1,
+      serviceFee: 0.5,
+      deliveryFee: 2.4,
+      additionalFees: 1,
+      total: 22.26,
+    });
+  });
+
+  it('beats a device receipt — the backend recorded what was charged', () => {
+    const pricing = priceOrder({
+      lines: [line({ unitPrice: 9.68, total: 9.68 })],
+      charges: charges(),
+      snapshot: snapshot(),
+    });
+
+    expect(pricing.source).toBe('server');
+    expect(pricing.totals?.serviceFee).toBe(0.5);
+  });
+
+  it('prefers the legacy receipt for an order placed without fee lines', () => {
+    const pricing = priceOrder({
+      lines: [line({ code: 'cart-line-1', unitPrice: 9.68, total: 9.68 })],
+      charges: charges({ itemized: false, serviceFee: 0, deliveryFee: 0 }),
+      snapshot: snapshot(),
+    });
+
+    expect(pricing.source).toBe('checkout');
+    expect(pricing.totals?.serviceFee).toBe(3);
+  });
+
+  it('shows a legacy order with no receipt as item prices, never as a fee-free total', () => {
+    const pricing = priceOrder({
+      lines: [line({ unitPrice: 9.68, total: 9.68 })],
+      charges: charges({ itemized: false, subtotal: 9.68, total: 9.68 }),
+    });
+
+    expect(pricing.source).toBe('menu');
+    expect(pricing.totals).toBeNull();
+    expect(pricing.itemsTotal).toBe(9.68);
+  });
+});
 
 function snapshot(partial: Partial<OrderPriceSnapshot> = {}): OrderPriceSnapshot {
   return {
@@ -69,8 +136,10 @@ describe('priceOrder — from this device’s receipt', () => {
 
     expect(pricing.totals).toEqual({
       subtotal: 9.68,
+      discount: 0,
       serviceFee: 3,
       deliveryFee: 0,
+      additionalFees: 0,
       total: 12.68,
     });
   });

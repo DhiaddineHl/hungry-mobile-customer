@@ -1,30 +1,25 @@
 import type { OrderPriceLine, OrderPriceSnapshot } from '@/store/order-price-store';
-import type { CustomerOrderLine } from './order-list-view-model';
-import type { OrderTotals } from './order-view-model';
+import type { CustomerOrderLine, OrderCharges } from './order-list-view-model';
 
 /**
- * What a placed order cost, assembled from the only two sources that can
- * answer.
+ * What a placed order cost, from the best source that can answer.
  *
  * Pure module: no React, no network, and every store import is `import type`.
  *
- * ## Why this is not simply read off the order
+ *   `server`   — the order's own price block from the backend: line prices,
+ *                and the delivery/service/additional fees it was PLACED with
+ *                (its adjustments, computed from the fee rules at checkout).
+ *                Every order placed through `POST /checkout` has this.
+ *   `checkout` — the receipt this device captured when it placed an order
+ *                BEFORE checkout moved to the backend
+ *                (`store/order-price-store.ts`). Those orders carry no fees
+ *                on the server, so the receipt is the only record of them.
+ *   `menu`     — line prices without any fees: the backend's line prices for
+ *                a legacy order with no receipt, or today's catalogue prices
+ *                when even those are missing. Prices carry no history, so a
+ *                dish repriced since shows its new price. Screens label it.
  *
- * The backend keeps NO prices. `Order` and `OrderItem` have no price, fee or
- * total column (plan §3.3), so `GET /orders/{id}` can say a customer ordered
- * two of something and never what they paid. Two sources are left, and they do
- * not mean the same thing:
- *
- *   `checkout` — the receipt this device captured when it placed the order
- *                (`store/order-price-store.ts`). These are the numbers the
- *                customer actually agreed to, fees included.
- *   `menu`     — today's menu price of each product, looked up from the
- *                catalogue. NOT what was paid: prices carry no history, so a
- *                dish repriced since is shown at its new price. Screens must
- *                label it as a menu price.
- *
- * `none` is the honest third answer — an order placed on another device whose
- * products no longer resolve — and it is a real state, not an error.
+ * `none` is the honest last answer, and it is a real state, not an error.
  */
 
 /** What one line cost, in major units. `null` means unknown, never free. */
@@ -34,21 +29,29 @@ export interface OrderLinePrice {
   total: number | null;
 }
 
-export type OrderPriceSource = 'checkout' | 'menu' | 'none';
+/** The full price block of an order, fees included. */
+export interface OrderTotals {
+  subtotal: number;
+  discount: number;
+  serviceFee: number;
+  /** 0 when delivery was free. */
+  deliveryFee: number;
+  /** Night, weather… surcharges together. */
+  additionalFees: number;
+  total: number;
+}
+
+export type OrderPriceSource = 'server' | 'checkout' | 'menu' | 'none';
 
 export interface OrderPricing {
   source: OrderPriceSource;
   /** Keyed by `CustomerOrderLine.id`. A line with no price is absent. */
   byLine: Map<string, OrderLinePrice>;
-  /**
-   * The full price block, fees included. Only ever from a `checkout` receipt:
-   * menu prices cannot produce a total, because the fees of a past order were
-   * never recorded anywhere.
-   */
+  /** The full price block — only from `server` or a `checkout` receipt. */
   totals: OrderTotals | null;
   /**
-   * The items total from menu prices — present ONLY when every line resolved.
-   * A partial sum presented as a total would understate the order.
+   * The items total of a `menu` pricing — present ONLY when every line
+   * resolved. A partial sum presented as a total would understate the order.
    */
   itemsTotal: number | null;
 }
@@ -63,21 +66,34 @@ const EMPTY: OrderPricing = {
 export interface PriceOrderArgs {
   /** The lines as the server returned them — the authority on WHAT was ordered. */
   lines: CustomerOrderLine[];
-  /** This device's receipt for the order, when it placed it. */
+  /** The order's price block from the backend, when the response carries one. */
+  charges?: OrderCharges | null;
+  /** This device's legacy receipt for the order, when it placed it. */
   snapshot?: OrderPriceSnapshot | null;
-  /** Today's unit price per product id, for the fallback. `null` = unresolved. */
+  /** Today's unit price per product id, for the last fallback. `null` = unresolved. */
   menuUnitPrices?: Map<string, number | null>;
+}
+
+/** The lines priced by the backend itself. */
+function serverLinePrices(lines: CustomerOrderLine[]): Map<string, OrderLinePrice> {
+  const byLine = new Map<string, OrderLinePrice>();
+  for (const line of lines) {
+    if (line.unitPrice == null) continue;
+    byLine.set(line.id, {
+      unit: line.unitPrice,
+      total: line.total ?? line.unitPrice * line.quantity,
+    });
+  }
+  return byLine;
 }
 
 /**
  * Matches a returned line to the receipt line it was created from.
  *
- * By `code` first, which IS the cart line id this app sent as the item's code
- * (`toOrderInput`) — an exact identity. Only then by product, because the same
+ * By `code` first, which on a legacy order IS the cart line id the app sent as
+ * the item's code — an exact identity. Only then by product, because the same
  * dish ordered twice with different addons is two lines that share a product
- * id, and matching those by product alone would price one of them with the
- * other's addons. Each receipt line is consumed once, so two same-product lines
- * take one each rather than both taking the first.
+ * id. Each receipt line is consumed once.
  */
 function matchLine(
   line: CustomerOrderLine,
@@ -98,45 +114,76 @@ function matchLine(
   return remaining.splice(index, 1)[0];
 }
 
+function fromSnapshot(lines: CustomerOrderLine[], snapshot: OrderPriceSnapshot): OrderPricing {
+  const remaining = [...snapshot.lines];
+  const byLine = new Map<string, OrderLinePrice>();
+
+  for (const line of lines) {
+    const matched = matchLine(line, remaining);
+    if (!matched) continue;
+    byLine.set(line.id, {
+      unit: matched.unitPrice,
+      total: matched.unitPrice * line.quantity,
+    });
+  }
+
+  return {
+    source: 'checkout',
+    byLine,
+    totals: {
+      subtotal: snapshot.subtotal,
+      discount: 0,
+      serviceFee: snapshot.serviceFee,
+      deliveryFee: snapshot.deliveryFee,
+      additionalFees: 0,
+      total: snapshot.total,
+    },
+    itemsTotal: null,
+  };
+}
+
 /**
  * Prices an order from the best source available.
  *
- * A receipt wins whenever there is one, and it wins WHOLE: its totals are shown
- * even when the server returned no lines at all (the plan §2.2 defect, where a
- * perfectly good order re-reads with `items: []`), because "you paid 24.68 DT"
- * is still true and still useful when the item list is missing.
- *
- * Quantities come from the SERVER's line, not the receipt's: the order is the
- * record of what was placed. The receipt only supplies the price per unit.
+ * A backend price block with fee lines wins outright. A legacy receipt wins
+ * next, WHOLE: its totals are shown even when the server returned no lines at
+ * all (plan §2.2), because "you paid 24.68 DT" is still true and useful.
+ * Quantities always come from the SERVER's line — the order is the record of
+ * what was placed.
  */
 export function priceOrder({
   lines,
+  charges,
   snapshot,
   menuUnitPrices,
 }: PriceOrderArgs): OrderPricing {
-  if (snapshot) {
-    const remaining = [...snapshot.lines];
-    const byLine = new Map<string, OrderLinePrice>();
-
-    for (const line of lines) {
-      const matched = matchLine(line, remaining);
-      if (!matched) continue;
-      byLine.set(line.id, {
-        unit: matched.unitPrice,
-        total: matched.unitPrice * line.quantity,
-      });
-    }
-
+  if (charges?.itemized) {
     return {
-      source: 'checkout',
-      byLine,
+      source: 'server',
+      byLine: serverLinePrices(lines),
       totals: {
-        subtotal: snapshot.subtotal,
-        serviceFee: snapshot.serviceFee,
-        deliveryFee: snapshot.deliveryFee,
-        total: snapshot.total,
+        subtotal: charges.subtotal,
+        discount: charges.discount,
+        serviceFee: charges.serviceFee,
+        deliveryFee: charges.deliveryFee,
+        additionalFees: charges.additionalFees,
+        total: charges.total,
       },
       itemsTotal: null,
+    };
+  }
+
+  if (snapshot) return fromSnapshot(lines, snapshot);
+
+  // A legacy order with no receipt: the backend prices its lines, but has no
+  // fees for it — so these are item prices, not what was paid.
+  const server = serverLinePrices(lines);
+  if (server.size > 0) {
+    return {
+      source: 'menu',
+      byLine: server,
+      totals: null,
+      itemsTotal: server.size === lines.length && charges ? charges.subtotal : null,
     };
   }
 

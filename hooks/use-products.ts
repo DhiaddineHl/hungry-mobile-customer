@@ -289,9 +289,9 @@ function collectProducts(
  * Today's unit price for each product, keyed by product id.
  *
  * **This is the menu price NOW, not the price anyone paid.** It exists for one
- * caller: a placed order whose prices this device never captured (see
- * `store/order-price-store.ts`). The backend keeps no price on an order and no
- * history on a `Price`, so a dish repriced since resolves to its new amount —
+ * caller: an older order whose lines came back without prices and that this
+ * device holds no receipt for (see `services/api/order-price-view-model.ts`).
+ * There is no history on a `Price`, so a dish repriced since resolves to its new amount —
  * which is why every screen using this must say the number is a menu price.
  *
  * `null` for a product that could not be resolved, or that has no applicable

@@ -16,10 +16,13 @@ import {
   PackageCheck,
   ShoppingBag,
   CircleX,
+  Trash2,
   type LucideIcon,
 } from 'lucide-react-native';
 import { useCallback } from 'react';
-import { FlatList, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import ReanimatedSwipeable from 'react-native-gesture-handler/ReanimatedSwipeable';
+import Animated, { FadeOut, LinearTransition } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 /**
@@ -29,7 +32,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
  * Read from the device inbox (`store/notification-store.ts`); nothing is
  * fetched here. Opening the screen marks everything read, which is what
  * clears the bell badge on the home header. Tapping a row opens the order it
- * is about.
+ * is about; swiping it left deletes it.
  */
 
 interface RowVisual {
@@ -50,6 +53,9 @@ const VISUALS: Record<NotificationType, RowVisual> = {
   ORDER_DELIVERED: { Icon: PackageCheck, color: Palette.success, background: Palette.successSoft },
   DELIVERY_FAILED: { Icon: CircleX, color: Palette.danger, background: Palette.dangerSoft },
 };
+
+/** Width of the red delete panel revealed behind a row swiped left. */
+const DELETE_ACTION_WIDTH = 88;
 
 /** "Just now", "12 min ago", "3 h ago", "Yesterday", then a short date. */
 function relativeTime(iso: string, now = new Date()): string {
@@ -72,6 +78,7 @@ export default function NotificationsScreen() {
 
   const notifications = useNotificationStore((s) => s.notifications);
   const markAllRead = useNotificationStore((s) => s.markAllRead);
+  const remove = useNotificationStore((s) => s.remove);
 
   // Read once the customer has looked, and once more if they come back with
   // new rows in between — not on every render, which is what an effect on
@@ -86,32 +93,13 @@ export default function NotificationsScreen() {
     router.push(`/orders/${notification.orderId}`);
   };
 
-  const renderRow = ({ item }: { item: CustomerNotification }) => {
-    const { Icon, color, background } = VISUALS[item.type];
-    return (
-      <PressableScale
-        style={[styles.row, !item.read && styles.rowUnread]}
-        onPress={() => openOrder(item)}
-        scaleTo={0.98}
-        accessibilityLabel={`${item.title}. ${item.body}`}
-        accessibilityHint="Opens the order"
-      >
-        <View style={[styles.iconWrap, { backgroundColor: background }]}>
-          <Icon size={20} color={color} />
-        </View>
-        <View style={styles.rowText}>
-          <View style={styles.rowTitleLine}>
-            <Text style={styles.rowTitle} numberOfLines={1}>
-              {item.title}
-            </Text>
-            <Text style={styles.rowTime}>{relativeTime(item.createdAt)}</Text>
-          </View>
-          <Text style={styles.rowBody}>{item.body}</Text>
-        </View>
-        {!item.read ? <View style={styles.unreadDot} /> : null}
-      </PressableScale>
-    );
-  };
+  const renderRow = ({ item }: { item: CustomerNotification }) => (
+    <NotificationRow
+      notification={item}
+      onPress={() => openOrder(item)}
+      onDelete={() => remove(item.key)}
+    />
+  );
 
   return (
     <View style={styles.container}>
@@ -123,8 +111,10 @@ export default function NotificationsScreen() {
         <View style={styles.headerSpacer} />
       </View>
 
-      <FlatList
+      <Animated.FlatList
         data={notifications}
+        // Rows below a deleted one slide up into its place.
+        itemLayoutAnimation={LinearTransition}
         keyExtractor={(item) => item.key}
         renderItem={renderRow}
         contentContainerStyle={[
@@ -148,6 +138,66 @@ export default function NotificationsScreen() {
         }
       />
     </View>
+  );
+}
+
+/**
+ * One inbox row. Swiping it left past the threshold deletes it: the release
+ * opens the red panel, and opening is the delete — there is no second tap to
+ * confirm, as in the system notification shade. A shorter swipe springs back.
+ */
+function NotificationRow({
+  notification,
+  onPress,
+  onDelete,
+}: {
+  notification: CustomerNotification;
+  onPress: () => void;
+  onDelete: () => void;
+}) {
+  const { Icon, color, background } = VISUALS[notification.type];
+  return (
+    <Animated.View exiting={FadeOut.duration(180)}>
+      <ReanimatedSwipeable
+        friction={1.5}
+        rightThreshold={DELETE_ACTION_WIDTH * 0.6}
+        overshootRight={false}
+        containerStyle={styles.swipeContainer}
+        renderRightActions={() => (
+          <View style={styles.deleteAction}>
+            <Trash2 size={22} color={Palette.surface} />
+            <Text style={styles.deleteActionText}>Delete</Text>
+          </View>
+        )}
+        onSwipeableOpen={onDelete}
+      >
+        <PressableScale
+          style={[styles.row, !notification.read && styles.rowUnread]}
+          onPress={onPress}
+          scaleTo={0.98}
+          accessibilityLabel={`${notification.title}. ${notification.body}`}
+          accessibilityHint="Opens the order. Swipe left to delete."
+          accessibilityActions={[{ name: 'delete', label: 'Delete' }]}
+          onAccessibilityAction={(event) => {
+            if (event.nativeEvent.actionName === 'delete') onDelete();
+          }}
+        >
+          <View style={[styles.iconWrap, { backgroundColor: background }]}>
+            <Icon size={20} color={color} />
+          </View>
+          <View style={styles.rowText}>
+            <View style={styles.rowTitleLine}>
+              <Text style={styles.rowTitle} numberOfLines={1}>
+                {notification.title}
+              </Text>
+              <Text style={styles.rowTime}>{relativeTime(notification.createdAt)}</Text>
+            </View>
+            <Text style={styles.rowBody}>{notification.body}</Text>
+          </View>
+          {!notification.read ? <View style={styles.unreadDot} /> : null}
+        </PressableScale>
+      </ReanimatedSwipeable>
+    </Animated.View>
   );
 }
 
@@ -192,6 +242,25 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.md,
     paddingHorizontal: Spacing.sm,
     borderRadius: Radius.lg,
+    // Opaque, so the delete panel only shows where the row has slid away.
+    backgroundColor: Palette.surface,
+  },
+  swipeContainer: {
+    borderRadius: Radius.lg,
+  },
+  deleteAction: {
+    width: DELETE_ACTION_WIDTH,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 2,
+    backgroundColor: Palette.danger,
+    borderTopRightRadius: Radius.lg,
+    borderBottomRightRadius: Radius.lg,
+  },
+  deleteActionText: {
+    fontSize: FontSize.xs,
+    fontFamily: Fonts.semiBold,
+    color: Palette.surface,
   },
   rowUnread: {
     backgroundColor: Palette.surfaceAlt,

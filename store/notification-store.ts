@@ -51,18 +51,29 @@ interface NotificationState {
   notifications: CustomerNotification[];
   observed: Record<string, ObservedOrderState>;
   /**
-   * Files one notification; a second with the same `key` is ignored. Returns
-   * whether it was new.
+   * Keys the customer deleted. Remembered so the same event arriving again —
+   * the confirmation push landing after the feed already filed it, say —
+   * cannot bring a dismissed row back.
+   */
+  dismissed: string[];
+  /**
+   * Files one notification; a second with the same `key`, or one the customer
+   * already deleted, is ignored. Returns whether it was new.
    */
   add: (notification: Omit<CustomerNotification, 'createdAt' | 'read'>) => boolean;
   markAllRead: () => void;
   markRead: (key: string) => void;
+  /** Deletes one row (the swipe-to-delete on the notifications screen). */
+  remove: (key: string) => void;
   setObserved: (orderId: string, state: ObservedOrderState) => void;
   clear: () => void;
 }
 
 /** More than this and the oldest fall off — an inbox, not an archive. */
 const MAX_NOTIFICATIONS = 100;
+
+/** Tombstones only need to outlive a late duplicate; keep the newest few. */
+const MAX_DISMISSED = 200;
 
 export const notificationKey = (orderId: string, type: NotificationType) =>
   `${orderId}:${type}`;
@@ -72,9 +83,12 @@ export const useNotificationStore = create<NotificationState>()(
     (set, get) => ({
       notifications: [],
       observed: {},
+      dismissed: [],
 
       add: (notification) => {
-        if (get().notifications.some((n) => n.key === notification.key)) return false;
+        const { notifications, dismissed } = get();
+        if (dismissed.includes(notification.key)) return false;
+        if (notifications.some((n) => n.key === notification.key)) return false;
         set((state) => ({
           notifications: [
             { ...notification, createdAt: new Date().toISOString(), read: false },
@@ -98,10 +112,18 @@ export const useNotificationStore = create<NotificationState>()(
           ),
         })),
 
+      remove: (key) =>
+        set((state) => ({
+          notifications: state.notifications.filter((n) => n.key !== key),
+          dismissed: state.dismissed.includes(key)
+            ? state.dismissed
+            : [key, ...state.dismissed].slice(0, MAX_DISMISSED),
+        })),
+
       setObserved: (orderId, observedState) =>
         set((state) => ({ observed: { ...state.observed, [orderId]: observedState } })),
 
-      clear: () => set({ notifications: [], observed: {} }),
+      clear: () => set({ notifications: [], observed: {}, dismissed: [] }),
     }),
     {
       name: 'hungry-notifications',

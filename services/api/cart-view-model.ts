@@ -1,203 +1,289 @@
-import type { CartInput, CartItemInput } from '@/schemas/cart';
+import type { AddCartItemInput, CartItemOutput, CartOutput } from '@/schemas/cart';
 import type { CartLine } from '@/store/cart-store';
 
 /**
- * Adapts the local cart to what `POST /carts` accepts, and owns the cart's
- * server-side identity scheme.
+ * Adapts the local cart to the backend's `/carts/active`, and the backend's
+ * priced cart to what the screens show.
  *
  * Pure module: no React, no TanStack Query, no network. The `CartLine` import
  * is `import type` only and is erased at compile time, so nothing here drags
  * zustand or AsyncStorage into a unit test.
  */
 
-// --- Identity ------------------------------------------------------------
+// --- Line identity -------------------------------------------------------
 
 /**
- * The prefix that marks a cart as written by THIS app.
+ * Which server line a local line corresponds to — the SAME rule the backend
+ * uses to merge lines (`DefaultActiveCartService.signature`): product, the set
+ * of chosen options, and the note compared case-insensitively.
  *
- * A customer has ONE cart, so its code is simply
- *
- *     code = "hc:<customerId>"
- *
- * The backend enforces the same thing from its side: `ux_cart_customer_active`
- * is a partial unique index over `(customer_id) WHERE status = 'ACTIVE'`, and
- * `CartBasePopulator` forces every created cart to ACTIVE — a second cart for
- * the same customer is rejected at insert. The code exists because the
- * `customerIds` filter on `/carts/all` answers 500 (plan §3.5), so `code` is
- * the one column the app both controls and can search on.
- *
- * Carts written by earlier builds used `"hc:<customerId>:<restaurantId>"`, one
- * per restaurant. `parseCartCode` still reads those so hydration can fold
- * them into the single cart; the sync engine then deletes them.
+ * Two local lines that only differ by something the backend does not key on
+ * (the restaurant, which is implied by the product) share one key, and their
+ * quantities are summed into one server line.
  */
-export const CART_CODE_PREFIX = 'hc';
-
-const SEPARATOR = ':';
-
-/** The `code` identifying one customer's cart. */
-export function cartCodeFor(customerId: string): string {
-  return [CART_CODE_PREFIX, customerId].join(SEPARATOR);
+export function lineKey(productId: string, optionIds: string[], note?: string | null): string {
+  const options = [...optionIds].sort().join(',');
+  return `${productId}|${options}|${note?.trim().toLowerCase() ?? ''}`;
 }
 
-/**
- * The `LIKE` needle matching every cart of one customer — the current one and
- * any legacy per-restaurant rows.
- *
- * `SpecificationUtils` renders `LIKE` as `%value%`, and customer ids are
- * UUIDs, so the separator after the prefix is enough to keep one customer's
- * needle from matching inside another's code.
- */
-export function customerCartCodePrefix(customerId: string): string {
-  return cartCodeFor(customerId);
-}
-
-export interface CartCodeIdentity {
-  customerId: string;
-  /**
-   * Set only for a LEGACY code (`hc:<customer>:<restaurant>`), where it names
-   * the restaurant every item of that cart belonged to. `null` for a current
-   * code: the items' restaurants are resolved per product instead.
-   */
-  restaurantId: string | null;
-}
-
-/**
- * The identity encoded in a cart `code`, or `null` when the code was not
- * written by this app.
- *
- * Never throws. `/carts/all` is not scoped to the caller (plan §3.6), so this
- * runs over rows the app did not write: anything unrecognised — a foreign
- * prefix, a null code, a truncated one — is skipped rather than mis-attributed
- * to some customer.
- *
- * Note that a code belonging to a DIFFERENT customer still parses. Deciding
- * whether the customer matches is the caller's job, not this function's.
- */
-export function parseCartCode(code: string | null | undefined): CartCodeIdentity | null {
-  if (!code) return null;
-
-  const segments = code.split(SEPARATOR);
-  // Two segments is the current scheme, three the legacy one. Anything else
-  // is a different scheme, not this one with extra data, and guessing which
-  // segments to keep would mis-attribute it.
-  if (segments.length !== 2 && segments.length !== 3) return null;
-
-  const [prefix, customerId, restaurantId] = segments;
-  if (prefix !== CART_CODE_PREFIX) return null;
-  if (!customerId) return null;
-  if (segments.length === 3 && !restaurantId) return null;
-
-  return { customerId, restaurantId: restaurantId ?? null };
-}
-
-// --- Mapping local lines to a payload -----------------------------------
-
-/**
- * Local lines collapsed to one entry per product, in a stable order.
- *
- * Locally, "Pizza + extra cheese" and "Pizza, plain" are two `CartLine`s with
- * the same `foodId`. The backend has no addon concept, so both map to the same
- * `productId` — and sending two `CartItemInputData` entries would write two
- * `h_cart_item` rows for one product, which reads back as a cart that appears
- * to contain the pizza twice under one name (plan §4.4).
- *
- * So they are grouped and their quantities summed. This is lossy and
- * unavoidable; the loss is confined to this one function.
- */
-function collapseByProduct(lines: CartLine[]): Map<string, number> {
-  const totals = new Map<string, number>();
-
-  for (const line of lines) {
-    // A line with no backend product id cannot be sent: `CartItemPopulator`
-    // wraps the failed product lookup in a PopulatorException, which surfaces
-    // as a 500 for the whole cart (plan §3.5).
-    if (!line.foodId) continue;
-    if (!Number.isFinite(line.quantity) || line.quantity <= 0) continue;
-
-    totals.set(line.foodId, (totals.get(line.foodId) ?? 0) + line.quantity);
-  }
-
-  return totals;
-}
-
-/**
- * The cart's persisted `name`: the restaurants it draws from, in the order
- * they first appear, so the back-office sees "Baguette & Baguette, Chez Ali"
- * rather than an opaque code. Purely a label — nothing reads it back.
- */
-export function cartNameFor(lines: CartLine[]): string {
-  const names: string[] = [];
-  for (const line of lines) {
-    const name = line.restaurantName?.trim();
-    if (name && !names.includes(name)) names.push(name);
-  }
-  return names.join(', ');
-}
-
-export interface ToCartInputArgs {
-  /** The backend `Customer.id` UUID — NOT the Keycloak `sub`. */
-  customerId: string;
-  /** Every line in the cart, from every restaurant. */
-  lines: CartLine[];
-  comment?: string;
-}
-
-/**
- * The whole cart as `POST /carts` wants it.
- *
- * **What this deliberately discards**, because no column exists to hold it
- * (plan §3.4):
- *   - `addons` — `CartItem` is `{cart, product, quantity}`; the `Order`
- *     aggregate's `OrderedProductAttribut` has no cart equivalent;
- *   - `note` — `comment` is per-cart, not per-line;
- *   - `unitPrice` / `basePrice` — no price field on `Cart` or `CartItem`;
- *   - `restaurantId` — no restaurant on `Cart` or `CartItem`; hydration
- *     resolves it again from each product's menu section;
- *   - `image`, `lineId`, `name` — client-side presentation only.
- *
- * The local store stays authoritative for all of the above. The backend cart
- * is a durable projection of it, not a second opinion about its contents, and
- * the UI must never imply the server knows about what is dropped here.
- *
- * `status` is never sent: `CartBasePopulator` hard-codes `ACTIVE` on every
- * create and ignores the input, so offering it would only mislead a caller.
- */
-export function toCartInput(args: ToCartInputArgs): CartInput {
-  const { customerId, lines, comment } = args;
-
-  const items: CartItemInput[] = Array.from(
-    collapseByProduct(lines),
-    ([productId, quantity]) => ({ productId, quantity })
+function localLineKey(line: CartLine): string {
+  return lineKey(
+    line.foodId,
+    line.addons.map((addon) => addon.id).filter(Boolean),
+    line.note
   );
+}
+
+function serverLineKey(item: CartItemOutput): string | null {
+  if (!item.productId) return null;
+  const optionIds = (item.options ?? [])
+    .map((option) => option.attributeId)
+    .filter((id): id is string => !!id);
+  return lineKey(item.productId, optionIds, item.note);
+}
+
+/** A line the backend can accept: a real product id and a positive quantity. */
+function isSendable(line: CartLine): boolean {
+  return !!line.foodId && Number.isFinite(line.quantity) && line.quantity > 0;
+}
+
+interface DesiredLine {
+  key: string;
+  quantity: number;
+  input: AddCartItemInput;
+}
+
+/** The local cart as the server should hold it: one entry per server line key. */
+function desiredLines(lines: CartLine[]): Map<string, DesiredLine> {
+  const desired = new Map<string, DesiredLine>();
+
+  for (const line of lines) {
+    if (!isSendable(line)) continue;
+
+    const key = localLineKey(line);
+    const existing = desired.get(key);
+    if (existing) {
+      existing.quantity += line.quantity;
+      existing.input.quantity = existing.quantity;
+      continue;
+    }
+
+    const note = line.note?.trim();
+    desired.set(key, {
+      key,
+      quantity: line.quantity,
+      input: {
+        productId: line.foodId,
+        quantity: line.quantity,
+        ...(note ? { note } : {}),
+        attributes: line.addons
+          .filter((addon) => !!addon.id)
+          .map((addon) => ({ attributeId: addon.id, checked: true })),
+      },
+    });
+  }
+
+  return desired;
+}
+
+// --- Sync ----------------------------------------------------------------
+
+/**
+ * A stable fingerprint of the cart as the server stores it.
+ *
+ * Gates the sync engine — when it equals the last synced signature nothing is
+ * sent — and tells a screen whether a priced cart it holds is the price OF
+ * THIS cart ({@link serverSyncSignature} of the quote === this of the lines).
+ */
+export function syncSignature(lines: CartLine[]): string {
+  return Array.from(desiredLines(lines).values())
+    .map((line) => `${line.key}x${line.quantity}`)
+    .sort()
+    .join('~');
+}
+
+/** {@link syncSignature} of what the server cart actually holds. Free gifts are ignored. */
+export function serverSyncSignature(cart: CartOutput): string {
+  const totals = new Map<string, number>();
+  for (const item of cart.items ?? []) {
+    if (item.giftItem) continue;
+    const key = serverLineKey(item);
+    const quantity = item.quantity ?? 0;
+    if (!key || quantity <= 0) continue;
+    totals.set(key, (totals.get(key) ?? 0) + quantity);
+  }
+  return Array.from(totals, ([key, quantity]) => `${key}x${quantity}`)
+    .sort()
+    .join('~');
+}
+
+export type CartSyncOp =
+  | { type: 'remove'; itemId: string }
+  | { type: 'update'; itemId: string; quantity: number }
+  | { type: 'add'; input: AddCartItemInput };
+
+/**
+ * The fewest calls that turn the server cart into the local one.
+ *
+ * Removes go first, so a cart at the per-line cap never fails an add for want
+ * of room; adds go last. Free gifts belong to the promotion engine and are
+ * never touched. A duplicate server line — which the backend's merge rule
+ * should make impossible — is removed rather than left to double the order.
+ */
+export function planCartSync(lines: CartLine[], cart: CartOutput | null): CartSyncOp[] {
+  const desired = desiredLines(lines);
+  const removes: CartSyncOp[] = [];
+  const updates: CartSyncOp[] = [];
+  const seen = new Set<string>();
+
+  for (const item of cart?.items ?? []) {
+    if (item.giftItem || !item.id) continue;
+    const key = serverLineKey(item);
+    const want = key && !seen.has(key) ? desired.get(key) : undefined;
+
+    if (!key || !want) {
+      removes.push({ type: 'remove', itemId: item.id });
+      continue;
+    }
+
+    seen.add(key);
+    if (item.quantity !== want.quantity) {
+      updates.push({ type: 'update', itemId: item.id, quantity: want.quantity });
+    }
+  }
+
+  const adds: CartSyncOp[] = Array.from(desired.values())
+    .filter((line) => !seen.has(line.key))
+    .map((line) => ({ type: 'add', input: line.input }));
+
+  return [...removes, ...updates, ...adds];
+}
+
+// --- The price, as the backend computed it --------------------------------
+
+export interface QuotedFee {
+  code: string | null;
+  /** The fee rule's name, e.g. "Night surcharge". */
+  label: string;
+  amount: number;
+}
+
+/** What one restaurant's order will cost — the backend's `OrderPreview`. */
+export interface QuotedOrder {
+  restaurantId: string;
+  restaurantName: string;
+  subtotal: number;
+  discount: number;
+  deliveryFee: number;
+  /** This order's share of the per-cart service fee. */
+  serviceFee: number;
+  additionalFees: QuotedFee[];
+  total: number;
+}
+
+/**
+ * The whole bill as `/carts/active` priced it from the fee rules. Numbers,
+ * never nulls: a missing amount on the wire is a zero fee (the backend drops
+ * zero fee lines rather than sending them).
+ */
+export interface CartQuote {
+  currency: string | null;
+  subtotal: number;
+  discountTotal: number;
+  /** The app service fee over every order. */
+  serviceFee: number;
+  /** The delivery fees of every order, summed. */
+  deliveryFee: number;
+  additionalFees: QuotedFee[];
+  total: number;
+  orders: QuotedOrder[];
+  /** Backend `CartBlocker` names; empty when checkout is possible. */
+  blockers: string[];
+  /**
+   * False when the delivery fee could not be computed yet — no delivery
+   * address, or a point missing coordinates. A distance-based fee is simply
+   * left out then, so a `deliveryFee` of 0 means "unknown", not "free".
+   */
+  deliveryPriced: boolean;
+  /** {@link serverSyncSignature} of the cart this price is for. */
+  signature: string;
+}
+
+const amount = (value: number | null | undefined) => value ?? 0;
+
+/** The blockers under which the backend cannot measure a delivery distance. */
+const UNPRICED_DELIVERY = new Set([
+  'NO_DELIVERY_ADDRESS',
+  'NO_ADDRESS_COORDINATES',
+  'RESTAURANT_LOCATION_MISSING',
+]);
+
+function toFees(
+  fees: { code?: string | null; label?: string | null; amount?: number | null }[] | null | undefined
+): QuotedFee[] {
+  return (fees ?? [])
+    .filter((fee) => amount(fee.amount) > 0)
+    .map((fee) => ({
+      code: fee.code ?? null,
+      label: fee.label?.trim() || fee.code || 'Additional fee',
+      amount: amount(fee.amount),
+    }));
+}
+
+export function toCartQuote(cart: CartOutput): CartQuote {
+  const orders = (cart.orders ?? []).map((order) => ({
+    restaurantId: order.restaurantId ?? '',
+    restaurantName: order.restaurantName ?? '',
+    subtotal: amount(order.subtotal),
+    discount: amount(order.discount),
+    deliveryFee: amount(order.deliveryFee),
+    serviceFee: amount(order.serviceFeeShare),
+    additionalFees: toFees(order.additionalFees),
+    total: amount(order.total),
+  }));
 
   return {
-    // Never omitted: nothing on the backend generates a code (plan §3.3).
-    code: cartCodeFor(customerId),
-    name: cartNameFor(lines),
-    customerId,
-    ...(comment ? { comment } : {}),
-    items,
+    currency: cart.currency ?? null,
+    subtotal: amount(cart.subtotal),
+    discountTotal: amount(cart.discountTotal),
+    serviceFee: amount(cart.serviceFee?.amount),
+    deliveryFee: orders.reduce((sum, order) => sum + order.deliveryFee, 0),
+    additionalFees: toFees(cart.additionalFees),
+    total: amount(cart.total),
+    orders,
+    blockers: cart.blockers ?? [],
+    deliveryPriced: !(cart.blockers ?? []).some((blocker) => UNPRICED_DELIVERY.has(blocker)),
+    signature: serverSyncSignature(cart),
   };
 }
 
+// --- Blockers ------------------------------------------------------------
+
 /**
- * A stable fingerprint of everything about the cart that the backend can
- * actually store.
- *
- * Gates the sync engine: when this equals the last successfully synced
- * signature, the delete-and-recreate is skipped entirely. Without it every
- * render of the cart screen would issue a DELETE and a POST.
- *
- * Derived from the SAME collapsed map `toCartInput` sends, which is what makes
- * it correct rather than merely stable — reshuffling two lines of the same
- * product between addon sets produces an identical payload, so it must produce
- * an identical signature. Addons, notes and prices are excluded for the same
- * reason: the backend cannot store them, so a change to one must not trigger a
- * pointless round-trip.
+ * Why a checkout cannot be placed, in the app's words. The address pair is
+ * kept distinct because the fixes differ: add an address at all, versus
+ * re-pick an existing one on the map so it acquires coordinates.
  */
-export function syncSignature(lines: CartLine[]): string {
-  return Array.from(collapseByProduct(lines))
-    .map(([productId, quantity]) => `${productId}x${quantity}`)
-    .sort()
-    .join('|');
+export type CheckoutBlocker =
+  | 'no-customer'
+  | 'no-address'
+  | 'no-address-coords'
+  | 'no-restaurant-coords'
+  | 'empty-cart'
+  | 'unknown';
+
+/** The backend's `CartBlocker` names, mapped to the app's. */
+export function toCheckoutBlocker(name: string): CheckoutBlocker {
+  switch (name) {
+    case 'EMPTY_CART':
+      return 'empty-cart';
+    case 'NO_DELIVERY_ADDRESS':
+      return 'no-address';
+    case 'NO_ADDRESS_COORDINATES':
+      return 'no-address-coords';
+    case 'RESTAURANT_LOCATION_MISSING':
+      return 'no-restaurant-coords';
+    default:
+      return 'unknown';
+  }
 }
