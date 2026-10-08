@@ -1,63 +1,41 @@
-import { PressableScale } from '@/components/ui/pressable-scale';
-import { Fonts, FontSize, Palette, Radius, Spacing } from '@/constants/theme';
-import {
-  useNotificationStore,
-  type CustomerNotification,
-  type NotificationType,
-} from '@/store/notification-store';
-import { useFocusEffect, useRouter } from 'expo-router';
-import {
-  ArrowLeft,
-  BellOff,
-  Bike,
-  CircleCheck,
-  ChefHat,
-  ClipboardList,
-  PackageCheck,
-  ShoppingBag,
-  CircleX,
-  Trash2,
-  type LucideIcon,
-} from 'lucide-react-native';
-import { useCallback } from 'react';
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useMemo } from 'react';
+import { SectionList, View } from 'react-native';
+import { useRouter } from 'expo-router';
 import ReanimatedSwipeable from 'react-native-gesture-handler/ReanimatedSwipeable';
-import Animated, { FadeOut, LinearTransition } from 'react-native-reanimated';
+import Animated, { FadeOut } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Divider, IconWell, Screen, StateView, Text, TextLink, TopBar, Touchable, UnreadDot, type WellTone } from '@/components/ds';
+import { useNotificationStore, type CustomerNotification, type NotificationType } from '@/store/notification-store';
+import { createStyles, formatDayMonth, Icon, type ColorToken, type IconName } from '@/theme';
 
 /**
- * The customer's notifications — every order and delivery update this device
- * has seen, newest first.
+ * N1 Notifications — every order and delivery update this device has seen,
+ * newest first, grouped by day (Today, This week, then dates).
  *
  * Read from the device inbox (`store/notification-store.ts`); nothing is
- * fetched here. Opening the screen marks everything read, which is what
- * clears the bell badge on the home header. Tapping a row opens the order it
- * is about; swiping it left deletes it.
+ * fetched here. Unread rows carry the orange dot until they are opened or
+ * "Mark all read" is tapped — which is what clears the bell's counter. Tapping
+ * a row opens its order; swiping it left deletes it.
  */
 
-interface RowVisual {
-  Icon: LucideIcon;
-  color: string;
-  background: string;
-}
-
-const VISUALS: Record<NotificationType, RowVisual> = {
-  ORDER_PLACED: { Icon: ClipboardList, color: Palette.textSecondary, background: Palette.surfaceMuted },
-  ORDER_CONFIRMED: { Icon: CircleCheck, color: Palette.success, background: Palette.successSoft },
-  ORDER_PREPARING: { Icon: ChefHat, color: Palette.primary, background: Palette.primarySoft },
-  ORDER_READY: { Icon: ShoppingBag, color: Palette.primary, background: Palette.primarySoft },
-  ORDER_CANCELLED: { Icon: CircleX, color: Palette.danger, background: Palette.dangerSoft },
-  ORDER_REJECTED: { Icon: CircleX, color: Palette.danger, background: Palette.dangerSoft },
-  DRIVER_ASSIGNED: { Icon: Bike, color: Palette.primary, background: Palette.primarySoft },
-  DRIVER_PICKED_UP: { Icon: Bike, color: Palette.success, background: Palette.successSoft },
-  ORDER_DELIVERED: { Icon: PackageCheck, color: Palette.success, background: Palette.successSoft },
-  DELIVERY_FAILED: { Icon: CircleX, color: Palette.danger, background: Palette.dangerSoft },
+/** Wells by status: placed neutral, in progress orange, done green, failed red. */
+const VISUALS: Record<NotificationType, { icon: IconName; tone: WellTone; color: ColorToken }> = {
+  ORDER_PLACED: { icon: 'receipt', tone: 'neutral', color: 'ink' },
+  ORDER_CONFIRMED: { icon: 'check', tone: 'success', color: 'success' },
+  ORDER_PREPARING: { icon: 'preparing', tone: 'warm', color: 'primary' },
+  ORDER_READY: { icon: 'ready', tone: 'warm', color: 'primary' },
+  ORDER_CANCELLED: { icon: 'error', tone: 'danger', color: 'danger' },
+  ORDER_REJECTED: { icon: 'error', tone: 'danger', color: 'danger' },
+  DRIVER_ASSIGNED: { icon: 'delivery', tone: 'warm', color: 'primary' },
+  DRIVER_PICKED_UP: { icon: 'delivery', tone: 'success', color: 'success' },
+  ORDER_DELIVERED: { icon: 'delivered', tone: 'success', color: 'success' },
+  DELIVERY_FAILED: { icon: 'error', tone: 'danger', color: 'danger' },
 };
 
 /** Width of the red delete panel revealed behind a row swiped left. */
 const DELETE_ACTION_WIDTH = 88;
 
-/** "Just now", "12 min ago", "3 h ago", "Yesterday", then a short date. */
+/** "Just now", "12 min ago", "3 h ago", "Yesterday", "2 days ago", then "26 Sept". */
 function relativeTime(iso: string, now = new Date()): string {
   const then = new Date(iso);
   const seconds = Math.max(0, (now.getTime() - then.getTime()) / 1000);
@@ -69,82 +47,89 @@ function relativeTime(iso: string, now = new Date()): string {
   const days = Math.floor(hours / 24);
   if (days === 1) return 'Yesterday';
   if (days < 7) return `${days} days ago`;
-  return then.toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+  return formatDayMonth(then);
+}
+
+/** Today / This week / "26 Sept" — the overline a row is filed under. */
+function groupOf(iso: string, now = new Date()): string {
+  const then = new Date(iso);
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  if (then.getTime() >= startOfToday) return 'Today';
+  if (then.getTime() >= startOfToday - 6 * 24 * 3600 * 1000) return 'This week';
+  return formatDayMonth(then);
 }
 
 export default function NotificationsScreen() {
+  const styles = useStyles();
   const insets = useSafeAreaInsets();
   const router = useRouter();
 
   const notifications = useNotificationStore((s) => s.notifications);
   const markAllRead = useNotificationStore((s) => s.markAllRead);
+  const markRead = useNotificationStore((s) => s.markRead);
   const remove = useNotificationStore((s) => s.remove);
 
-  // Read once the customer has looked, and once more if they come back with
-  // new rows in between — not on every render, which is what an effect on
-  // `notifications` would do.
-  useFocusEffect(
-    useCallback(() => {
-      markAllRead();
-    }, [markAllRead])
-  );
+  const sections = useMemo(() => {
+    const now = new Date();
+    const groups: { title: string; data: CustomerNotification[] }[] = [];
+    for (const n of notifications) {
+      const title = groupOf(n.createdAt, now);
+      const last = groups[groups.length - 1];
+      if (last && last.title === title) last.data.push(n);
+      else groups.push({ title, data: [n] });
+    }
+    return groups;
+  }, [notifications]);
+
+  const hasUnread = notifications.some((n) => !n.read);
 
   const openOrder = (notification: CustomerNotification) => {
+    markRead(notification.key);
     router.push(`/orders/${notification.orderId}`);
   };
 
-  const renderRow = ({ item }: { item: CustomerNotification }) => (
-    <NotificationRow
-      notification={item}
-      onPress={() => openOrder(item)}
-      onDelete={() => remove(item.key)}
-    />
-  );
-
   return (
-    <View style={styles.container}>
-      <View style={[styles.header, { paddingTop: insets.top + Spacing.sm }]}>
-        <TouchableOpacity onPress={() => router.back()} hitSlop={8}>
-          <ArrowLeft size={24} color={Palette.ink} />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Notifications</Text>
-        <View style={styles.headerSpacer} />
-      </View>
-
-      <Animated.FlatList
-        data={notifications}
-        // Rows below a deleted one slide up into its place.
-        itemLayoutAnimation={LinearTransition}
+    <Screen>
+      <TopBar
+        title="Notifications"
+        onBack={() => router.back()}
+        trailing={hasUnread ? <TextLink label="Mark all read" onPress={markAllRead} /> : undefined}
+      />
+      <SectionList
+        sections={sections}
         keyExtractor={(item) => item.key}
-        renderItem={renderRow}
+        renderSectionHeader={({ section }) => (
+          <Text variant="overline" color="inkMuted" style={styles.overline} accessibilityRole="header">
+            {section.title}
+          </Text>
+        )}
+        renderItem={({ item }) => (
+          <NotificationRow notification={item} onPress={() => openOrder(item)} onDelete={() => remove(item.key)} />
+        )}
+        ItemSeparatorComponent={() => <Divider style={styles.separator} />}
+        stickySectionHeadersEnabled={false}
         contentContainerStyle={[
-          styles.list,
-          notifications.length === 0 && styles.listEmpty,
-          { paddingBottom: insets.bottom + Spacing.xl },
+          notifications.length === 0 ? styles.emptyContainer : styles.list,
+          { paddingBottom: insets.bottom + 24 },
         ]}
-        ItemSeparatorComponent={() => <View style={styles.separator} />}
         showsVerticalScrollIndicator={false}
         ListEmptyComponent={
-          <View style={styles.empty}>
-            <View style={styles.emptyIcon}>
-              <BellOff size={32} color={Palette.primary} />
-            </View>
-            <Text style={styles.emptyTitle}>No notifications yet</Text>
-            <Text style={styles.emptyBody}>
-              Updates about your orders — confirmation, pickup and delivery —
-              will show up here.
-            </Text>
-          </View>
+          // S-N1.
+          <StateView
+            icon="bellOff"
+            title="No notifications yet"
+            body="Updates about your orders — confirmation, pickup and delivery — show up here."
+          />
         }
       />
-    </View>
+    </Screen>
   );
 }
 
 /**
- * One inbox row. Swiping it left past the threshold deletes it: the release
- * opens the red panel, and opening is the delete — there is no second tap to
- * confirm, as in the system notification shade. A shorter swipe springs back.
+ * NotificationRow: 40 well by status, title, time + unread dot, body.
+ * Swiping left past the threshold deletes it — opening is the delete, as in
+ * the system notification shade. A shorter swipe springs back.
  */
 function NotificationRow({
   notification,
@@ -155,181 +140,71 @@ function NotificationRow({
   onPress: () => void;
   onDelete: () => void;
 }) {
-  const { Icon, color, background } = VISUALS[notification.type];
+  const styles = useStyles();
+  const visual = VISUALS[notification.type];
   return (
     <Animated.View exiting={FadeOut.duration(180)}>
       <ReanimatedSwipeable
         friction={1.5}
         rightThreshold={DELETE_ACTION_WIDTH * 0.6}
         overshootRight={false}
-        containerStyle={styles.swipeContainer}
         renderRightActions={() => (
           <View style={styles.deleteAction}>
-            <Trash2 size={22} color={Palette.surface} />
-            <Text style={styles.deleteActionText}>Delete</Text>
+            <Icon name="delete" color="onInk" />
+            <Text variant="caption" color="onInk">
+              Delete
+            </Text>
           </View>
         )}
         onSwipeableOpen={onDelete}
       >
-        <PressableScale
-          style={[styles.row, !notification.read && styles.rowUnread]}
+        <Touchable
           onPress={onPress}
-          scaleTo={0.98}
-          accessibilityLabel={`${notification.title}. ${notification.body}`}
+          scaleTo={1}
+          style={styles.row}
+          accessibilityLabel={`${notification.read ? '' : 'Unread. '}${notification.title}. ${notification.body}`}
           accessibilityHint="Opens the order. Swipe left to delete."
           accessibilityActions={[{ name: 'delete', label: 'Delete' }]}
           onAccessibilityAction={(event) => {
             if (event.nativeEvent.actionName === 'delete') onDelete();
           }}
         >
-          <View style={[styles.iconWrap, { backgroundColor: background }]}>
-            <Icon size={20} color={color} />
-          </View>
-          <View style={styles.rowText}>
-            <View style={styles.rowTitleLine}>
-              <Text style={styles.rowTitle} numberOfLines={1}>
+          <IconWell icon={visual.icon} tone={visual.tone} iconColor={visual.color} size={40} round />
+          <View style={styles.text}>
+            <View style={styles.titleLine}>
+              <Text variant="itemTitle" numberOfLines={1} style={styles.flex}>
                 {notification.title}
               </Text>
-              <Text style={styles.rowTime}>{relativeTime(notification.createdAt)}</Text>
+              <Text variant="caption" color="inkMuted">
+                {relativeTime(notification.createdAt)}
+              </Text>
+              {!notification.read ? <UnreadDot /> : null}
             </View>
-            <Text style={styles.rowBody}>{notification.body}</Text>
+            <Text variant="meta" color="inkMuted" style={styles.body}>
+              {notification.body}
+            </Text>
           </View>
-          {!notification.read ? <View style={styles.unreadDot} /> : null}
-        </PressableScale>
+        </Touchable>
       </ReanimatedSwipeable>
     </Animated.View>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: Palette.surface,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: Spacing.xl,
-    paddingBottom: Spacing.md,
-  },
-  headerTitle: {
-    flex: 1,
-    textAlign: 'center',
-    fontSize: FontSize.lg,
-    fontFamily: Fonts.bold,
-    color: Palette.ink,
-  },
-  headerSpacer: {
-    width: 24,
-  },
-  list: {
-    paddingHorizontal: Spacing.xl,
-    paddingTop: Spacing.sm,
-  },
-  listEmpty: {
-    flexGrow: 1,
-    justifyContent: 'center',
-  },
-  separator: {
-    height: 1,
-    backgroundColor: Palette.borderSubtle,
-    marginVertical: Spacing.xs,
-  },
-  row: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: Spacing.md,
-    paddingVertical: Spacing.md,
-    paddingHorizontal: Spacing.sm,
-    borderRadius: Radius.lg,
-    // Opaque, so the delete panel only shows where the row has slid away.
-    backgroundColor: Palette.surface,
-  },
-  swipeContainer: {
-    borderRadius: Radius.lg,
-  },
+const useStyles = createStyles((t) => ({
+  flex: { flex: 1 },
+  list: { paddingHorizontal: t.screenPadding },
+  emptyContainer: { flexGrow: 1 },
+  overline: { marginTop: t.space[16], marginBottom: t.space[4], backgroundColor: t.colors.background },
+  separator: {},
+  row: { flexDirection: 'row', gap: t.space[14], paddingVertical: t.space[14], backgroundColor: t.colors.background },
+  text: { flex: 1, gap: 2 },
+  titleLine: { flexDirection: 'row', alignItems: 'center', gap: t.space[8] },
+  body: { lineHeight: 19 },
   deleteAction: {
     width: DELETE_ACTION_WIDTH,
+    backgroundColor: t.colors.danger,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 2,
-    backgroundColor: Palette.danger,
-    borderTopRightRadius: Radius.lg,
-    borderBottomRightRadius: Radius.lg,
+    gap: t.space[4],
   },
-  deleteActionText: {
-    fontSize: FontSize.xs,
-    fontFamily: Fonts.semiBold,
-    color: Palette.surface,
-  },
-  rowUnread: {
-    backgroundColor: Palette.surfaceAlt,
-  },
-  iconWrap: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  rowText: {
-    flex: 1,
-    gap: 2,
-  },
-  rowTitleLine: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: Spacing.sm,
-  },
-  rowTitle: {
-    flex: 1,
-    fontSize: FontSize.md,
-    fontFamily: Fonts.semiBold,
-    color: Palette.textPrimary,
-  },
-  rowTime: {
-    fontSize: FontSize.xs,
-    fontFamily: Fonts.regular,
-    color: Palette.textMuted,
-  },
-  rowBody: {
-    fontSize: FontSize.sm,
-    fontFamily: Fonts.regular,
-    color: Palette.textSecondary,
-    lineHeight: 18,
-  },
-  unreadDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: Palette.primary,
-    marginTop: Spacing.sm,
-  },
-  empty: {
-    alignItems: 'center',
-    paddingHorizontal: Spacing.xxl,
-    gap: Spacing.sm,
-  },
-  emptyIcon: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: Palette.primarySoft,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: Spacing.sm,
-  },
-  emptyTitle: {
-    fontSize: FontSize.xl,
-    fontFamily: Fonts.bold,
-    color: Palette.textPrimary,
-  },
-  emptyBody: {
-    fontSize: FontSize.md,
-    fontFamily: Fonts.regular,
-    color: Palette.textMuted,
-    textAlign: 'center',
-    lineHeight: 20,
-  },
-});
+}));
