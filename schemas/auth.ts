@@ -111,7 +111,8 @@ export const accountSettingsSchema = z.object({
     .email('Enter a valid email, like name@example.com.'),
   phoneNumber: z
     .string()
-    .regex(/^[+0-9\s]*$/, 'Enter an 8-digit Tunisian number.')
+    // Optional, but when given: 8 digits, with or without the +216 prefix.
+    .refine((v) => /^(\+216)?\d{8}$/.test(v.replace(/\s/g, '')), 'Enter an 8-digit Tunisian number.')
     .optional()
     .or(z.literal('')),
 });

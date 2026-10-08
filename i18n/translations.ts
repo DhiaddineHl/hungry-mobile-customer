@@ -30,7 +30,9 @@ export const en = {
   'profile.title': 'Profile',
   'profile.defaultName': 'Hungry user',
   'profile.section.account': 'Account',
-  'profile.accountManagement': 'Account management',
+  'profile.accountManagement': 'Account settings',
+  'profile.myOrders': 'My orders',
+  'profile.ordersInProgress': '{{count}} in progress',
   'profile.section.preferences': 'Preferences',
   'profile.language': 'Language',
   'profile.notifications': 'Order notifications',
@@ -41,9 +43,9 @@ export const en = {
   'profile.notifications.blockedTitle': 'Notifications are blocked',
   'profile.notifications.blockedBody':
     'Hungry is not allowed to send notifications on this device. Allow them in your phone settings to receive order updates.',
-  'profile.section.helpLegal': 'Help & legal',
-  'profile.help': 'Help & support',
-  'profile.report': 'Report a problem',
+  'profile.section.helpLegal': 'Help and legal',
+  'profile.help': 'Help and support',
+  'profile.report': 'Reports',
   'profile.terms': 'Terms of use',
   'profile.privacy': 'Privacy policy',
   'profile.section.session': 'Session',
@@ -56,7 +58,7 @@ export const en = {
   'profile.version': 'Hungry v{{version}}',
 
   // Help & support
-  'help.title': 'Help & support',
+  'help.title': 'Help and support',
   'help.intro':
     'Something wrong with an order, or a question about the app? Here is how to reach us.',
   'help.contact.title': 'Contact us',
@@ -76,7 +78,7 @@ export const en = {
     'Tap the address at the top of the Home screen to switch between saved addresses or add a new one. At checkout you can also drop a pin for a one-off address.',
   'help.faq.q4': 'How do I update my name, email or phone number?',
   'help.faq.a4':
-    'Go to Profile → Account management. Changes to your email also update the address you sign in with.',
+    'Go to Profile → Account settings. Changes to your email also update the address you sign in with.',
   'help.faq.q5': 'How do I delete my account?',
   'help.faq.a5':
     'Go to Profile → Delete account. Your account and personal data are removed permanently; see the Privacy policy for what we are required to keep.',
@@ -160,7 +162,9 @@ export const fr: Record<TranslationKey, string> = {
   'profile.title': 'Profil',
   'profile.defaultName': 'Utilisateur Hungry',
   'profile.section.account': 'Compte',
-  'profile.accountManagement': 'Gestion du compte',
+  'profile.accountManagement': 'Paramètres du compte',
+  'profile.myOrders': 'Mes commandes',
+  'profile.ordersInProgress': '{{count}} en cours',
   'profile.section.preferences': 'Préférences',
   'profile.language': 'Langue',
   'profile.notifications': 'Notifications de commande',
@@ -206,7 +210,7 @@ export const fr: Record<TranslationKey, string> = {
     'Touchez l’adresse en haut de l’écran d’accueil pour passer d’une adresse enregistrée à une autre ou en ajouter une. Au moment de commander, vous pouvez aussi placer un repère pour une adresse ponctuelle.',
   'help.faq.q4': 'Comment modifier mon nom, mon e-mail ou mon téléphone ?',
   'help.faq.a4':
-    'Allez dans Profil → Gestion du compte. Modifier votre e-mail change aussi l’adresse avec laquelle vous vous connectez.',
+    'Allez dans Profil → Paramètres du compte. Modifier votre e-mail change aussi l’adresse avec laquelle vous vous connectez.',
   'help.faq.q5': 'Comment supprimer mon compte ?',
   'help.faq.a5':
     'Allez dans Profil → Supprimer le compte. Votre compte et vos données personnelles sont supprimés définitivement ; la Politique de confidentialité précise ce que nous devons conserver.',

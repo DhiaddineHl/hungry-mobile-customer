@@ -1,53 +1,23 @@
-import { Fonts, FontSize, Palette, Spacing } from '@/constants/theme';
-import { useTranslation } from '@/i18n';
+import { View } from 'react-native';
 import { useRouter } from 'expo-router';
-import { ArrowLeft } from 'lucide-react-native';
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import type { ReactNode } from 'react';
+import { TopBar } from '@/components/ds';
+import { useTranslation } from '@/i18n';
+import { useTheme } from '@/theme';
 
 /**
- * Back arrow + centred title, the header every screen reachable from the
- * profile tab uses (same chrome as `account-settings.tsx`).
+ * The TopBar under the status bar, for the profile sub-screens that lay out
+ * their own page: outlined back button + title (+ optional trailing).
  */
-export function ScreenHeader({ title }: { title: string }) {
+export function ScreenHeader({ title, trailing, divider }: { title: string; trailing?: ReactNode; divider?: boolean }) {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { t } = useTranslation();
-
+  const { colors } = useTheme();
   return (
-    <View style={[styles.header, { paddingTop: insets.top + Spacing.sm }]}>
-      <TouchableOpacity
-        onPress={() => router.back()}
-        hitSlop={8}
-        accessibilityRole="button"
-        accessibilityLabel={t('common.back')}
-      >
-        <ArrowLeft size={24} color={Palette.ink} />
-      </TouchableOpacity>
-      <Text style={styles.title} numberOfLines={1}>
-        {title}
-      </Text>
-      <View style={styles.spacer} />
+    <View style={{ paddingTop: insets.top, backgroundColor: colors.background }}>
+      <TopBar title={title} onBack={() => router.back()} backLabel={t('common.back')} trailing={trailing} divider={divider} />
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: Spacing.xl,
-    paddingBottom: Spacing.md,
-    backgroundColor: Palette.background,
-  },
-  title: {
-    flex: 1,
-    textAlign: 'center',
-    fontFamily: Fonts.semiBold,
-    fontSize: FontSize.xl,
-    color: Palette.ink,
-  },
-  spacer: {
-    width: 24,
-  },
-});

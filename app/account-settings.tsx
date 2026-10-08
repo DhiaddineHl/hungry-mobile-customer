@@ -1,29 +1,37 @@
-import { AuthButton, AuthInput } from '@/components/auth';
-import { Fonts, FontSize, Palette, Spacing } from '@/constants/theme';
+import { useState } from 'react';
+import { Controller, useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { KeyboardAvoidingView, Platform, ScrollView, View } from 'react-native';
+import { useRouter } from 'expo-router';
+import {
+  BottomBar,
+  ErrorBanner,
+  PrimaryButton,
+  Screen,
+  Text,
+  TextField,
+  TopBar,
+  toast,
+  useBottomBarInset,
+} from '@/components/ds';
 import { useAuth } from '@/contexts/auth-context';
 import { useUpdateCustomer } from '@/hooks/use-customer';
 import { useCurrentCustomer } from '@/hooks/use-delivery-address';
+import { useTranslation } from '@/i18n';
 import { AccountSettingsFormData, accountSettingsSchema } from '@/schemas/auth';
-import { zodResolver } from '@hookform/resolvers/zod';
-import { useRouter } from 'expo-router';
-import { ArrowLeft } from 'lucide-react-native';
-import { useState } from 'react';
-import { Controller, useForm } from 'react-hook-form';
-import {
-  Alert,
-  KeyboardAvoidingView,
-  Platform,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-} from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { createStyles } from '@/theme';
 
+/**
+ * P3 Account settings — names side by side, email, phone with what it is used
+ * for. Save stays disabled until something changes, and again after a save
+ * (S-P2 toast). A bad phone number is a field error that says the format
+ * (S-P1).
+ */
 export default function AccountSettingsScreen() {
-  const insets = useSafeAreaInsets();
+  const styles = useStyles();
   const router = useRouter();
+  const { t } = useTranslation();
+  const bottomInset = useBottomBarInset();
   const { user, reloadUser } = useAuth();
   const { data: customer } = useCurrentCustomer();
   const updateCustomer = useUpdateCustomer();
@@ -32,12 +40,12 @@ export default function AccountSettingsScreen() {
   const [isSaving, setIsSaving] = useState(false);
 
   // The customer record is the source of truth for the profile. The phone in
-  // particular is only there: Keycloak's userinfo never returns it (no mapper,
-  // and the realm's user profile does not declare the `phoneNumber` attribute
-  // the backend mirrors). Token claims are only the fallback while it loads.
+  // particular is only there: Keycloak's userinfo never returns it. Token
+  // claims are only the fallback while it loads.
   const {
     control,
     handleSubmit,
+    reset,
     formState: { errors, isDirty },
   } = useForm<AccountSettingsFormData>({
     resolver: zodResolver(accountSettingsSchema),
@@ -53,205 +61,143 @@ export default function AccountSettingsScreen() {
 
   const onSubmit = async (data: AccountSettingsFormData) => {
     if (!user?.sub) {
-      setFormError('You must be signed in to update your profile.');
+      setFormError('You need to be logged in to update your profile.');
       return;
     }
     setFormError(null);
     setIsSaving(true);
     try {
       // One backend call updates the Customer entity AND the Keycloak login
-      // account atomically (the record is resolved by `code` = the account's
-      // `sub`) — same sync flow as employees in the back-office.
+      // account atomically (resolved by `code` = the account's `sub`).
       await updateCustomer.mutateAsync({
         code: user.sub,
         name: `${data.firstName} ${data.lastName}`.trim(),
         fullname: { firstName: data.firstName, lastName: data.lastName },
-        contact: {
-          email: data.email,
-          phones: data.phoneNumber ? [data.phoneNumber] : [],
-        },
+        contact: { email: data.email, phones: data.phoneNumber ? [data.phoneNumber] : [] },
       });
-      // Refresh the token claims (name/email shown elsewhere). The phone is
-      // read from the customer record, which the mutation already re-cached.
+      // Refresh the token claims (name/email shown elsewhere).
       await reloadUser();
-      Alert.alert('Saved', 'Your profile has been updated.', [
-        { text: 'OK', onPress: () => router.back() },
-      ]);
+      // The saved values become the new baseline, so Save disables again.
+      reset(data);
+      toast.show({ message: 'Changes saved' });
     } catch (error) {
-      setFormError(
-        error instanceof Error ? error.message : 'An unexpected error occurred. Please try again.'
-      );
+      setFormError(error instanceof Error ? error.message : 'Something went wrong.');
     } finally {
       setIsSaving(false);
     }
   };
 
   return (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-    >
-      <View style={[styles.header, { paddingTop: insets.top + Spacing.sm }]}>
-        <TouchableOpacity onPress={() => router.back()} hitSlop={8}>
-          <ArrowLeft size={24} color={Palette.ink} />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Account Settings</Text>
-        <View style={styles.headerSpacer} />
-      </View>
+    <Screen>
+      <TopBar title={t('profile.accountManagement')} onBack={() => router.back()} />
+      <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        <ScrollView
+          style={styles.flex}
+          contentContainerStyle={[styles.content, { paddingBottom: bottomInset + 24 }]}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+        >
+          <Text variant="bodySmall" color="inkMuted">
+            Update your personal information.
+          </Text>
 
-      <ScrollView
-        style={styles.scrollView}
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled"
-      >
-        <Text style={styles.subtitle}>Update your personal information</Text>
+          {formError ? <ErrorBanner title="Couldn't save your changes" body={`${formError} Try again.`} /> : null}
 
-        {formError && (
-          <View style={styles.errorBanner}>
-            <Text style={styles.errorBannerText}>{formError}</Text>
-          </View>
-        )}
-
-        <View style={styles.nameRow}>
-          <View style={styles.nameField}>
+          <View style={styles.row}>
             <Controller
               control={control}
               name="firstName"
               render={({ field: { onChange, onBlur, value } }) => (
-                <AuthInput
-                  label="First Name"
-                  placeholder="First Name"
+                <TextField
+                  label="First name"
+                  placeholder="First name"
                   value={value}
                   onChangeText={onChange}
                   onBlur={onBlur}
                   error={errors.firstName?.message}
+                  locked={isSaving}
                   autoCapitalize="words"
+                  autoComplete="name-given"
+                  containerStyle={styles.flex}
                 />
               )}
             />
-          </View>
-          <View style={styles.nameField}>
             <Controller
               control={control}
               name="lastName"
               render={({ field: { onChange, onBlur, value } }) => (
-                <AuthInput
-                  label="Last Name"
-                  placeholder="Last Name"
+                <TextField
+                  label="Last name"
+                  placeholder="Last name"
                   value={value}
                   onChangeText={onChange}
                   onBlur={onBlur}
                   error={errors.lastName?.message}
+                  locked={isSaving}
                   autoCapitalize="words"
+                  autoComplete="name-family"
+                  containerStyle={styles.flex}
                 />
               )}
             />
           </View>
-        </View>
 
-        <Controller
-          control={control}
-          name="email"
-          render={({ field: { onChange, onBlur, value } }) => (
-            <AuthInput
-              label="Email"
-              placeholder="Email"
-              value={value}
-              onChangeText={onChange}
-              onBlur={onBlur}
-              error={errors.email?.message}
-              keyboardType="email-address"
-              autoCapitalize="none"
-            />
-          )}
-        />
+          <Controller
+            control={control}
+            name="email"
+            render={({ field: { onChange, onBlur, value } }) => (
+              <TextField
+                label="Email"
+                placeholder="Email"
+                value={value}
+                onChangeText={onChange}
+                onBlur={onBlur}
+                error={errors.email?.message}
+                locked={isSaving}
+                keyboardType="email-address"
+                autoCapitalize="none"
+                autoComplete="email"
+              />
+            )}
+          />
 
-        <Controller
-          control={control}
-          name="phoneNumber"
-          render={({ field: { onChange, onBlur, value } }) => (
-            <AuthInput
-              label="Phone Number"
-              placeholder="+216 00 000 000"
-              value={value}
-              onChangeText={onChange}
-              onBlur={onBlur}
-              error={errors.phoneNumber?.message}
-              keyboardType="phone-pad"
-            />
-          )}
-        />
+          <Controller
+            control={control}
+            name="phoneNumber"
+            render={({ field: { onChange, onBlur, value } }) => (
+              <TextField
+                label="Phone number"
+                placeholder="+216 22 222 222"
+                value={value}
+                onChangeText={onChange}
+                onBlur={onBlur}
+                error={errors.phoneNumber?.message}
+                helper="Riders use this number to reach you about an order."
+                locked={isSaving}
+                keyboardType="phone-pad"
+                autoComplete="tel"
+              />
+            )}
+          />
+        </ScrollView>
+      </KeyboardAvoidingView>
 
-        <AuthButton
-          title="SAVE CHANGES"
+      <BottomBar>
+        <PrimaryButton
+          label={formError ? 'Try again' : 'Save changes'}
+          loadingLabel="Saving…"
           onPress={handleSubmit(onSubmit)}
           loading={isSaving}
-          disabled={isSaving || !isDirty}
-          style={styles.saveButton}
+          disabled={!isDirty}
+          style={styles.flex}
         />
-      </ScrollView>
-    </KeyboardAvoidingView>
+      </BottomBar>
+    </Screen>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: Palette.background,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: Spacing.xl,
-    paddingBottom: Spacing.md,
-  },
-  headerTitle: {
-    flex: 1,
-    textAlign: 'center',
-    fontFamily: Fonts.semiBold,
-    fontSize: FontSize.xl,
-    color: Palette.ink,
-  },
-  headerSpacer: {
-    width: 24,
-  },
-  scrollView: {
-    flex: 1,
-  },
-  scrollContent: {
-    paddingHorizontal: Spacing.xl,
-    paddingTop: Spacing.lg,
-    paddingBottom: Spacing.xxxl,
-  },
-  subtitle: {
-    fontFamily: Fonts.regular,
-    fontSize: FontSize.md,
-    color: Palette.textSecondary,
-    marginBottom: Spacing.xl,
-  },
-  errorBanner: {
-    backgroundColor: Palette.dangerSoft,
-    borderRadius: 12,
-    padding: 14,
-    marginBottom: Spacing.lg,
-    borderWidth: 1,
-    borderColor: '#FECACA',
-  },
-  errorBannerText: {
-    color: Palette.danger,
-    fontSize: FontSize.md,
-    textAlign: 'center',
-    fontFamily: Fonts.medium,
-  },
-  nameRow: {
-    flexDirection: 'row',
-    gap: Spacing.md,
-  },
-  nameField: {
-    flex: 1,
-  },
-  saveButton: {
-    marginTop: Spacing.lg,
-  },
-});
+const useStyles = createStyles((t) => ({
+  flex: { flex: 1 },
+  content: { paddingHorizontal: t.screenPadding, paddingTop: t.space[8], gap: t.space[20] },
+  row: { flexDirection: 'row', gap: t.space[12], alignItems: 'flex-start' },
+}));

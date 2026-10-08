@@ -1,38 +1,28 @@
-import { AuthButton } from '@/components/auth';
+import { useState } from 'react';
+import { Alert, KeyboardAvoidingView, Platform, ScrollView, View } from 'react-native';
+import { useRouter } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import {
+  Card,
+  Checkbox,
+  ErrorBanner,
+  PrimaryButton,
+  Text,
+  TextField,
+  TextLink,
+  Touchable,
+} from '@/components/ds';
 import { ScreenHeader } from '@/components/profile';
-import { PressableScale } from '@/components/ui/pressable-scale';
 import { SUPPORT_EMAIL } from '@/constants/support';
-import { Fonts, FontSize, Palette, Radius, Spacing } from '@/constants/theme';
 import { useAuth } from '@/contexts/auth-context';
 import { useTranslation, type TranslationKey } from '@/i18n';
-import { useRouter } from 'expo-router';
-import { Check, TriangleAlert } from 'lucide-react-native';
-import { useState } from 'react';
-import {
-  Alert,
-  KeyboardAvoidingView,
-  Platform,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from 'react-native';
+import { createStyles, Icon } from '@/theme';
 
 /**
- * Delete account.
- *
- * What the stores ask for (App Store Review 5.1.1(v), Play's account-deletion
- * policy) shapes this screen: the action is reachable from the profile in two
- * taps, it deletes rather than deactivates, it says what is removed and what
- * is legally retained, and an alternative (email) is given for someone who
- * cannot use the app. Three deliberate steps guard against an accidental tap:
- * an acknowledgement, typing the confirmation word, and a final alert.
- *
- * On success the session is gone; the root layout's auth gate routes to the
- * login screen on its own, so nothing is navigated here.
+ * Account deletion: easy to find, deliberate to do. The customer is told what
+ * goes and what is kept, ticks an acknowledgement, types the confirmation word,
+ * and confirms once more before anything is removed.
  */
-
 const REMOVED: TranslationKey[] = [
   'delete.removed.profile',
   'delete.removed.addresses',
@@ -42,7 +32,9 @@ const REMOVED: TranslationKey[] = [
 ];
 
 export default function DeleteAccountScreen() {
+  const styles = useStyles();
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const { t } = useTranslation();
   const { deleteAccount } = useAuth();
 
@@ -52,7 +44,8 @@ export default function DeleteAccountScreen() {
   const [error, setError] = useState<string | null>(null);
 
   const word = t('delete.word');
-  const canDelete = acknowledged && confirmation.trim().toUpperCase() === word && !isDeleting;
+  const typedRight = confirmation.trim().toUpperCase() === word;
+  const canDelete = acknowledged && typedRight && !isDeleting;
 
   const performDeletion = async () => {
     setError(null);
@@ -66,6 +59,7 @@ export default function DeleteAccountScreen() {
     }
   };
 
+  // The last, explicit "are you sure" before an irreversible action.
   const confirm = () => {
     Alert.alert(
       t('delete.confirmTitle'),
@@ -74,228 +68,103 @@ export default function DeleteAccountScreen() {
         { text: t('common.cancel'), style: 'cancel' },
         { text: t('delete.confirmAction'), style: 'destructive', onPress: performDeletion },
       ],
-      { cancelable: true }
+      { cancelable: true },
     );
   };
 
+  const disabledReason = !acknowledged ? 'Tick the box to continue' : !typedRight ? `Type ${word} to continue` : undefined;
+
   return (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-    >
+    <View style={styles.container}>
       <ScreenHeader title={t('delete.title')} />
-      <ScrollView
-        contentContainerStyle={styles.content}
-        showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled"
-      >
-        <View style={styles.warning}>
-          <TriangleAlert size={22} color={Palette.danger} />
-          <Text style={styles.warningText}>{t('delete.warning')}</Text>
-        </View>
-
-        <Text style={styles.heading}>{t('delete.removed.title')}</Text>
-        <View style={styles.list}>
-          {REMOVED.map((key) => (
-            <View key={key} style={styles.bullet}>
-              <View style={styles.bulletDot} />
-              <Text style={styles.bulletText}>{t(key)}</Text>
-            </View>
-          ))}
-        </View>
-
-        <Text style={styles.heading}>{t('delete.kept.title')}</Text>
-        <Text style={styles.body}>{t('delete.kept.body')}</Text>
-        <PressableScale
-          onPress={() => router.push('/legal/privacy')}
-          scaleTo={0.98}
-          dimTo={0.7}
-          accessibilityLabel={t('profile.privacy')}
+      <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        <ScrollView
+          contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 32 }]}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
         >
-          <Text style={styles.link}>{t('profile.privacy')}</Text>
-        </PressableScale>
+          <ErrorBanner title={t('delete.warning')} />
 
-        <PressableScale
-          style={styles.checkboxRow}
-          onPress={() => setAcknowledged((value) => !value)}
-          scaleTo={0.99}
-          dimTo={0.8}
-          haptic
-          accessibilityLabel={t('delete.acknowledge')}
-        >
-          <View style={[styles.checkbox, acknowledged && styles.checkboxChecked]}>
-            {acknowledged ? <Check size={16} color={Palette.white} strokeWidth={3} /> : null}
+          <View style={styles.group}>
+            <Text variant="sectionTitle" accessibilityRole="header">
+              {t('delete.removed.title')}
+            </Text>
+            <Card padded style={styles.list}>
+              {REMOVED.map((key) => (
+                <View key={key} style={styles.bullet}>
+                  <Icon name="close" size="inline" color="danger" />
+                  <Text variant="description" style={styles.flex}>
+                    {t(key)}
+                  </Text>
+                </View>
+              ))}
+            </Card>
           </View>
-          <Text style={styles.checkboxText}>{t('delete.acknowledge')}</Text>
-        </PressableScale>
 
-        <Text style={styles.label}>{t('delete.typeToConfirm', { word })}</Text>
-        <TextInput
-          style={styles.input}
-          value={confirmation}
-          onChangeText={setConfirmation}
-          placeholder={word}
-          placeholderTextColor={Palette.textPlaceholder}
-          autoCapitalize="characters"
-          autoCorrect={false}
-          editable={!isDeleting}
-          accessibilityLabel={t('delete.typeToConfirm', { word })}
-        />
-
-        {error ? (
-          <View style={styles.errorBanner}>
-            <Text style={styles.errorText}>{error}</Text>
+          <View style={styles.group}>
+            <Text variant="sectionTitle" accessibilityRole="header">
+              {t('delete.kept.title')}
+            </Text>
+            <Text variant="description" color="inkMuted">
+              {t('delete.kept.body')}
+            </Text>
+            <TextLink label={t('profile.privacy')} onPress={() => router.push('/legal/privacy')} style={styles.selfStart} />
           </View>
-        ) : null}
 
-        <AuthButton
-          title={t('delete.submit')}
-          onPress={confirm}
-          loading={isDeleting}
-          disabled={!canDelete}
-          color={Palette.danger}
-          style={styles.submit}
-        />
+          <Touchable
+            onPress={() => setAcknowledged((value) => !value)}
+            scaleTo={1}
+            accessibilityRole="checkbox"
+            accessibilityState={{ checked: acknowledged }}
+            accessibilityLabel={t('delete.acknowledge')}
+            disabled={isDeleting}
+            style={styles.ack}
+          >
+            <Checkbox checked={acknowledged} />
+            <Text variant="itemLabel" style={styles.flex}>
+              {t('delete.acknowledge')}
+            </Text>
+          </Touchable>
 
-        <Text style={styles.alt}>{t('delete.alt', { email: SUPPORT_EMAIL })}</Text>
-      </ScrollView>
-    </KeyboardAvoidingView>
+          <TextField
+            label={t('delete.typeToConfirm', { word })}
+            placeholder={word}
+            value={confirmation}
+            onChangeText={setConfirmation}
+            autoCapitalize="characters"
+            autoCorrect={false}
+            locked={isDeleting}
+          />
+
+          {error ? <ErrorBanner title="Couldn't delete your account" body={error} /> : null}
+
+          <PrimaryButton
+            destructive={canDelete}
+            label={error ? 'Try again' : (disabledReason ?? t('delete.submit'))}
+            loadingLabel="Deleting your account…"
+            onPress={confirm}
+            loading={isDeleting}
+            disabled={!canDelete}
+            accessibilityLabel={t('delete.submit')}
+            accessibilityHint={disabledReason}
+          />
+
+          <Text variant="caption" color="inkMuted" align="center">
+            {t('delete.alt', { email: SUPPORT_EMAIL })}
+          </Text>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </View>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: Palette.background,
-  },
-  content: {
-    paddingHorizontal: Spacing.xl,
-    paddingTop: Spacing.sm,
-    paddingBottom: Spacing.xxxl,
-  },
-  warning: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.md,
-    backgroundColor: Palette.dangerSoft,
-    borderRadius: Radius.lg,
-    padding: Spacing.lg,
-    marginBottom: Spacing.xl,
-  },
-  warningText: {
-    flex: 1,
-    fontFamily: Fonts.medium,
-    fontSize: FontSize.md,
-    lineHeight: 20,
-    color: Palette.danger,
-  },
-  heading: {
-    fontFamily: Fonts.semiBold,
-    fontSize: FontSize.lg,
-    color: Palette.ink,
-    marginBottom: Spacing.sm,
-  },
-  list: {
-    marginBottom: Spacing.xl,
-  },
-  bullet: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: Spacing.md,
-    marginBottom: Spacing.sm,
-  },
-  bulletDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: Palette.primary,
-    marginTop: 8,
-  },
-  bulletText: {
-    flex: 1,
-    fontFamily: Fonts.regular,
-    fontSize: FontSize.md,
-    lineHeight: 22,
-    color: Palette.textSecondary,
-  },
-  body: {
-    fontFamily: Fonts.regular,
-    fontSize: FontSize.md,
-    lineHeight: 22,
-    color: Palette.textSecondary,
-  },
-  link: {
-    fontFamily: Fonts.medium,
-    fontSize: FontSize.md,
-    color: Palette.primary,
-    marginTop: Spacing.sm,
-    marginBottom: Spacing.xxl,
-  },
-  checkboxRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.md,
-    marginBottom: Spacing.xl,
-  },
-  checkbox: {
-    width: 24,
-    height: 24,
-    borderRadius: Radius.md,
-    borderWidth: 2,
-    borderColor: Palette.border,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  checkboxChecked: {
-    borderColor: Palette.danger,
-    backgroundColor: Palette.danger,
-  },
-  checkboxText: {
-    flex: 1,
-    fontFamily: Fonts.regular,
-    fontSize: FontSize.md,
-    lineHeight: 20,
-    color: Palette.ink,
-  },
-  label: {
-    fontFamily: Fonts.medium,
-    fontSize: FontSize.md,
-    color: Palette.ink,
-    marginBottom: Spacing.sm,
-  },
-  input: {
-    height: 56,
-    borderWidth: 1,
-    borderColor: Palette.border,
-    borderRadius: Radius.lg,
-    backgroundColor: Palette.surface,
-    paddingHorizontal: Spacing.lg,
-    fontFamily: Fonts.semiBold,
-    fontSize: FontSize.lg,
-    letterSpacing: 1,
-    color: Palette.ink,
-  },
-  errorBanner: {
-    backgroundColor: Palette.dangerSoft,
-    borderRadius: Radius.lg,
-    padding: Spacing.md,
-    marginTop: Spacing.lg,
-  },
-  errorText: {
-    fontFamily: Fonts.medium,
-    fontSize: FontSize.md,
-    color: Palette.danger,
-    textAlign: 'center',
-  },
-  submit: {
-    marginTop: Spacing.xl,
-  },
-  alt: {
-    fontFamily: Fonts.regular,
-    fontSize: FontSize.sm,
-    lineHeight: 18,
-    color: Palette.textMuted,
-    textAlign: 'center',
-    marginTop: Spacing.lg,
-  },
-});
+const useStyles = createStyles((t) => ({
+  container: { flex: 1, backgroundColor: t.colors.background },
+  flex: { flex: 1 },
+  content: { paddingHorizontal: t.screenPadding, paddingTop: t.space[8], gap: t.space[20] },
+  group: { gap: t.space[10] },
+  list: { gap: t.space[10] },
+  bullet: { flexDirection: 'row', alignItems: 'flex-start', gap: t.space[10] },
+  selfStart: { alignSelf: 'flex-start' },
+  ack: { flexDirection: 'row', alignItems: 'center', gap: t.space[12], minHeight: t.size.minTouch },
+}));

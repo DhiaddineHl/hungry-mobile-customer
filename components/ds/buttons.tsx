@@ -23,6 +23,8 @@ export interface PrimaryButtonProps {
   accessibilityHint?: string;
   style?: StyleProp<ViewStyle>;
   testID?: string;
+  /** The one irreversible action (Delete account): danger fill. */
+  destructive?: boolean;
 }
 
 export function PrimaryButton({
@@ -36,6 +38,7 @@ export function PrimaryButton({
   accessibilityHint,
   style,
   testID,
+  destructive,
 }: PrimaryButtonProps) {
   const styles = useStyles();
   const inactive = disabled || loading;
@@ -51,6 +54,7 @@ export function PrimaryButton({
       accessibilityState={{ busy: !!loading }}
       style={[
         styles.primary,
+        destructive && styles.primaryDanger,
         right && !loading ? styles.split : styles.centered,
         disabled && !loading && styles.primaryDisabled,
         style,
@@ -268,6 +272,7 @@ const useStyles = createStyles((t) => ({
   },
   centered: { justifyContent: 'center' },
   split: { justifyContent: 'space-between', gap: t.space[12] },
+  primaryDanger: { backgroundColor: t.colors.danger },
   primaryDisabled: { backgroundColor: t.colors.surfaceSunken },
   row: { flexDirection: 'row', alignItems: 'center', gap: t.space[10] },
   shrink: { flexShrink: 1 },
