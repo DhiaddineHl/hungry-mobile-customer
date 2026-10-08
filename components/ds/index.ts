@@ -11,3 +11,4 @@ export * from './text';
 export * from './text-field';
 export * from './toast';
 export * from './touchable';
+export * from './auth-inputs';

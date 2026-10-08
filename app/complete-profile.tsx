@@ -1,32 +1,16 @@
 import { useEffect, useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import {
-  KeyboardAvoidingView,
-  Platform,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import { View } from 'react-native';
 import { useRouter } from 'expo-router';
-import { StatusBar } from 'expo-status-bar';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import Animated, { FadeInDown, ReduceMotion } from 'react-native-reanimated';
-import {
-  AuthBackdrop,
-  AuthButton,
-  AuthHeading,
-  AuthInput,
-  PhoneInput,
-  TermsFooter,
-} from '@/components/auth';
+import { AuthHeading, AuthPrompt, AuthShell, EmailChip, PhoneField, TermsFooter } from '@/components/auth';
+import { ErrorBanner, PrimaryButton, TextField } from '@/components/ds';
 import { AnimatedEntrance } from '@/components/ui/animated-entrance';
 import { useAuth } from '@/contexts/auth-context';
 import { useCompleteSocialProfile } from '@/hooks/use-customer';
 import { useAddressDraftStore } from '@/store/address-draft-store';
 import { CompleteProfileFormData, completeProfileSchema } from '@/schemas/auth';
-import { Duration, FontSize, Fonts, Palette, Radius, Shadows, Spacing } from '@/constants/theme';
+import { createStyles } from '@/theme';
 
 const COUNTRY_CODE = '+216';
 
@@ -76,8 +60,8 @@ function toNationalNumber(phone?: string): string {
  * record", so it is never shown twice.
  */
 export default function CompleteProfileScreen() {
+  const styles = useStyles();
   const router = useRouter();
-  const insets = useSafeAreaInsets();
   const { user, logout } = useAuth();
   const completeProfile = useCompleteSocialProfile();
   const clearDrafts = useAddressDraftStore((s) => s.clear);
@@ -113,7 +97,7 @@ export default function CompleteProfileScreen() {
         firstName: data.firstName,
         lastName: data.lastName,
         email: user?.email,
-        phoneNumber: `${COUNTRY_CODE}${data.phoneNumber}`,
+        phoneNumber: `${COUNTRY_CODE}${data.phoneNumber.replace(/\s/g, '')}`,
       });
 
       // Straight to the map: the address is the only thing still missing, and
@@ -137,203 +121,103 @@ export default function CompleteProfileScreen() {
   };
 
   return (
-    <View style={styles.screen}>
-      <StatusBar style="light" />
-      <AuthBackdrop />
-
-      <View style={styles.card}>
-        <KeyboardAvoidingView
+    <AuthShell
+      compact
+      footer={
+        <PrimaryButton
+          label={authError ? 'Try again' : 'Continue'}
+          loadingLabel="Saving…"
+          onPress={handleSubmit(onSubmit)}
+          loading={isSubmitting}
           style={styles.flex}
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        >
-          <ScrollView
-            contentContainerStyle={[
-              styles.cardContent,
-              { paddingBottom: insets.bottom + Spacing.xxl },
-            ]}
-            keyboardShouldPersistTaps="handled"
-            showsVerticalScrollIndicator={false}
-            bounces={false}
-          >
-            <AnimatedEntrance>
-              <AuthHeading
-                title="Almost there"
-                subtitle="Check your details and add a phone number"
+        />
+      }
+    >
+      <AnimatedEntrance>
+        <AuthHeading title="Almost there" subtitle="Check your details and add a phone number." align="left" />
+      </AnimatedEntrance>
+
+      {user?.email ? (
+        <AnimatedEntrance index={1}>
+          <EmailChip email={user.email} />
+        </AnimatedEntrance>
+      ) : null}
+
+      {authError ? <ErrorBanner title="Couldn't save your details" body={`${authError} Try again.`} /> : null}
+
+      <AnimatedEntrance index={2}>
+        <View style={styles.row}>
+          <Controller
+            control={control}
+            name="firstName"
+            render={({ field: { onChange, onBlur, value } }) => (
+              <TextField
+                label="First name"
+                placeholder="First name"
+                value={value}
+                onChangeText={onChange}
+                onBlur={onBlur}
+                error={errors.firstName?.message}
+                locked={isSubmitting}
+                autoCapitalize="words"
+                autoComplete="name-given"
+                textContentType="givenName"
+                containerStyle={styles.flex}
               />
-
-              {user?.email ? (
-                <View style={styles.identityRow}>
-                  <Text style={styles.identityEmail} numberOfLines={1}>
-                    {user.email}
-                  </Text>
-                </View>
-              ) : null}
-            </AnimatedEntrance>
-
-            {authError ? (
-              <Animated.View
-                entering={FadeInDown.duration(Duration.base).reduceMotion(ReduceMotion.System)}
-                style={styles.errorBanner}
-              >
-                <Text style={styles.errorBannerText}>{authError}</Text>
-              </Animated.View>
-            ) : null}
-
-            <AnimatedEntrance index={1}>
-              <View style={styles.nameRow}>
-                <View style={styles.nameField}>
-                  <Controller
-                    control={control}
-                    name="firstName"
-                    render={({ field: { onChange, onBlur, value } }) => (
-                      <AuthInput
-                        label="First Name"
-                        placeholder="First Name"
-                        value={value}
-                        onChangeText={onChange}
-                        onBlur={onBlur}
-                        error={errors.firstName?.message}
-                        autoCapitalize="words"
-                        autoComplete="name-given"
-                        textContentType="givenName"
-                      />
-                    )}
-                  />
-                </View>
-                <View style={styles.nameField}>
-                  <Controller
-                    control={control}
-                    name="lastName"
-                    render={({ field: { onChange, onBlur, value } }) => (
-                      <AuthInput
-                        label="Last Name"
-                        placeholder="Last Name"
-                        value={value}
-                        onChangeText={onChange}
-                        onBlur={onBlur}
-                        error={errors.lastName?.message}
-                        autoCapitalize="words"
-                        autoComplete="name-family"
-                        textContentType="familyName"
-                      />
-                    )}
-                  />
-                </View>
-              </View>
-            </AnimatedEntrance>
-
-            <AnimatedEntrance index={2}>
-              <Controller
-                control={control}
-                name="phoneNumber"
-                render={({ field: { onChange, value } }) => (
-                  <PhoneInput
-                    label="Phone Number"
-                    value={value}
-                    onChangeText={onChange}
-                    countryCode={COUNTRY_CODE}
-                    error={errors.phoneNumber?.message}
-                  />
-                )}
+            )}
+          />
+          <Controller
+            control={control}
+            name="lastName"
+            render={({ field: { onChange, onBlur, value } }) => (
+              <TextField
+                label="Last name"
+                placeholder="Last name"
+                value={value}
+                onChangeText={onChange}
+                onBlur={onBlur}
+                error={errors.lastName?.message}
+                locked={isSubmitting}
+                autoCapitalize="words"
+                autoComplete="name-family"
+                textContentType="familyName"
+                containerStyle={styles.flex}
               />
+            )}
+          />
+        </View>
+      </AnimatedEntrance>
 
-              <AuthButton
-                title="CONTINUE"
-                onPress={handleSubmit(onSubmit)}
-                loading={isSubmitting}
-                disabled={isSubmitting}
-                color={Palette.primaryDeep}
-                shape="rounded"
-                style={styles.submitButton}
-              />
+      <AnimatedEntrance index={3}>
+        <Controller
+          control={control}
+          name="phoneNumber"
+          render={({ field: { onChange, onBlur, value } }) => (
+            <PhoneField
+              countryCode={COUNTRY_CODE}
+              value={value}
+              onChangeText={onChange}
+              onBlur={onBlur}
+              error={errors.phoneNumber?.message}
+              helper="Riders use this number to reach you about an order."
+              locked={isSubmitting}
+            />
+          )}
+        />
+      </AnimatedEntrance>
 
-              <Text
-                style={styles.cancel}
-                onPress={isSubmitting ? undefined : handleCancel}
-                accessibilityRole="button"
-              >
-                Use a different account
-              </Text>
-            </AnimatedEntrance>
+      <AnimatedEntrance index={4}>
+        <AuthPrompt prompt="Not you?" action="Use a different account" onPress={handleCancel} disabled={isSubmitting} />
+      </AnimatedEntrance>
 
-            <AnimatedEntrance index={3}>
-              <TermsFooter />
-            </AnimatedEntrance>
-          </ScrollView>
-        </KeyboardAvoidingView>
-      </View>
-    </View>
+      <AnimatedEntrance index={5}>
+        <TermsFooter />
+      </AnimatedEntrance>
+    </AuthShell>
   );
 }
 
-const styles = StyleSheet.create({
-  screen: {
-    flex: 1,
-    backgroundColor: Palette.navy,
-  },
-  flex: {
-    flex: 1,
-  },
-  card: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    // Between login (72%) and signup (76%): three fields, so it needs less
-    // room than sign-up's six but more than the single email field.
-    height: '74%',
-    backgroundColor: Palette.surface,
-    borderTopLeftRadius: Radius.xxl + Spacing.xl,
-    borderTopRightRadius: Radius.xxl + Spacing.xl,
-    ...Shadows.lg,
-  },
-  cardContent: {
-    paddingHorizontal: Spacing.xxxxl,
-    paddingTop: Spacing.xxxl,
-  },
-  errorBanner: {
-    backgroundColor: Palette.dangerSoft,
-    borderRadius: Radius.lg,
-    padding: Spacing.md,
-    marginBottom: Spacing.lg,
-    borderWidth: 1,
-    borderColor: Palette.danger,
-  },
-  errorBannerText: {
-    fontFamily: Fonts.medium,
-    color: Palette.danger,
-    fontSize: FontSize.md,
-    textAlign: 'center',
-  },
-  identityRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: Spacing.sm,
-    marginBottom: Spacing.xxl,
-  },
-  identityEmail: {
-    flexShrink: 1,
-    fontFamily: Fonts.medium,
-    fontSize: FontSize.md,
-    color: Palette.ink,
-  },
-  nameRow: {
-    flexDirection: 'row',
-    gap: Spacing.md,
-  },
-  nameField: {
-    flex: 1,
-  },
-  submitButton: {
-    marginTop: Spacing.sm,
-    marginBottom: Spacing.lg,
-  },
-  cancel: {
-    fontFamily: Fonts.semiBold,
-    fontSize: FontSize.sm,
-    color: Palette.textSecondary,
-    textAlign: 'center',
-    marginBottom: Spacing.xl,
-  },
-});
+const useStyles = createStyles((t) => ({
+  flex: { flex: 1 },
+  row: { flexDirection: 'row', gap: t.space[10], alignItems: 'flex-start' },
+}));

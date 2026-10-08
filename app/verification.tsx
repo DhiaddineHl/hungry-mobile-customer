@@ -1,25 +1,22 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import {
-  ActivityIndicator,
-  KeyboardAvoidingView,
-  Platform,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
-import { StatusBar } from 'expo-status-bar';
-import Animated, { FadeInDown, ReduceMotion } from 'react-native-reanimated';
-import VerificationUpperSection from '@/assets/verification-upper-section.svg';
-import { AuthButton, OtpInput, OtpInputHandle } from '@/components/auth';
+import {
+  AuthHeading,
+  AuthPrompt,
+  AuthShell,
+  FieldMessage,
+  OtpInput,
+  OtpInputHandle,
+  ResendLine,
+} from '@/components/auth';
+import { ErrorBanner, InfoNote, PrimaryButton, Screen, StateView, Text } from '@/components/ds';
 import { AnimatedEntrance } from '@/components/ui/animated-entrance';
-import { PressableScale } from '@/components/ui/pressable-scale';
 import { useAuth } from '@/contexts/auth-context';
 import { isApiError } from '@/services/api/client';
 import { confirmVerificationCode, sendVerificationCode } from '@/services/api/customer-service';
 import { usePendingVerificationStore } from '@/store/pending-verification-store';
-import { Duration, FontSize, Fonts, Palette, Radius, Spacing } from '@/constants/theme';
+import { createStyles } from '@/theme';
 
 /**
  * Boxes drawn before the backend has said otherwise. Must match
@@ -71,6 +68,8 @@ export default function VerificationScreen() {
   const [code, setCode] = useState<string[]>(() => Array(DEFAULT_CODE_LENGTH).fill(''));
   const [timer, setTimer] = useState(codeAlreadySent ? DEFAULT_RESEND_COOLDOWN : 0);
   const [error, setError] = useState<string | null>(null);
+  // A refused code (S-A3) paints the boxes red; `error` is the request failing.
+  const [codeError, setCodeError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [isVerifying, setIsVerifying] = useState(false);
   const [isResending, setIsResending] = useState(false);
@@ -147,6 +146,7 @@ export default function VerificationScreen() {
   const handleCodeChange = (next: string[]) => {
     setCode(next);
     setError(null);
+    setCodeError(null);
   };
 
   const handleResend = () => {
@@ -195,7 +195,7 @@ export default function VerificationScreen() {
         setTimer(0);
         setCode(Array(codeLength).fill(''));
       }
-      setError(err instanceof Error ? err.message : 'Could not verify the code. Please try again.');
+      setCodeError(err instanceof Error ? err.message : "That code isn't right. Try again or resend it.");
     } finally {
       setIsVerifying(false);
     }
@@ -208,292 +208,76 @@ export default function VerificationScreen() {
     router.replace('/login');
   };
 
-  const greeting = useMemo(
-    () => (pending.firstName ? `Almost there, ${pending.firstName}!` : 'We sent a code to your email'),
-    [pending.firstName]
-  );
+  const styles = useStyles();
+  const subtitle = pending.firstName
+    ? `Almost there, ${pending.firstName}. We sent a ${codeLength}-digit code to`
+    : `We sent a ${codeLength}-digit code to`;
 
   // Nothing to verify — the store was cleared (app restart mid-flow) and no
   // session or param supplied an address.
   if (!email) {
     return (
-      <View style={styles.emptyState}>
-        <StatusBar style="dark" />
-        <Text style={styles.emptyTitle}>Nothing to verify</Text>
-        <Text style={styles.emptyBody}>
-          We do not know which email to confirm. Sign in and we will pick the verification back up.
-        </Text>
-        <AuthButton
-          title="GO TO LOGIN"
-          onPress={() => router.replace('/login')}
-          color={Palette.primaryDeep}
-          shape="rounded"
-          style={styles.emptyButton}
+      <Screen>
+        <StateView
+          icon="mail"
+          title="Nothing to verify"
+          body="We don't know which email to confirm. Log in and we'll pick the verification back up."
+          actions={[{ label: 'Go to log in', onPress: () => router.replace('/login') }]}
         />
-      </View>
+      </Screen>
     );
   }
 
   return (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-    >
-      <StatusBar style="light" />
-      <ScrollView
-        style={styles.scrollView}
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled"
-      >
-        <View style={styles.header}>
-          <VerificationUpperSection
-            width="100%"
-            style={styles.headerImage}
-            preserveAspectRatio="xMidYMid slice"
+    <AuthShell>
+      <AnimatedEntrance>
+        <AuthHeading title="Check your email" subtitle={subtitle} detail={email} />
+      </AnimatedEntrance>
+
+      {error ? <ErrorBanner title="Couldn't continue" body={error} /> : null}
+      {notice && !error ? <InfoNote>{notice}</InfoNote> : null}
+
+      <AnimatedEntrance index={1}>
+        <View style={styles.codeBlock}>
+          <Text variant="label">Code</Text>
+          <OtpInput
+            ref={otpRef}
+            value={code}
+            onChange={handleCodeChange}
+            editable={!isVerifying}
+            error={!!codeError}
+            autoFocus
           />
-          <View style={styles.headerContent}>
-            <Text style={styles.headerTitle}>Verification</Text>
-            <Text style={styles.headerSubtitle}>{greeting}</Text>
-            <Text style={styles.headerEmail}>{email}</Text>
-          </View>
-        </View>
-
-        <View style={styles.formContainer}>
-          <AnimatedEntrance>
-            <Text style={styles.codeLabel}>Code</Text>
-
-            <OtpInput
-              ref={otpRef}
-              value={code}
-              onChange={handleCodeChange}
-              editable={!isVerifying}
-            />
-          </AnimatedEntrance>
-
-          {error ? (
-            <Animated.View
-              entering={FadeInDown.duration(Duration.base).reduceMotion(ReduceMotion.System)}
-              style={styles.errorBanner}
-            >
-              <Text style={styles.errorBannerText}>{error}</Text>
-            </Animated.View>
-          ) : null}
-
-          {notice && !error ? (
-            <Animated.View
-              entering={FadeInDown.duration(Duration.base).reduceMotion(ReduceMotion.System)}
-              style={styles.noticeBanner}
-            >
-              <Text style={styles.noticeBannerText}>{notice}</Text>
-            </Animated.View>
-          ) : null}
-
-          <View style={styles.resendRow}>
-            {isResending ? (
-              <ActivityIndicator size="small" color={Palette.primary} />
-            ) : (
-              <PressableScale
-                onPress={handleResend}
-                disabled={timer > 0}
-                scaleTo={0.94}
-                accessibilityLabel="Resend the verification code"
-              >
-                <Text style={styles.resendLine}>
-                  <Text style={[styles.resendText, timer === 0 && styles.resendTextActive]}>
-                    Resend
-                  </Text>
-                  {timer > 0 ? <Text style={styles.timerText}> in {timer}s</Text> : null}
-                </Text>
-              </PressableScale>
-            )}
-          </View>
-
-          <AuthButton
-            title="VERIFY"
-            onPress={handleVerify}
-            loading={isVerifying}
-            disabled={!isComplete || isResending}
-            color={Palette.primaryDeep}
-            shape="rounded"
-            style={styles.verifyButton}
+          <ResendLine
+            seconds={timer}
+            onResend={handleResend}
+            busy={isResending}
+            leading={codeError ? <FieldMessage message={codeError} /> : null}
           />
-
-          {/* Only meaningful before a session exists: once signed in, the
-              address is the account and cannot be swapped from here. */}
-          {!isAuthenticated ? (
-            <PressableScale
-              onPress={handleChangeEmail}
-              scaleTo={0.96}
-              accessibilityLabel="Use a different email"
-            >
-              <Text style={styles.changeEmail}>Wrong email? Sign up again</Text>
-            </PressableScale>
-          ) : null}
-
-          <Text style={styles.termsText}>
-            By continuing, you automatically accept our{' '}
-            <Text style={styles.termsLink}>Terms & Conditions</Text>,{' '}
-            <Text style={styles.termsLink}>Privacy Policy</Text> and{' '}
-            <Text style={styles.termsLink}>Cookies policy</Text>.
-          </Text>
         </View>
-      </ScrollView>
-    </KeyboardAvoidingView>
+      </AnimatedEntrance>
+
+      <AnimatedEntrance index={2}>
+        <PrimaryButton
+          label="Continue"
+          loadingLabel="Checking code…"
+          onPress={handleVerify}
+          loading={isVerifying}
+          disabled={!isComplete || isResending}
+        />
+      </AnimatedEntrance>
+
+      {/* Only meaningful before a session exists: once signed in, the address
+          is the account and cannot be swapped from here. */}
+      {!isAuthenticated ? (
+        <AnimatedEntrance index={3}>
+          <AuthPrompt prompt="Wrong email?" action="Go back" onPress={handleChangeEmail} disabled={isVerifying} />
+        </AnimatedEntrance>
+      ) : null}
+    </AuthShell>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: Palette.surface,
-  },
-  scrollView: {
-    flex: 1,
-  },
-  scrollContent: {
-    flexGrow: 1,
-  },
-  header: {
-    height: 280,
-    width: '100%',
-    position: 'relative',
-  },
-  headerImage: {
-    position: 'absolute',
-  },
-  headerContent: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: Spacing.xxl,
-    paddingTop: Spacing.xxxxl,
-  },
-  headerTitle: {
-    fontFamily: Fonts.bold,
-    fontSize: 36,
-    color: Palette.textInverse,
-    marginBottom: Spacing.lg,
-  },
-  headerSubtitle: {
-    fontFamily: Fonts.regular,
-    fontSize: FontSize.lg,
-    color: 'rgba(255, 255, 255, 0.8)',
-    marginBottom: Spacing.xs,
-    textAlign: 'center',
-  },
-  headerEmail: {
-    fontFamily: Fonts.semiBold,
-    fontSize: FontSize.lg,
-    color: Palette.textInverse,
-  },
-  formContainer: {
-    flex: 1,
-    backgroundColor: Palette.surface,
-    borderTopLeftRadius: Radius.xxl,
-    borderTopRightRadius: Radius.xxl,
-    marginTop: -Spacing.xxl,
-    paddingHorizontal: Spacing.xxl,
-    paddingTop: Spacing.xxxl,
-    paddingBottom: Spacing.xxl,
-  },
-  codeLabel: {
-    fontFamily: Fonts.medium,
-    fontSize: FontSize.md,
-    color: Palette.ink,
-    marginBottom: Spacing.lg,
-  },
-  errorBanner: {
-    backgroundColor: Palette.dangerSoft,
-    borderRadius: Radius.lg,
-    borderWidth: 1,
-    borderColor: Palette.danger,
-    padding: Spacing.md,
-    marginBottom: Spacing.md,
-  },
-  errorBannerText: {
-    fontFamily: Fonts.medium,
-    fontSize: FontSize.md,
-    color: Palette.danger,
-    textAlign: 'center',
-  },
-  noticeBanner: {
-    backgroundColor: Palette.primarySoft,
-    borderRadius: Radius.lg,
-    padding: Spacing.md,
-    marginBottom: Spacing.md,
-  },
-  noticeBannerText: {
-    fontFamily: Fonts.medium,
-    fontSize: FontSize.md,
-    color: Palette.primaryDeep,
-    textAlign: 'center',
-  },
-  resendRow: {
-    alignSelf: 'flex-end',
-    minHeight: 20,
-    justifyContent: 'center',
-    marginBottom: Spacing.xxl,
-  },
-  resendLine: {
-    fontSize: FontSize.md,
-  },
-  resendText: {
-    fontFamily: Fonts.medium,
-    fontSize: FontSize.md,
-    color: Palette.textMuted,
-  },
-  resendTextActive: {
-    color: Palette.primary,
-  },
-  timerText: {
-    fontFamily: Fonts.regular,
-    fontSize: FontSize.md,
-    color: Palette.textMuted,
-  },
-  verifyButton: {
-    marginBottom: Spacing.lg,
-  },
-  changeEmail: {
-    fontFamily: Fonts.medium,
-    fontSize: FontSize.md,
-    color: Palette.textSecondary,
-    textAlign: 'center',
-    textDecorationLine: 'underline',
-  },
-  termsText: {
-    fontFamily: Fonts.regular,
-    fontSize: FontSize.sm,
-    color: Palette.textMuted,
-    textAlign: 'center',
-    lineHeight: 18,
-    marginTop: Spacing.xl,
-  },
-  termsLink: {
-    color: Palette.primary,
-    textDecorationLine: 'underline',
-  },
-  emptyState: {
-    flex: 1,
-    justifyContent: 'center',
-    paddingHorizontal: Spacing.xxxxl,
-    backgroundColor: Palette.surface,
-  },
-  emptyTitle: {
-    fontFamily: Fonts.bold,
-    fontSize: FontSize.display,
-    color: Palette.ink,
-    textAlign: 'center',
-    marginBottom: Spacing.sm,
-  },
-  emptyBody: {
-    fontFamily: Fonts.regular,
-    fontSize: FontSize.md,
-    color: Palette.textSecondary,
-    textAlign: 'center',
-    lineHeight: 22,
-  },
-  emptyButton: {
-    marginTop: Spacing.xxl,
-  },
-});
+const useStyles = createStyles((t) => ({
+  codeBlock: { gap: t.space[8] },
+}));

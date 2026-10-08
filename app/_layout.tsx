@@ -134,9 +134,13 @@ function RootNavigator() {
       }
     }
 
+    // The legal pages are linked from the sign-in screen's small print, so
+    // they open with or without a session.
+    const isPublic = segments[0] === "legal";
+
     if (isAuthenticated && inAuthGroup) {
       router.replace("/(tabs)");
-    } else if (!isAuthenticated && !inAuthGroup && !inOnboarding) {
+    } else if (!isAuthenticated && !inAuthGroup && !inOnboarding && !isPublic) {
       router.replace("/login");
     }
   }, [isAuthenticated, isLoading, segments, isCustomerResolved, customer, user, authMethod]);

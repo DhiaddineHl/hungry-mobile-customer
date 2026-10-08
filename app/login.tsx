@@ -1,112 +1,28 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import {
-  KeyboardAvoidingView,
-  Platform,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-  useWindowDimensions,
-} from 'react-native';
 import { useRouter } from 'expo-router';
-import { StatusBar } from 'expo-status-bar';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import Animated, {
-  Easing,
-  FadeInDown,
-  ReduceMotion,
-  interpolate,
-  useAnimatedStyle,
-  useSharedValue,
-  withDelay,
-  withTiming,
-} from 'react-native-reanimated';
-import {
-  AUTH_LANDING_SHIFT_RATIO,
-  AuthBackdrop,
-  AuthButton,
-  AuthHeading,
-  AuthInput,
-  GoogleButton,
-  OrDivider,
-  TermsFooter,
-} from '@/components/auth';
+import { AuthHeading, AuthShell, GoogleButton, OrDivider, TermsFooter } from '@/components/auth';
+import { ErrorBanner, PrimaryButton, TextField } from '@/components/ds';
 import { AnimatedEntrance } from '@/components/ui/animated-entrance';
+import { useAuth } from '@/contexts/auth-context';
 import { identificationSchema, IdentificationFormData } from '@/schemas/auth';
 import { lookupAccount } from '@/services/api/customer-service';
-import { useAuth } from '@/contexts/auth-context';
-import { Duration, FontSize, Fonts, Palette, Radius, Shadows, Spacing } from '@/constants/theme';
 
 /**
- * Module scope on purpose: the landing → login reveal plays once per app
- * session. A ref would reset when the user comes back from sign-up and the
- * intro would replay; a reload is the intended lifetime for replaying it.
- */
-let introPlayed = false;
-
-const INTRO_DELAY = 420;
-/** Content starts arriving once the card is most of the way up. */
-const CONTENT_DELAY = INTRO_DELAY + Math.round(Duration.reveal * 0.5);
-
-/**
- * Identification — the single door into the app.
+ * A1 Welcome — identification, the single door into the app.
  *
- * There is no "log in or sign up?" choice to make any more: the user types an
- * address, the backend says whether an account already stands behind it, and
- * that answer picks the next screen (the password field, or the sign-up form
- * with the address already settled). Which is why the cross-links to the other
- * auth screen are gone from here and from the screens it leads to — every one
- * of them is reachable only through this one.
+ * There is no "log in or sign up?" choice: the user types an address, the
+ * backend says whether an account already stands behind it, and that answer
+ * picks the next screen (the password field, or the sign-up form with the
+ * address already settled). Google is the secondary path below the rule.
  */
 export default function IdentificationScreen() {
   const router = useRouter();
   const { loginWithGoogle } = useAuth();
-  const { width, height } = useWindowDimensions();
-  const insets = useSafeAreaInsets();
   const [authError, setAuthError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
-
-  // Read once at mount so the value can't flip mid-session and restage things.
-  const [shouldPlayIntro] = useState(() => !introPlayed);
-
-  // 0 = landing frame (artwork centred, card off-screen), 1 = login frame.
-  // One shared value drives both layers so they can never desync.
-  const progress = useSharedValue(shouldPlayIntro ? 0 : 1);
-  const landingShift = width * AUTH_LANDING_SHIFT_RATIO;
-
-  useEffect(() => {
-    if (!shouldPlayIntro) return;
-    introPlayed = true;
-    progress.set(
-      withDelay(
-        INTRO_DELAY,
-        withTiming(1, {
-          duration: Duration.reveal,
-          easing: Easing.bezier(0.22, 1, 0.36, 1),
-          reduceMotion: ReduceMotion.System,
-        })
-      )
-    );
-  }, [shouldPlayIntro, progress]);
-
-  const heroStyle = useAnimatedStyle(() => ({
-    transform: [
-      { translateY: interpolate(progress.get(), [0, 1], [landingShift, 0]) },
-      { scale: interpolate(progress.get(), [0, 1], [1.04, 1]) },
-    ],
-  }));
-
-  const cardStyle = useAnimatedStyle(() => ({
-    transform: [{ translateY: interpolate(progress.get(), [0, 1], [height, 0]) }],
-    // Held invisible for the first 40% of the travel so the card fades in on
-    // approach instead of being a white slab dragged up the screen.
-    opacity: interpolate(progress.get(), [0, 0.4, 1], [0, 0, 1]),
-  }));
-
-  const contentDelay = shouldPlayIntro ? CONTENT_DELAY : 0;
 
   const {
     control,
@@ -114,9 +30,7 @@ export default function IdentificationScreen() {
     formState: { errors },
   } = useForm<IdentificationFormData>({
     resolver: zodResolver(identificationSchema),
-    defaultValues: {
-      email: '',
-    },
+    defaultValues: { email: '' },
   });
 
   const onSubmit = async (data: IdentificationFormData) => {
@@ -128,16 +42,9 @@ export default function IdentificationScreen() {
       // The address travels as a route param rather than in a store: it is not
       // a secret (unlike the password, which never leaves memory), and a param
       // survives the screen being remounted by a reload.
-      router.push({
-        pathname: lookup.registered ? '/password' : '/signup',
-        params: { email },
-      });
+      router.push({ pathname: lookup.registered ? '/password' : '/signup', params: { email } });
     } catch (error) {
-      setAuthError(
-        error instanceof Error
-          ? error.message
-          : 'We could not reach the server. Please try again.'
-      );
+      setAuthError(error instanceof Error ? error.message : 'We could not reach the server.');
     } finally {
       setIsSubmitting(false);
     }
@@ -149,140 +56,70 @@ export default function IdentificationScreen() {
     try {
       const result = await loginWithGoogle();
       if (!result.success && !result.error?.toLowerCase().includes('cancel')) {
-        setAuthError(result.error ?? 'Google login failed');
+        setAuthError(result.error ?? 'Google sign-in failed.');
       }
     } finally {
       setIsGoogleLoading(false);
     }
   };
 
+  const busy = isSubmitting || isGoogleLoading;
+
   return (
-    <View style={styles.screen}>
-      <StatusBar style="light" />
-      <AuthBackdrop heroStyle={heroStyle} />
+    <AuthShell>
+      <AnimatedEntrance>
+        <AuthHeading title="Welcome" subtitle="Hungry? We got you." />
+      </AnimatedEntrance>
 
-      <Animated.View style={[styles.card, cardStyle]}>
-        <KeyboardAvoidingView
-          style={styles.flex}
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        >
-          <ScrollView
-            contentContainerStyle={[
-              styles.cardContent,
-              { paddingBottom: insets.bottom + Spacing.xxl },
-            ]}
-            keyboardShouldPersistTaps="handled"
-            showsVerticalScrollIndicator={false}
-            bounces={false}
-          >
-            <AnimatedEntrance delay={contentDelay}>
-              <AuthHeading title="Welcome !" subtitle="Hungry? We got you !" />
-            </AnimatedEntrance>
+      {authError ? (
+        <ErrorBanner title="Couldn't continue" body={`${authError} Check your connection and try again.`} />
+      ) : null}
 
-            {authError ? (
-              <Animated.View
-                entering={FadeInDown.duration(Duration.base).reduceMotion(ReduceMotion.System)}
-                style={styles.errorBanner}
-              >
-                <Text style={styles.errorBannerText}>{authError}</Text>
-              </Animated.View>
-            ) : null}
+      <AnimatedEntrance index={1}>
+        <Controller
+          control={control}
+          name="email"
+          render={({ field: { onChange, onBlur, value } }) => (
+            <TextField
+              label="Email"
+              placeholder="Email"
+              value={value}
+              onChangeText={onChange}
+              onBlur={onBlur}
+              error={errors.email?.message}
+              locked={busy}
+              keyboardType="email-address"
+              autoCapitalize="none"
+              autoComplete="email"
+              textContentType="emailAddress"
+              returnKeyType="next"
+              onSubmitEditing={() => handleSubmit(onSubmit)()}
+            />
+          )}
+        />
+      </AnimatedEntrance>
 
-            <AnimatedEntrance delay={contentDelay} index={1}>
-              <Controller
-                control={control}
-                name="email"
-                render={({ field: { onChange, onBlur, value } }) => (
-                  <AuthInput
-                    label="Email"
-                    placeholder="Email"
-                    value={value}
-                    onChangeText={onChange}
-                    onBlur={onBlur}
-                    error={errors.email?.message}
-                    keyboardType="email-address"
-                    autoCapitalize="none"
-                    autoComplete="email"
-                    textContentType="emailAddress"
-                    returnKeyType="next"
-                    onSubmitEditing={() => handleSubmit(onSubmit)()}
-                  />
-                )}
-              />
-            </AnimatedEntrance>
+      <AnimatedEntrance index={2}>
+        <PrimaryButton
+          label={authError ? 'Try again' : 'Continue'}
+          loadingLabel="Checking…"
+          onPress={handleSubmit(onSubmit)}
+          loading={isSubmitting}
+          disabled={isGoogleLoading}
+        />
+      </AnimatedEntrance>
 
-            <AnimatedEntrance delay={contentDelay} index={2}>
-              <AuthButton
-                title="CONTINUE"
-                onPress={handleSubmit(onSubmit)}
-                loading={isSubmitting}
-                disabled={isSubmitting || isGoogleLoading}
-                color={Palette.primaryDeep}
-                shape="rounded"
-                style={styles.submitButton}
-              />
-            </AnimatedEntrance>
+      <AnimatedEntrance index={3}>
+        <OrDivider />
+      </AnimatedEntrance>
 
-            <AnimatedEntrance delay={contentDelay} index={3}>
-              <OrDivider />
+      <AnimatedEntrance index={4}>
+        <GoogleButton onPress={handleGoogleLogin} loading={isGoogleLoading} disabled={isSubmitting} />
+      </AnimatedEntrance>
 
-              <GoogleButton
-                onPress={handleGoogleLogin}
-                loading={isGoogleLoading}
-                disabled={isSubmitting}
-              />
-
-              <TermsFooter />
-            </AnimatedEntrance>
-          </ScrollView>
-        </KeyboardAvoidingView>
-      </Animated.View>
-    </View>
+      <AnimatedEntrance index={5}>
+        <TermsFooter />
+      </AnimatedEntrance>
+    </AuthShell>
   );
 }
-
-const styles = StyleSheet.create({
-  screen: {
-    flex: 1,
-    backgroundColor: Palette.navy,
-  },
-  flex: {
-    flex: 1,
-  },
-  card: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    // A share of the screen (design: 69%), not a content-driven height — the
-    // ScrollView inside needs a bounded box, and this is what keeps the logo in
-    // the artwork visible above the card on every device.
-    height: '72%',
-    backgroundColor: Palette.surface,
-    borderTopLeftRadius: Radius.xxl + Spacing.xl,
-    borderTopRightRadius: Radius.xxl + Spacing.xl,
-    ...Shadows.lg,
-  },
-  cardContent: {
-    paddingHorizontal: Spacing.xxxxl,
-    paddingTop: Spacing.xxxl,
-  },
-  errorBanner: {
-    backgroundColor: Palette.dangerSoft,
-    borderRadius: Radius.lg,
-    padding: Spacing.md,
-    marginBottom: Spacing.lg,
-    borderWidth: 1,
-    borderColor: Palette.danger,
-  },
-  errorBannerText: {
-    fontFamily: Fonts.medium,
-    color: Palette.danger,
-    fontSize: FontSize.md,
-    textAlign: 'center',
-  },
-  submitButton: {
-    marginTop: Spacing.lg,
-    marginBottom: Spacing.xl,
-  },
-});

@@ -1,28 +1,16 @@
 import { useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import {
-  KeyboardAvoidingView,
-  Platform,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { StatusBar } from 'expo-status-bar';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import Animated, { FadeInDown, ReduceMotion } from 'react-native-reanimated';
-import { AuthBackdrop, AuthButton, AuthHeading, AuthInput } from '@/components/auth';
+import { AuthHeading, AuthPrompt, AuthShell } from '@/components/auth';
+import { ErrorBanner, PrimaryButton, TextField } from '@/components/ds';
 import { AnimatedEntrance } from '@/components/ui/animated-entrance';
-import { PressableScale } from '@/components/ui/pressable-scale';
 import { ForgotPasswordFormData, forgotPasswordSchema } from '@/schemas/auth';
 import { sendPasswordResetCode } from '@/services/api/customer-service';
 import { usePasswordResetStore } from '@/store/password-reset-store';
-import { Duration, FontSize, Fonts, Palette, Radius, Shadows, Spacing } from '@/constants/theme';
 
 /**
- * Step one of a forgotten-password reset: which address to send the code to.
+ * A4 Forgot password — step one of a reset: which address to send the code to.
  *
  * Reached from the password screen, which already knows the address, so the
  * field arrives filled in — but it stays editable: someone who mistyped their
@@ -31,7 +19,6 @@ import { Duration, FontSize, Fonts, Palette, Radius, Shadows, Spacing } from '@/
 export default function ForgotPasswordScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ email?: string }>();
-  const insets = useSafeAreaInsets();
   const startReset = usePasswordResetStore((state) => state.start);
   const [authError, setAuthError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -70,136 +57,54 @@ export default function ForgotPasswordScreen() {
   };
 
   return (
-    <View style={styles.screen}>
-      <StatusBar style="light" />
-      <AuthBackdrop />
+    <AuthShell>
+      <AnimatedEntrance>
+        <AuthHeading title="Forgot password?" subtitle="We'll email you a code to reset it." />
+      </AnimatedEntrance>
 
-      <View style={styles.card}>
-        <KeyboardAvoidingView
-          style={styles.flex}
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        >
-          <ScrollView
-            contentContainerStyle={[
-              styles.cardContent,
-              { paddingBottom: insets.bottom + Spacing.xxl },
-            ]}
-            keyboardShouldPersistTaps="handled"
-            showsVerticalScrollIndicator={false}
-            bounces={false}
-          >
-            <AnimatedEntrance>
-              <AuthHeading
-                title="Forgot password?"
-                subtitle="We'll email you a code to reset it"
-              />
-            </AnimatedEntrance>
+      {authError ? <ErrorBanner title="Couldn't send the code" body={authError} /> : null}
 
-            {authError ? (
-              <Animated.View
-                entering={FadeInDown.duration(Duration.base).reduceMotion(ReduceMotion.System)}
-                style={styles.errorBanner}
-              >
-                <Text style={styles.errorBannerText}>{authError}</Text>
-              </Animated.View>
-            ) : null}
+      <AnimatedEntrance index={1}>
+        <Controller
+          control={control}
+          name="email"
+          render={({ field: { onChange, onBlur, value } }) => (
+            <TextField
+              label="Email"
+              placeholder="Email"
+              value={value}
+              onChangeText={onChange}
+              onBlur={onBlur}
+              error={errors.email?.message}
+              locked={isSubmitting}
+              keyboardType="email-address"
+              autoCapitalize="none"
+              autoComplete="email"
+              textContentType="emailAddress"
+              returnKeyType="send"
+              onSubmitEditing={() => handleSubmit(onSubmit)()}
+            />
+          )}
+        />
+      </AnimatedEntrance>
 
-            <AnimatedEntrance index={1}>
-              <Controller
-                control={control}
-                name="email"
-                render={({ field: { onChange, onBlur, value } }) => (
-                  <AuthInput
-                    label="Email"
-                    placeholder="Email"
-                    value={value}
-                    onChangeText={onChange}
-                    onBlur={onBlur}
-                    error={errors.email?.message}
-                    keyboardType="email-address"
-                    autoCapitalize="none"
-                    autoComplete="email"
-                    textContentType="emailAddress"
-                    returnKeyType="send"
-                    onSubmitEditing={() => handleSubmit(onSubmit)()}
-                  />
-                )}
-              />
-            </AnimatedEntrance>
+      <AnimatedEntrance index={2}>
+        <PrimaryButton
+          label={authError ? 'Try again' : 'Send code'}
+          loadingLabel="Sending code…"
+          onPress={handleSubmit(onSubmit)}
+          loading={isSubmitting}
+        />
+      </AnimatedEntrance>
 
-            <AnimatedEntrance index={2}>
-              <AuthButton
-                title="SEND CODE"
-                onPress={handleSubmit(onSubmit)}
-                loading={isSubmitting}
-                disabled={isSubmitting}
-                color={Palette.primaryDeep}
-                shape="rounded"
-                style={styles.submitButton}
-              />
-
-              <PressableScale
-                onPress={() => (router.canGoBack() ? router.back() : router.replace('/login'))}
-                scaleTo={0.96}
-                accessibilityLabel="Back to sign in"
-              >
-                <Text style={styles.backLink}>Remembered it? Go back</Text>
-              </PressableScale>
-            </AnimatedEntrance>
-          </ScrollView>
-        </KeyboardAvoidingView>
-      </View>
-    </View>
+      <AnimatedEntrance index={3}>
+        <AuthPrompt
+          prompt="Remembered it?"
+          action="Go back"
+          disabled={isSubmitting}
+          onPress={() => (router.canGoBack() ? router.back() : router.replace('/login'))}
+        />
+      </AnimatedEntrance>
+    </AuthShell>
   );
 }
-
-const styles = StyleSheet.create({
-  screen: {
-    flex: 1,
-    backgroundColor: Palette.navy,
-  },
-  flex: {
-    flex: 1,
-  },
-  card: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    // Same share of the screen as the identification and password cards, so
-    // the backdrop above it never shifts as the user moves between them.
-    height: '72%',
-    backgroundColor: Palette.surface,
-    borderTopLeftRadius: Radius.xxl + Spacing.xl,
-    borderTopRightRadius: Radius.xxl + Spacing.xl,
-    ...Shadows.lg,
-  },
-  cardContent: {
-    paddingHorizontal: Spacing.xxxxl,
-    paddingTop: Spacing.xxxl,
-  },
-  errorBanner: {
-    backgroundColor: Palette.dangerSoft,
-    borderRadius: Radius.lg,
-    padding: Spacing.md,
-    marginBottom: Spacing.lg,
-    borderWidth: 1,
-    borderColor: Palette.danger,
-  },
-  errorBannerText: {
-    fontFamily: Fonts.medium,
-    color: Palette.danger,
-    fontSize: FontSize.md,
-    textAlign: 'center',
-  },
-  submitButton: {
-    marginTop: Spacing.lg,
-    marginBottom: Spacing.xl,
-  },
-  backLink: {
-    fontFamily: Fonts.medium,
-    fontSize: FontSize.md,
-    color: Palette.textSecondary,
-    textAlign: 'center',
-  },
-});

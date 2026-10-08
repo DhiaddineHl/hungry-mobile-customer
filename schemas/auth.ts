@@ -8,16 +8,16 @@ import { z } from 'zod';
 export const identificationSchema = z.object({
   email: z
     .string()
-    .min(1, 'Email is required')
-    .email('Please enter a valid email'),
+    .min(1, 'Enter your email.')
+    .email('Enter a valid email, like name@example.com.'),
 });
 
 /** Step two for an address that already has an account. */
 export const passwordSchema = z.object({
   password: z
     .string()
-    .min(1, 'Password is required')
-    .min(6, 'Password must be at least 6 characters'),
+    .min(1, 'Enter your password.')
+    .min(6, 'Use at least 6 characters.'),
 });
 
 /**
@@ -28,8 +28,8 @@ export const passwordSchema = z.object({
 export const forgotPasswordSchema = z.object({
   email: z
     .string()
-    .min(1, 'Email is required')
-    .email('Please enter a valid email'),
+    .min(1, 'Enter your email.')
+    .email('Enter a valid email, like name@example.com.'),
 });
 
 /** The last step of a reset: the new password, typed twice. */
@@ -37,12 +37,12 @@ export const newPasswordSchema = z
   .object({
     password: z
       .string()
-      .min(1, 'Password is required')
-      .min(6, 'Password must be at least 6 characters'),
-    confirmPassword: z.string().min(1, 'Please confirm your password'),
+      .min(1, 'Enter your password.')
+      .min(6, 'Use at least 6 characters.'),
+    confirmPassword: z.string().min(1, 'Re-enter your password.'),
   })
   .refine((data) => data.password === data.confirmPassword, {
-    message: 'Passwords do not match',
+    message: "Passwords don't match. Re-enter it.",
     path: ['confirmPassword'],
   });
 
@@ -59,59 +59,59 @@ export const newPasswordSchema = z
 export const completeProfileSchema = z.object({
   firstName: z
     .string()
-    .min(1, 'First name is required')
-    .min(2, 'First name must be at least 2 characters'),
+    .min(1, 'Enter your first name.')
+    .min(2, 'Use at least 2 letters.'),
   lastName: z
     .string()
-    .min(1, 'Last name is required')
-    .min(2, 'Last name must be at least 2 characters'),
+    .min(1, 'Enter your last name.')
+    .min(2, 'Use at least 2 letters.'),
   phoneNumber: z
     .string()
-    .min(1, 'Phone number is required')
-    .regex(/^[0-9\s]+$/, 'Please enter a valid phone number'),
+    .min(1, 'Enter your phone number.')
+    .refine((v) => /^\d{8}$/.test(v.replace(/\s/g, '')), 'Enter an 8-digit Tunisian number.'),
 });
 
 export const signupSchema = z
   .object({
     firstName: z
       .string()
-      .min(1, 'First name is required')
-      .min(2, 'First name must be at least 2 characters'),
+      .min(1, 'Enter your first name.')
+      .min(2, 'Use at least 2 letters.'),
     lastName: z
       .string()
-      .min(1, 'Last name is required')
-      .min(2, 'Last name must be at least 2 characters'),
+      .min(1, 'Enter your last name.')
+      .min(2, 'Use at least 2 letters.'),
     phoneNumber: z
       .string()
-      .min(1, 'Phone number is required')
-      .regex(/^[0-9\s]+$/, 'Please enter a valid phone number'),
+      .min(1, 'Enter your phone number.')
+      .refine((v) => /^\d{8}$/.test(v.replace(/\s/g, '')), 'Enter an 8-digit Tunisian number.'),
     password: z
       .string()
-      .min(1, 'Password is required')
-      .min(6, 'Password must be at least 6 characters'),
-    confirmPassword: z.string().min(1, 'Please confirm your password'),
+      .min(1, 'Enter your password.')
+      .min(6, 'Use at least 6 characters.'),
+    confirmPassword: z.string().min(1, 'Re-enter your password.'),
   })
   .refine((data) => data.password === data.confirmPassword, {
-    message: 'Passwords do not match',
+    message: "Passwords don't match. Re-enter it.",
     path: ['confirmPassword'],
   });
 
 export const accountSettingsSchema = z.object({
   firstName: z
     .string()
-    .min(1, 'First name is required')
-    .min(2, 'First name must be at least 2 characters'),
+    .min(1, 'Enter your first name.')
+    .min(2, 'Use at least 2 letters.'),
   lastName: z
     .string()
-    .min(1, 'Last name is required')
-    .min(2, 'Last name must be at least 2 characters'),
+    .min(1, 'Enter your last name.')
+    .min(2, 'Use at least 2 letters.'),
   email: z
     .string()
-    .min(1, 'Email is required')
-    .email('Please enter a valid email'),
+    .min(1, 'Enter your email.')
+    .email('Enter a valid email, like name@example.com.'),
   phoneNumber: z
     .string()
-    .regex(/^[+0-9\s]*$/, 'Please enter a valid phone number')
+    .regex(/^[+0-9\s]*$/, 'Enter an 8-digit Tunisian number.')
     .optional()
     .or(z.literal('')),
 });
