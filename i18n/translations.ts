@@ -13,7 +13,7 @@
 export const en = {
   // Tab bar
   'tabs.home': 'Home',
-  'tabs.favorites': 'Favorites',
+  'tabs.favorites': 'Favourites',
   'tabs.cart': 'Cart',
   'tabs.profile': 'Profile',
 

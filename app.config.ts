@@ -33,5 +33,8 @@ export default ({ config }: ConfigContext): ExpoConfig => {
         googleMaps: { apiKey: googleMapsApiKey },
       },
     },
+    // Browser preview for visual QA renders client-side only: the static
+    // (server) render would run native-only modules. See metro.config.js.
+    web: process.env.HUNGRY_WEB_PREVIEW ? { ...config.web, output: 'single' } : config.web,
   };
 };

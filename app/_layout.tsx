@@ -1,4 +1,6 @@
 import { Palette } from "@/constants/theme";
+import { fontFamily, lightColors, ThemeProvider as DesignThemeProvider } from "@/theme";
+import { ToastHost } from "@/components/ds";
 import { AuthProvider, useAuth } from "@/contexts/auth-context";
 import { useFrameworkReady } from "@/hooks/useFrameworkReady";
 import { useCurrentCustomer } from "@/hooks/use-delivery-address";
@@ -6,12 +8,14 @@ import { useNotificationFeed } from "@/hooks/use-notification-feed";
 import { usePushNotifications } from "@/hooks/use-push-notifications";
 import { hasDeliveryAddress } from "@/services/api/customer-service";
 import { queryClient, wireAppFocus } from "@/services/api/query-client";
+import { JetBrainsMono_500Medium } from "@expo-google-fonts/jetbrains-mono";
 import {
-  Poppins_400Regular,
-  Poppins_500Medium,
-  Poppins_600SemiBold,
-  Poppins_700Bold,
-} from "@expo-google-fonts/poppins";
+  Montserrat_400Regular,
+  Montserrat_500Medium,
+  Montserrat_600SemiBold,
+  Montserrat_700Bold,
+  Montserrat_800ExtraBold,
+} from "@expo-google-fonts/montserrat";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { useFonts } from "expo-font";
 import {
@@ -49,6 +53,10 @@ function RootNavigator() {
 
   useEffect(() => {
     if (isLoading) return;
+
+    // The design-system gallery (app/dev) is a development tool: it renders
+    // without a session and is never routed in a release build.
+    if (__DEV__ && segments[0] === "dev") return;
 
     // "auth" is the OAuth deep-link landing group (app/auth/callback.tsx). It
     // belongs here so an unauthenticated arrival is not bounced to /login while
@@ -142,7 +150,7 @@ function RootNavigator() {
           animation: "slide_from_right",
           animationDuration: 280,
           gestureEnabled: true,
-          contentStyle: { backgroundColor: "#FFFFFF" },
+          contentStyle: { backgroundColor: lightColors.background },
         }}
       >
         <Stack.Screen name="(tabs)" />
@@ -257,6 +265,8 @@ function RootNavigator() {
           options={{ presentation: "modal", title: "Modal" }}
         />
       </Stack>
+      {/* Inline success toasts (design system §7) float above every screen. */}
+      <ToastHost />
       <StatusBar style="auto" />
     </>
   );
@@ -265,10 +275,14 @@ function RootNavigator() {
 export default function RootLayout() {
   useFrameworkReady();
   const [fontsLoaded, fontError] = useFonts({
-    "Poppins-Regular": Poppins_400Regular,
-    "Poppins-Medium": Poppins_500Medium,
-    "Poppins-SemiBold": Poppins_600SemiBold,
-    "Poppins-Bold": Poppins_700Bold,
+    // Each weight is its own family, selected by `fontFamily` — Android does
+    // not synthesize weights for custom fonts (design system §3).
+    [fontFamily.regular]: Montserrat_400Regular,
+    [fontFamily.medium]: Montserrat_500Medium,
+    [fontFamily.semibold]: Montserrat_600SemiBold,
+    [fontFamily.bold]: Montserrat_700Bold,
+    [fontFamily.extrabold]: Montserrat_800ExtraBold,
+    [fontFamily.mono]: JetBrainsMono_500Medium,
   });
 
   useEffect(() => {
@@ -288,11 +302,13 @@ export default function RootLayout() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <ThemeProvider value={DefaultTheme}>
-        <QueryClientProvider client={queryClient}>
-          <AuthProvider>
-            <RootNavigator />
-          </AuthProvider>
-        </QueryClientProvider>
+        <DesignThemeProvider>
+          <QueryClientProvider client={queryClient}>
+            <AuthProvider>
+              <RootNavigator />
+            </AuthProvider>
+          </QueryClientProvider>
+        </DesignThemeProvider>
       </ThemeProvider>
     </GestureHandlerRootView>
   );

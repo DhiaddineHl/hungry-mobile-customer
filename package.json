@@ -13,6 +13,7 @@
     "test:ci": "jest --ci --runInBand"
   },
   "dependencies": {
+    "@expo-google-fonts/jetbrains-mono": "^0.4.1",
     "@expo-google-fonts/montserrat": "^0.4.2",
     "@expo-google-fonts/poppins": "^0.4.1",
     "@expo/ui": "~56.0.18",
@@ -74,6 +75,9 @@
   },
   "private": true,
   "jest": {
-    "preset": "jest-expo"
+    "preset": "jest-expo",
+    "setupFilesAfterEnv": [
+      "<rootDir>/test-utils/jest-setup.ts"
+    ]
   }
 }

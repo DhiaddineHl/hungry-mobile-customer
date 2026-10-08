@@ -1,4 +1,6 @@
 import { Platform } from 'react-native';
+import { lightColors, palette } from '@/theme/colors';
+import { fontFamily } from '@/theme/typography';
 
 /**
  * Design tokens for the Hungry customer app.
@@ -9,59 +11,56 @@ import { Platform } from 'react-native';
  */
 
 // ---------------------------------------------------------------------------
-// Brand palette
+// Brand palette — LEGACY BRIDGE
+//
+// The app is moving to the design-system theme in `@/theme` (tokens from
+// `design system/handoff/tokens.json`). Until every screen is migrated, these
+// legacy names are re-pointed at the new tokens so un-migrated screens already
+// render in navy / orange / Montserrat. Do not use in new code — read
+// `useTheme()` instead. Removed once the redesign lands (plan RD-09).
 // ---------------------------------------------------------------------------
-
-const brandPrimary = '#F5A623';
-const brandPrimaryDark = '#E0900F';
-const brandInk = '#1A2B3D';
-
-// Deep tones lifted straight from the auth artwork (assets/auth-page-upper-section.svg)
-// so the auth screens sit on the same palette as the illustration behind them.
-const brandDeep = '#EA8608';
-const brandNavy = '#003049';
 
 export const Palette = {
   // Brand
-  primary: brandPrimary,
-  primaryDark: brandPrimaryDark,
-  primaryDeep: brandDeep,
-  primarySoft: '#FFF5E6',
+  primary: lightColors.primary,
+  primaryDark: lightColors.primary,
+  primaryDeep: lightColors.primary,
+  primarySoft: lightColors.primarySoft,
 
   // Auth backdrop
-  navy: brandNavy,
-  navyDeep: '#00263A',
+  navy: lightColors.ink,
+  navyDeep: lightColors.ink,
 
   // Ink / text
-  ink: brandInk,
-  textPrimary: brandInk,
-  textSecondary: '#5A6B7B',
-  textMuted: '#8A8A8A',
-  textPlaceholder: '#C7C7C7',
-  textInverse: '#FFFFFF',
+  ink: lightColors.ink,
+  textPrimary: lightColors.ink,
+  textSecondary: lightColors.inkMuted,
+  textMuted: lightColors.inkMuted,
+  textPlaceholder: lightColors.inkSubtle,
+  textInverse: lightColors.onInk,
 
   // Surfaces
-  background: '#FFFFFF',
-  surface: '#FFFFFF',
-  surfaceAlt: '#F7F8FA',
-  surfaceMuted: '#F2F3F5',
+  background: lightColors.background,
+  surface: lightColors.surface,
+  surfaceAlt: lightColors.surfaceMuted,
+  surfaceMuted: lightColors.surfaceSunken,
 
   // Lines
-  border: '#E0E0E0',
-  borderSubtle: '#EEEEEE',
+  border: lightColors.outline,
+  borderSubtle: lightColors.divider,
 
   // Status
-  success: '#2E9E5B',
-  successSoft: '#E6F5EC',
-  danger: '#E5484D',
-  dangerSoft: '#FDECEC',
-  warning: '#F5A623',
+  success: lightColors.success,
+  successSoft: lightColors.successSoft,
+  danger: lightColors.danger,
+  dangerSoft: lightColors.dangerSoft,
+  warning: lightColors.primary,
 
   // Utility
-  white: '#FFFFFF',
+  white: palette.white,
   black: '#000000',
-  overlay: 'rgba(0,0,0,0.45)',
-  disabled: '#CCCCCC',
+  overlay: lightColors.scrim,
+  disabled: lightColors.surfaceSunken,
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -175,10 +174,10 @@ export const STAGGER_MS = 60;
 // ---------------------------------------------------------------------------
 
 export const Fonts = {
-  regular: 'Poppins-Regular',
-  medium: 'Poppins-Medium',
-  semiBold: 'Poppins-SemiBold',
-  bold: 'Poppins-Bold',
+  regular: fontFamily.regular,
+  medium: fontFamily.medium,
+  semiBold: fontFamily.semibold,
+  bold: fontFamily.bold,
 };
 
 export const FontSize = {

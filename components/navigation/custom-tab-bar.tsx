@@ -1,31 +1,24 @@
 import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import * as Haptics from 'expo-haptics';
-import { Heart, Home, ShoppingCart, User } from 'lucide-react-native';
 import { useEffect, useRef, useState } from 'react';
-import {
-  LayoutChangeEvent,
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import { LayoutChangeEvent, Pressable, View } from 'react-native';
 import Animated, {
-  interpolate,
   useAnimatedStyle,
   useSharedValue,
   withSequence,
   withSpring,
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Fonts, FontSize, Palette, Radius } from '@/constants/theme';
+import { Counter, Text } from '@/components/ds';
 import { useTranslation, type TranslationKey } from '@/i18n';
 import { selectCartItemCount, useCartStore } from '@/store/cart-store';
+import { createStyles, Icon, useTheme, type IconName } from '@/theme';
 
-const TAB_ICONS = {
-  index: Home,
-  favorites: Heart,
-  cart: ShoppingCart,
-  profile: User,
+const TAB_ICONS: Record<string, IconName> = {
+  index: 'home',
+  favorites: 'favourite',
+  cart: 'cart',
+  profile: 'profile',
 };
 
 const TAB_LABELS: Partial<Record<string, TranslationKey>> = {
@@ -36,47 +29,26 @@ const TAB_LABELS: Partial<Record<string, TranslationKey>> = {
 };
 
 const SPRING = { damping: 18, stiffness: 200, mass: 0.8 };
-// Snappier than SPRING so the badge pop reads as a reaction to the tap.
+// Snappier than SPRING so the counter pop reads as a reaction to the tap.
 const BADGE_SPRING = { damping: 12, stiffness: 320, mass: 0.6 };
-/** Above this the badge shows `9+` rather than growing wider. */
-const MAX_BADGE_COUNT = 9;
-const PILL_WIDTH = 52;
-const PILL_HEIGHT = 40;
-const BAR_PADDING_TOP = 10;
+const INDICATOR_WIDTH = 24;
 
-interface TabIconProps {
-  routeName: string;
-  isFocused: boolean;
-  cartItemCount?: number;
-}
-
-function AnimatedTabIcon({
+function TabItem({
   routeName,
   isFocused,
   cartItemCount = 0,
-}: TabIconProps) {
-  const IconComponent = TAB_ICONS[routeName as keyof typeof TAB_ICONS];
+}: {
+  routeName: string;
+  isFocused: boolean;
+  cartItemCount?: number;
+}) {
+  const styles = useStyles();
+  const { opacity } = useTheme();
   const { t } = useTranslation();
+  const icon = TAB_ICONS[routeName];
   const labelKey = TAB_LABELS[routeName];
-  const active = useSharedValue(isFocused ? 1 : 0);
 
-  useEffect(() => {
-    active.set(withSpring(isFocused ? 1 : 0, SPRING));
-  }, [isFocused, active]);
-
-  // Icon lifts and scales up slightly as it becomes active.
-  const iconStyle = useAnimatedStyle(() => ({
-    transform: [
-      { scale: interpolate(active.get(), [0, 1], [1, 1.12]) },
-      { translateY: interpolate(active.get(), [0, 1], [0, -2]) },
-    ],
-  }));
-
-  const labelStyle = useAnimatedStyle(() => ({
-    opacity: interpolate(active.get(), [0, 1], [0.7, 1]),
-  }));
-
-  // The badge pops on every change of the count, not just on the first item:
+  // The counter pops on every change of the count, not just on the first item:
   // adding a second unit to a dish already in the cart changes only the digit,
   // which is easy to miss without the movement.
   const badgeScale = useSharedValue(cartItemCount > 0 ? 1 : 0);
@@ -87,79 +59,54 @@ function AnimatedTabIcon({
     previousCount.current = cartItemCount;
 
     if (cartItemCount === 0) {
-      // Hidden anyway once the count hits zero — reset so the next first item
-      // scales in from nothing instead of appearing at full size.
+      // Hidden anyway at zero — reset so the next first item scales in from
+      // nothing instead of appearing at full size.
       badgeScale.set(0);
       return;
     }
     if (!changed) return;
 
-    badgeScale.set(
-      withSequence(
-        withSpring(1.3, BADGE_SPRING),
-        withSpring(1, BADGE_SPRING),
-      ),
-    );
+    badgeScale.set(withSequence(withSpring(1.3, BADGE_SPRING), withSpring(1, BADGE_SPRING)));
   }, [cartItemCount, badgeScale]);
 
-  const badgeStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: badgeScale.get() }],
-  }));
+  const badgeStyle = useAnimatedStyle(() => ({ transform: [{ scale: badgeScale.get() }] }));
 
-  if (!IconComponent) return null;
-
+  if (!icon) return null;
   const showBadge = routeName === 'cart' && cartItemCount > 0;
 
   return (
-    <View style={styles.tabContent}>
-      <View style={styles.iconContainer}>
-        <Animated.View style={iconStyle}>
-          <IconComponent
-            size={24}
-            strokeWidth={isFocused ? 2.4 : 2}
-            color={isFocused ? Palette.primary : Palette.textMuted}
-          />
-        </Animated.View>
-        {showBadge && (
-          <Animated.View style={[styles.badge, badgeStyle]}>
-            <Text style={styles.badgeText} numberOfLines={1}>
-              {cartItemCount > MAX_BADGE_COUNT
-                ? `${MAX_BADGE_COUNT}+`
-                : cartItemCount}
-            </Text>
-          </Animated.View>
-        )}
+    <View style={styles.item}>
+      <View style={{ opacity: isFocused ? 1 : opacity.tabInactiveIcon }}>
+        <Icon name={icon} size="nav" />
       </View>
-      <Animated.Text
-        style={[
-          styles.label,
-          { color: isFocused ? Palette.primary : Palette.textMuted },
-          isFocused && styles.labelActive,
-          labelStyle,
-        ]}
-        numberOfLines={1}
-      >
+      {showBadge && (
+        <Animated.View style={[styles.counter, badgeStyle]}>
+          <Counter count={cartItemCount} />
+        </Animated.View>
+      )}
+      <Text variant="tabLabel" color={isFocused ? 'ink' : 'inkSubtle'} numberOfLines={1}>
         {labelKey ? t(labelKey) : routeName}
-      </Animated.Text>
+      </Text>
     </View>
   );
 }
 
 interface CustomTabBarProps extends BottomTabBarProps {
   /**
-   * Overrides the badge count. Left undefined in the app — the bar reads the
-   * cart store itself so every screen that adds a line updates the badge
-   * without having to thread a count through the navigator.
+   * Overrides the counter. Left undefined in the app — the bar reads the cart
+   * store itself so every screen that adds a line updates the counter without
+   * threading a count through the navigator.
    */
   cartItemCount?: number;
 }
 
-export function CustomTabBar({
-  state,
-  descriptors,
-  navigation,
-  cartItemCount,
-}: CustomTabBarProps) {
+/**
+ * Tab bar (design system §6 Chrome): Home · Favourites · Cart · Profile.
+ * Active tab: full-opacity icon, ink label, 24×3 orange indicator on the top
+ * edge that slides between tabs. Inactive: icon at .45, inkSubtle label.
+ */
+export function CustomTabBar({ state, descriptors, navigation, cartItemCount }: CustomTabBarProps) {
+  const styles = useStyles();
   const storeCartItemCount = useCartStore(selectCartItemCount);
   const badgeCount = cartItemCount ?? storeCartItemCount;
   const insets = useSafeAreaInsets();
@@ -169,47 +116,27 @@ export function CustomTabBar({
   const tabCount = state.routes.length;
   const tabWidth = barWidth > 0 ? barWidth / tabCount : 0;
 
-  // Single highlight pill that slides horizontally to the active tab.
   const position = useSharedValue(state.index);
-
   useEffect(() => {
     position.set(withSpring(state.index, SPRING));
   }, [state.index, position]);
 
   const indicatorStyle = useAnimatedStyle(() => ({
-    transform: [
-      { translateX: position.get() * tabWidth + (tabWidth - PILL_WIDTH) / 2 },
-    ],
+    transform: [{ translateX: position.get() * tabWidth + (tabWidth - INDICATOR_WIDTH) / 2 }],
   }));
 
-  const onBarLayout = (e: LayoutChangeEvent) => {
-    setBarWidth(e.nativeEvent.layout.width);
-  };
+  const onRowLayout = (e: LayoutChangeEvent) => setBarWidth(e.nativeEvent.layout.width);
 
   return (
-    <View style={styles.container}>
-      <View
-        style={[styles.bar, { paddingBottom: Math.max(insets.bottom, 12) }]}
-        onLayout={onBarLayout}
-      >
-        {tabWidth > 0 && (
-          <Animated.View
-            pointerEvents="none"
-            style={[styles.indicator, indicatorStyle]}
-          />
-        )}
-
+    <View style={[styles.bar, { paddingBottom: Math.max(insets.bottom, 8) }]}>
+      <View style={styles.row} onLayout={onRowLayout}>
+        {tabWidth > 0 && <Animated.View pointerEvents="none" style={[styles.indicator, indicatorStyle]} />}
         {state.routes.map((route, index) => {
           const { options } = descriptors[route.key];
           const isFocused = state.index === index;
 
           const onPress = () => {
-            const event = navigation.emit({
-              type: 'tabPress',
-              target: route.key,
-              canPreventDefault: true,
-            });
-
+            const event = navigation.emit({ type: 'tabPress', target: route.key, canPreventDefault: true });
             if (!isFocused && !event.defaultPrevented) {
               Haptics.selectionAsync().catch(() => {});
               navigation.navigate(route.name, route.params);
@@ -223,7 +150,7 @@ export function CustomTabBar({
           return (
             <Pressable
               key={route.key}
-              accessibilityRole="button"
+              accessibilityRole="tab"
               accessibilityState={isFocused ? { selected: true } : {}}
               accessibilityLabel={
                 options.tabBarAccessibilityLabel ??
@@ -235,10 +162,9 @@ export function CustomTabBar({
               }
               onPress={onPress}
               onLongPress={onLongPress}
-              style={styles.tabButton}
-              hitSlop={8}
+              style={styles.tab}
             >
-              <AnimatedTabIcon
+              <TabItem
                 routeName={route.name}
                 isFocused={isFocused}
                 cartItemCount={route.name === 'cart' ? badgeCount : 0}
@@ -251,74 +177,28 @@ export function CustomTabBar({
   );
 }
 
-const styles = StyleSheet.create({
-  // Transparent wrapper so nothing renders behind the bar's rounded corners.
-  container: {
-    backgroundColor: 'transparent',
-  },
+const useStyles = createStyles((t) => ({
   bar: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    paddingTop: BAR_PADDING_TOP,
-    backgroundColor: Palette.surface,
-    borderTopLeftRadius: Radius.xxl,
-    borderTopRightRadius: Radius.xxl,
-    // Subtle lift only — no heavy gray halo around the corners.
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: -3 },
-    shadowOpacity: 0.05,
-    shadowRadius: 10,
-    elevation: 12,
+    backgroundColor: t.colors.surface,
+    borderTopWidth: 1,
+    borderTopColor: t.colors.divider,
+    paddingTop: t.space[8],
+    paddingHorizontal: t.space[12],
   },
+  row: { flexDirection: 'row' },
+  // Sits on the bar's top edge: the item row starts 8 below it, the spec puts
+  // the indicator at −9 from the item (over the 1 pt divider).
   indicator: {
     position: 'absolute',
-    top: BAR_PADDING_TOP + (44 - PILL_HEIGHT) / 2,
+    top: -9,
     left: 0,
-    width: PILL_WIDTH,
-    height: PILL_HEIGHT,
-    borderRadius: Radius.pill,
-    backgroundColor: Palette.primarySoft,
+    width: INDICATOR_WIDTH,
+    height: 3,
+    borderBottomLeftRadius: 3,
+    borderBottomRightRadius: 3,
+    backgroundColor: t.colors.primary,
   },
-  tabButton: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  tabContent: {
-    alignItems: 'center',
-    gap: 4,
-  },
-  iconContainer: {
-    width: 44,
-    height: 44,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  label: {
-    fontSize: FontSize.xs,
-    fontFamily: Fonts.medium,
-  },
-  labelActive: {
-    fontFamily: Fonts.semiBold,
-  },
-  badge: {
-    position: 'absolute',
-    top: 2,
-    right: 2,
-    minWidth: 18,
-    height: 18,
-    borderRadius: 9,
-    paddingHorizontal: 4,
-    backgroundColor: Palette.primary,
-    borderWidth: 2,
-    borderColor: Palette.surface,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  badgeText: {
-    fontSize: FontSize.xs - 1,
-    lineHeight: 14,
-    fontFamily: Fonts.bold,
-    color: Palette.textInverse,
-  },
-});
+  tab: { flex: 1, height: t.size.tabBarItem, alignItems: 'center', justifyContent: 'center' },
+  item: { alignItems: 'center', gap: 4 },
+  counter: { position: 'absolute', top: -6, left: '50%', marginLeft: 4 },
+}));
