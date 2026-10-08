@@ -1,6 +1,6 @@
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
-import { Check } from 'lucide-react-native';
-import { Fonts } from '@/constants/theme';
+import { View } from 'react-native';
+import { Checkbox, Radio, Text, Touchable } from '@/components/ds';
+import { createStyles } from '@/theme';
 
 interface AddonItemProps {
   id: string;
@@ -8,127 +8,62 @@ interface AddonItemProps {
   price?: string;
   isPopular?: boolean;
   isSelected: boolean;
+  /** A multi-select group at its cap: unselected rows cannot be picked. */
   isDisabled?: boolean;
   type: 'checkbox' | 'radio';
   onToggle: (id: string) => void;
 }
 
-export function AddonItem({
-  id,
-  name,
-  price,
-  isPopular,
-  isSelected,
-  isDisabled,
-  type,
-  onToggle,
-}: AddonItemProps) {
+/**
+ * OptionRow (design system §6): min 56, name (`itemLabel`), a sub line with
+ * the surcharge (`+1 DT`) and `Popular` in green, trailing checkbox or radio.
+ * The whole row is the target and reports its own checked state.
+ */
+export function AddonItem({ id, name, price, isPopular, isSelected, isDisabled, type, onToggle }: AddonItemProps) {
+  const styles = useStyles();
+  const hasSub = !!price || !!isPopular;
   return (
-    <TouchableOpacity
-      style={[styles.row, isDisabled && styles.rowDisabled]}
-      onPress={() => !isDisabled && onToggle(id)}
-      activeOpacity={isDisabled ? 1 : 0.7}
-      // The control's own semantics, so a screen reader announces "one of
-      // these" for a single-select group rather than treating every row as an
-      // independent toggle.
+    <Touchable
+      onPress={() => onToggle(id)}
+      disabled={isDisabled}
+      scaleTo={1}
       accessibilityRole={type === 'radio' ? 'radio' : 'checkbox'}
       accessibilityState={{ checked: isSelected, disabled: !!isDisabled }}
+      accessibilityLabel={price ? `${name}, ${price}` : name}
+      style={[styles.row, isDisabled && styles.disabled]}
     >
-      <View style={styles.left}>
-        <Text style={[styles.name, isDisabled && styles.textDisabled]}>{name}</Text>
-        <View style={styles.meta}>
-          {price && (
-            <Text style={[styles.price, isDisabled && styles.textDisabled]}>{price}</Text>
-          )}
-          {isPopular && <Text style={styles.popular}>Popular</Text>}
-        </View>
+      <View style={styles.text}>
+        <Text variant="itemLabel">{name}</Text>
+        {hasSub ? (
+          <View style={styles.sub}>
+            {price ? (
+              <Text variant="meta" color="inkMuted" tabular numberOfLines={1}>
+                {price}
+              </Text>
+            ) : null}
+            {isPopular ? (
+              <Text variant="meta" color="success" style={styles.popular}>
+                Popular
+              </Text>
+            ) : null}
+          </View>
+        ) : null}
       </View>
-
-      {type === 'checkbox' ? (
-        <View style={[styles.checkbox, isSelected && styles.checkboxSelected, isDisabled && styles.checkboxDisabled]}>
-          {isSelected && <Check size={14} color="#FFFFFF" strokeWidth={3} />}
-        </View>
-      ) : (
-        <View style={[styles.radio, isSelected && styles.radioSelected]}>
-          {isSelected && <View style={styles.radioDot} />}
-        </View>
-      )}
-    </TouchableOpacity>
+      {type === 'radio' ? <Radio selected={isSelected} /> : <Checkbox checked={isSelected} />}
+    </Touchable>
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = createStyles((t) => ({
   row: {
+    minHeight: t.size.optionRow,
+    paddingVertical: t.space[8],
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 14,
+    gap: t.space[14],
   },
-  rowDisabled: {
-    opacity: 0.4,
-  },
-  left: {
-    flex: 1,
-    gap: 2,
-  },
-  name: {
-    fontSize: 15,
-    fontFamily: Fonts.medium,
-    color: '#1A2B3D',
-  },
-  textDisabled: {
-    color: '#AAAAAA',
-  },
-  meta: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  price: {
-    fontSize: 13,
-    fontFamily: Fonts.regular,
-    color: '#666666',
-  },
-  popular: {
-    fontSize: 12,
-    fontFamily: Fonts.semiBold,
-    color: '#F5A623',
-  },
-  checkbox: {
-    width: 24,
-    height: 24,
-    borderRadius: 4,
-    borderWidth: 2,
-    borderColor: '#CCCCCC',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#FFFFFF',
-  },
-  checkboxSelected: {
-    backgroundColor: '#F5A623',
-    borderColor: '#F5A623',
-  },
-  checkboxDisabled: {
-    borderColor: '#DDDDDD',
-    backgroundColor: '#F5F5F5',
-  },
-  radio: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    borderWidth: 2,
-    borderColor: '#CCCCCC',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#FFFFFF',
-  },
-  radioSelected: {
-    borderColor: '#F5A623',
-  },
-  radioDot: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    backgroundColor: '#F5A623',
-  },
-});
+  disabled: { opacity: t.opacity.lockedInput },
+  text: { flex: 1, gap: 2 },
+  sub: { flexDirection: 'row', alignItems: 'center', gap: t.space[8] },
+  popular: { fontFamily: t.typography.label.fontFamily },
+}));

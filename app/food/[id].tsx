@@ -1,38 +1,6 @@
-import {
-  AddonGroup,
-  AddToCartBar,
-  FoodHeader,
-  SpecialInstructions,
-} from "@/components/food";
-import { QueryEmpty, QueryError } from "@/components/ui/query-state";
-import { PRODUCT_IMAGE_PLACEHOLDER } from "@/constants/images";
-import { Fonts, FontSize, Palette, Spacing } from "@/constants/theme";
-import {
-  useAddonAmounts,
-  useAddonGroups,
-  useProduct,
-  useProductConfiguration,
-  useProductImageUrl,
-} from "@/hooks/use-products";
-import { useRestaurantImageSourceFromPath } from "@/hooks/use-restaurant-image";
-import { useRestaurant } from "@/hooks/use-restaurants";
-import {
-  formatAmount,
-  selectPrice,
-  toggleAddonSelection,
-} from "@/services/api/product-view-model";
-import { type CartAddon, useCartStore } from "@/store/cart-store";
-import { useFavoritesStore, useIsFavorite } from "@/store/favorites-store";
-import { useLocalSearchParams, useRouter } from "expo-router";
-import { ChevronLeft, ShoppingBag } from "lucide-react-native";
-import { useCallback, useMemo, useState } from "react";
-import {
-  ActivityIndicator,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-} from "react-native";
+import { useCallback, useMemo, useState } from 'react';
+import { View } from 'react-native';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import Animated, {
   Extrapolation,
   interpolate,
@@ -40,95 +8,110 @@ import Animated, {
   useAnimatedScrollHandler,
   useAnimatedStyle,
   useSharedValue,
-} from "react-native-reanimated";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+} from 'react-native-reanimated';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { AddonGroup, AddToCartBar } from '@/components/food';
+import {
+  Badge,
+  BottomBar,
+  Divider,
+  ErrorBanner,
+  HeroHeader,
+  IconButton,
+  InfoNote,
+  PriceLine,
+  Screen,
+  Skeleton,
+  StateView,
+  Text,
+  TextField,
+  TopBar,
+  toast,
+  useBottomBarInset,
+} from '@/components/ds';
+import { PRODUCT_IMAGE_PLACEHOLDER } from '@/constants/images';
+import {
+  useAddonAmounts,
+  useAddonGroups,
+  useProduct,
+  useProductConfiguration,
+  useProductImageUrl,
+} from '@/hooks/use-products';
+import { useRestaurantImageSourceFromPath } from '@/hooks/use-restaurant-image';
+import { useRestaurant } from '@/hooks/use-restaurants';
+import { formatAmount, selectPrice, toggleAddonSelection } from '@/services/api/product-view-model';
+import { lineSignature, type CartAddon, type NewCartLine, useCartStore } from '@/store/cart-store';
+import { useFavoritesStore, useIsFavorite } from '@/store/favorites-store';
+import { createStyles, useTheme } from '@/theme';
 
-// Banner height in FoodHeader; the sticky header reveals as it scrolls past.
-const FOOD_IMAGE_HEIGHT = 240;
-const COMPACT_BAR_HEIGHT = 56;
+/** Scroll distance after which the sticky TopBar replaces the photo (F2/F3). */
+const STICKY_REVEAL = 150;
 
+const lowerFirst = (s: string) => (s ? s.charAt(0).toLowerCase() + s.slice(1) : s);
+
+/**
+ * F1–F3 Dish. Price first: name, price with the old one struck through, the
+ * discount badge on the photo. Each option group states its rule and whether
+ * it is required; until a required group is filled the button names what is
+ * missing. Quantity and Add share the bottom bar with the running total.
+ */
 export default function FoodDetailsScreen() {
-  // The restaurant comes from the route, not from a constant: a product
-  // carries NO restaurant field anywhere in the backend (plan §2), so the
-  // screen it was opened from is the only thing that knows which restaurant
-  // this dish belongs to.
-  const { id, restaurantId } = useLocalSearchParams<{
-    id: string;
-    restaurantId?: string;
-  }>();
+  const styles = useStyles();
+  const { size } = useTheme();
+  // The restaurant comes from the route: a product carries NO restaurant field
+  // in the backend, so the screen it was opened from is the only thing that
+  // knows which restaurant serves this dish.
+  const { id, restaurantId } = useLocalSearchParams<{ id: string; restaurantId?: string }>();
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const bottomInset = useBottomBarInset();
 
   const { data: product, isPending, error, refetch } = useProduct(id);
   const { data: restaurant } = useRestaurant(restaurantId);
   const { data: imageUrl } = useProductImageUrl(id);
 
-  // Only a configurable dish has anything to resolve here; for a standard one
-  // the query never fires and `groups` stays empty.
-  const {
-    groups,
-    isResolving: isResolvingConfig,
-    error: configError,
-  } = useProductConfiguration(product);
-
+  // Only a configurable dish has anything to resolve here.
+  const { groups, isResolving: isResolvingConfig, error: configError } = useProductConfiguration(product);
   const addonGroups = useAddonGroups(groups);
   const addonAmounts = useAddonAmounts(groups);
 
   const [quantity, setQuantity] = useState(1);
-  const [specialNote, setSpecialNote] = useState("");
+  const [specialNote, setSpecialNote] = useState('');
   const [showSticky, setShowSticky] = useState(false);
   const [selections, setSelections] = useState<Record<string, string[]>>({});
 
+  const items = useCartStore((s) => s.items);
   const addItem = useCartStore((s) => s.addItem);
+  const setLineQuantity = useCartStore((s) => s.setQuantity);
+  const removeItem = useCartStore((s) => s.removeItem);
   const toggleFavorite = useFavoritesStore((s) => s.toggle);
-  const isFavorite = useIsFavorite("food", id ?? "");
+  const isFavorite = useIsFavorite('food', id ?? '');
 
   // `imageUrl` is the raw relative `/files/...` path; this resolves it against
   // the current API base and attaches the bearer token that route requires.
   const toImageSource = useRestaurantImageSourceFromPath();
 
-  // The sticky header appears once the banner has scrolled past the top.
-  const threshold = FOOD_IMAGE_HEIGHT - insets.top - COMPACT_BAR_HEIGHT;
   const scrollY = useSharedValue(0);
-
   const scrollHandler = useAnimatedScrollHandler((event) => {
     scrollY.set(event.contentOffset.y);
-    runOnJS(setShowSticky)(event.contentOffset.y > threshold - 16);
+    runOnJS(setShowSticky)(event.contentOffset.y > STICKY_REVEAL);
   });
-
   const stickyStyle = useAnimatedStyle(() => ({
-    opacity: interpolate(
-      scrollY.get(),
-      [threshold - 40, threshold - 4],
-      [0, 1],
-      Extrapolation.CLAMP,
-    ),
+    opacity: interpolate(scrollY.get(), [STICKY_REVEAL - 40, STICKY_REVEAL], [0, 1], Extrapolation.CLAMP),
   }));
 
-  /**
-   * The base price, or `null` when nothing applies right now. `null` means
-   * unorderable, NOT free — see `selectPrice`.
-   */
-  const basePrice = useMemo(
-    () => (product ? selectPrice(product.prices, new Date()) : null),
-    [product],
-  );
+  /** The base price, or `null` when nothing applies right now — unorderable, NOT free. */
+  const basePrice = useMemo(() => (product ? selectPrice(product.prices, new Date()) : null), [product]);
 
   /**
-   * Applies the tap to the group it happened in, under that group's own
-   * selection rule: a SINGLE group replaces its choice, a MULTIPLE one adds to
-   * it. The rule itself lives in `toggleAddonSelection`, which is where it is
-   * documented and tested; this only routes the tap to the right group.
-   *
-   * A tap in a group that is not on screen is ignored rather than guessed at:
-   * without the group there is no rule to apply, and defaulting to "add" would
-   * put two sizes in the cart.
+   * Applies the tap under the group's own rule (SINGLE replaces, MULTIPLE
+   * adds — see `toggleAddonSelection`). A tap in a group not on screen is
+   * ignored: without the group there is no rule to apply.
    */
   const handleToggle = useCallback(
     (groupId: string, optionId: string) => {
       const group = addonGroups.find((each) => each.id === groupId);
       if (!group) return;
-
       setSelections((prev) => {
         const current = prev[groupId] ?? [];
         const next = toggleAddonSelection(group, current, optionId);
@@ -138,74 +121,44 @@ export default function FoodDetailsScreen() {
     [addonGroups],
   );
 
-  /**
-   * Whether every required group has an answer.
-   *
-   * This gates the Add button rather than being checked when it is pressed:
-   * the customer sees the dish is not ready to order while they are still
-   * choosing, instead of finding out by tapping. Each group's own badge says
-   * WHICH one is still owed, and the bar carries the reason for the disabled
-   * button.
-   */
-  const allRequiredSatisfied = addonGroups
-    .filter((group) => group.required)
-    .every((group) => (selections[group.id] ?? []).length > 0);
+  // The first required group with no answer — the button names it.
+  const missingGroup = addonGroups.find((group) => group.required && (selections[group.id] ?? []).length === 0);
+  const allRequiredSatisfied = !missingGroup;
 
   /**
    * A configurable dish whose groups have not arrived yet renders with NONE,
-   * which would make `allRequiredSatisfied` vacuously true and let the customer
-   * add it without the choices it requires. The groups arriving is therefore
-   * part of the gate, not just a spinner.
-   *
-   * A dish whose configuration FAILED to load is blocked for the same reason:
-   * what it requires is unknown, and guessing "nothing" is the one answer that
-   * produces a wrong order.
+   * which would make `allRequiredSatisfied` vacuously true. Pending and failed
+   * configurations are therefore part of the gate.
    */
   const isConfigurationPending = !!product?.isConfigurable && isResolvingConfig;
   const isConfigurationBroken = !!product?.isConfigurable && !!configError;
 
-  // Summed from the selectPrice amounts, never from the "+2.00 DT" labels —
-  // re-parsing a formatted price means guessing its separator and symbol.
+  // Summed from the selectPrice amounts, never from the "+2 DT" labels.
   const addonsAmount = Object.values(selections)
     .flat()
     .reduce((total, optionId) => total + (addonAmounts.get(optionId) ?? 0), 0);
-
   const unitAmount = (basePrice?.amount ?? 0) + addonsAmount;
   const totalLabel = formatAmount(unitAmount * quantity, basePrice?.currency);
-  const priceLabel = basePrice?.formatted;
 
-  const canAddToCart =
-    !!basePrice &&
-    !!product &&
-    !!restaurant &&
-    !isConfigurationPending &&
-    !isConfigurationBroken;
+  const canAddToCart = !!basePrice && !!product && !!restaurant && !isConfigurationPending && !isConfigurationBroken;
 
-  const handleGoToCart = () => router.push("/cart/review");
+  const goToCart = () => router.push('/(tabs)/cart');
 
   const handleAddToCart = () => {
-    // The button is already disabled in both of these states; they are checked
-    // again because what reaches the cart must never depend on a control's
-    // enabled-ness alone.
-    if (!allRequiredSatisfied) return;
-    // No applicable price, or no restaurant resolved from the route: the line
-    // could not be priced or attributed, so it must not reach the cart.
-    if (!canAddToCart || !product) return;
+    // Checked again even though the button is disabled: what reaches the cart
+    // must never depend on a control's enabled-ness alone.
+    if (!allRequiredSatisfied || !canAddToCart || !product || !basePrice || !restaurant) return;
 
     const selectedAddons: CartAddon[] = addonGroups.flatMap((group) => {
       const selected = selections[group.id] ?? [];
       return group.options
         .filter((option) => selected.includes(option.id))
-        .map((option) => ({
-          id: option.id,
-          name: option.name,
-          price: addonAmounts.get(option.id) ?? 0,
-        }));
+        .map((option) => ({ id: option.id, name: option.name, price: addonAmounts.get(option.id) ?? 0 }));
     });
 
-    addItem({
+    const line: NewCartLine = {
       foodId: product.id,
-      name: product.name ?? "",
+      name: product.name ?? '',
       image: imageUrl ?? undefined,
       unitPrice: unitAmount,
       basePrice: basePrice.amount,
@@ -217,148 +170,178 @@ export default function FoodDetailsScreen() {
       // The RELATIVE path, resolved at render time so a stored line survives a
       // change of EXPO_PUBLIC_API_URL.
       restaurantLogo: restaurant.logoPath,
-    });
+    };
+    // Same dish + options + note merge into one line; Undo puts that line back
+    // to what it held before this add.
+    const lineId = lineSignature(line);
+    const before = items.find((i) => i.lineId === lineId)?.quantity ?? 0;
+    addItem(line);
 
     router.back();
+    toast.show({
+      message: quantity > 1 ? `Added ${quantity} × ${line.name} to cart` : `Added ${line.name} to cart`,
+      actionLabel: 'Undo',
+      onAction: () => (before > 0 ? setLineQuantity(lineId, before) : removeItem(lineId)),
+      aboveBar: true,
+    });
   };
 
   const handleToggleFavorite = () => {
     if (!product) return;
     toggleFavorite({
       id: product.id,
-      type: "food",
-      name: product.name ?? "",
+      type: 'food',
+      name: product.name ?? '',
       image: imageUrl ?? undefined,
       subtitle: product.description ?? undefined,
-      price: priceLabel,
+      price: basePrice?.formatted,
       restaurantId: restaurant?.id,
     });
   };
 
-  // Every hook above has already run, so these early returns are safe.
   if (isPending) {
     return (
-      <View style={[styles.container, styles.centered]}>
-        <ActivityIndicator size="large" color={Palette.primary} />
-      </View>
+      <Screen edges={[]}>
+        <HeroHeader source={undefined} height={size.dishHero} onBack={() => router.back()} />
+        <View style={styles.titleBlock}>
+          <Skeleton width="65%" height={26} />
+          <Skeleton width="30%" height={20} />
+          <Skeleton width="90%" height={14} />
+          <Skeleton width="70%" height={14} />
+        </View>
+      </Screen>
     );
   }
 
-  if (error) {
+  if (error || !product) {
     return (
-      <View style={[styles.container, styles.centered]}>
-        <QueryError error={error} onRetry={refetch} />
-      </View>
+      <Screen>
+        <TopBar onBack={() => router.back()} />
+        {error ? (
+          <StateView
+            icon="offline"
+            title="Couldn't load this dish"
+            body="Check your connection, then try again."
+            actions={[{ label: 'Try again', onPress: () => refetch() }]}
+          />
+        ) : (
+          <StateView icon="noResults" title="Dish not found" body="This dish is no longer on the menu." />
+        )}
+      </Screen>
     );
   }
 
-  if (!product) {
-    return (
-      <View style={[styles.container, styles.centered]}>
-        <QueryEmpty
-          title="Dish not found"
-          body="This item is no longer on the menu."
-        />
-      </View>
-    );
-  }
+  const unorderableReason = isConfigurationPending
+    ? 'Loading the choices for this dish…'
+    : isConfigurationBroken
+      ? "We couldn't load the choices this dish needs, so it can't be ordered yet."
+      : basePrice
+        ? 'Open this dish from its restaurant to order it.'
+        : "This dish isn't available to order right now.";
 
   return (
-    <View style={styles.container}>
+    <Screen edges={[]}>
       <Animated.ScrollView
-        style={styles.scrollView}
+        style={styles.flex}
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={{ paddingBottom: bottomInset + 24 }}
         onScroll={scrollHandler}
         scrollEventThrottle={16}
+        keyboardShouldPersistTaps="handled"
       >
-        <FoodHeader
-          name={product.name ?? ""}
-          price={priceLabel ?? "Currently unavailable"}
-          originalPrice={basePrice?.original}
-          discount={basePrice?.discountLabel}
-          description={product.description ?? undefined}
-          image={
-            imageUrl
-              ? toImageSource(imageUrl)
-              : { uri: PRODUCT_IMAGE_PLACEHOLDER }
-          }
-          isFavorite={isFavorite}
+        <HeroHeader
+          source={imageUrl ? toImageSource(imageUrl) : { uri: PRODUCT_IMAGE_PLACEHOLDER }}
+          height={size.dishHero}
           onBack={() => router.back()}
+          isFavorite={isFavorite}
           onFavorite={handleToggleFavorite}
-        />
+          onCart={goToCart}
+        >
+          {basePrice?.discountLabel ? (
+            <Badge label={basePrice.discountLabel} variant="discount" style={styles.heroBadge} />
+          ) : null}
+        </HeroHeader>
+
+        <View style={styles.titleBlock}>
+          <Text variant="title" accessibilityRole="header">
+            {product.name}
+          </Text>
+          <PriceLine price={basePrice?.formatted} oldPrice={basePrice?.original} large />
+          {product.description ? (
+            <Text variant="description" color="inkMuted">
+              {product.description}
+            </Text>
+          ) : null}
+        </View>
+
+        <Divider />
 
         {isConfigurationPending ? (
-          <View style={styles.configNotice}>
-            <ActivityIndicator size="small" color={Palette.primary} />
-            <Text style={styles.configNoticeText}>Loading options…</Text>
+          <View style={styles.optionsLoading}>
+            <Skeleton width="45%" height={18} />
+            <Skeleton width="25%" height={12} />
+            {Array.from({ length: 3 }, (_, i) => (
+              <Skeleton key={i} height={44} radius={12} />
+            ))}
           </View>
         ) : null}
 
         {isConfigurationBroken ? (
-          <View style={styles.configNotice}>
-            <Text style={styles.configNoticeText}>
-              We couldn&apos;t load the choices for this dish. Pull to retry, or
-              try again in a moment.
-            </Text>
+          <View style={styles.section}>
+            <ErrorBanner
+              title="Couldn't load the choices"
+              body="This dish needs choices we couldn't load. Try again."
+              actionLabel="Try again"
+              onAction={() => refetch()}
+            />
           </View>
         ) : null}
 
         {addonGroups.map((group) => (
-          <AddonGroup
-            key={group.id}
-            group={group}
-            selectedIds={selections[group.id] ?? []}
-            onToggle={handleToggle}
-          />
+          <AddonGroup key={group.id} group={group} selectedIds={selections[group.id] ?? []} onToggle={handleToggle} />
         ))}
 
-        <SpecialInstructions
-          value={specialNote}
-          onChangeText={setSpecialNote}
-        />
+        <View style={styles.section}>
+          <View>
+            <Text variant="sectionTitle" accessibilityRole="header">
+              Special instructions
+            </Text>
+            <Text variant="meta" color="inkMuted">
+              Allergies or anything the kitchen should know
+            </Text>
+          </View>
+          <TextField
+            area
+            placeholder="Add a note"
+            value={specialNote}
+            onChangeText={setSpecialNote}
+            accessibilityLabel="Special instructions"
+            maxLength={200}
+          />
+        </View>
 
-        {/*
-          "Frequently bought together" was a hardcoded list. There is no
-          recommendations source in the backend, so rather than dressing mock
-          dishes up as suggestions the section is gone until one exists.
-        */}
-
-        <View style={styles.bottomSpacer} />
+        {/* "Frequently bought together" needs a recommendations source the
+            backend does not have; it returns when one exists. */}
       </Animated.ScrollView>
 
-      {/* Sticky header — name + price + quick cart access. */}
+      {/* Sticky TopBar — replaces the photo once it has scrolled away. */}
       <Animated.View
-        style={[styles.stickyHeader, { paddingTop: insets.top }, stickyStyle]}
-        pointerEvents={showSticky ? "auto" : "none"}
+        style={[styles.sticky, { paddingTop: insets.top }, stickyStyle]}
+        pointerEvents={showSticky ? 'auto' : 'none'}
       >
-        <View style={styles.stickyBar}>
-          <TouchableOpacity
-            style={styles.stickyBack}
-            onPress={() => router.back()}
-            activeOpacity={0.7}
-          >
-            <ChevronLeft size={24} color={Palette.textPrimary} />
-          </TouchableOpacity>
-
-          <View style={styles.stickyInfo}>
-            <Text style={styles.stickyName} numberOfLines={1}>
-              {product.name}
-            </Text>
-            {priceLabel ? (
-              <Text style={styles.stickyPrice}>{priceLabel}</Text>
-            ) : null}
-          </View>
-
-          <TouchableOpacity
-            style={styles.cartBtn}
-            onPress={handleGoToCart}
-            activeOpacity={0.85}
-            accessibilityLabel="Go to cart"
-          >
-            <ShoppingBag size={20} color={Palette.textInverse} />
-          </TouchableOpacity>
-        </View>
+        <TopBar
+          title={product.name ?? ''}
+          onBack={() => router.back()}
+          trailing={
+            <IconButton
+              icon="favourite"
+              filled={isFavorite}
+              iconColor={isFavorite ? 'primary' : 'ink'}
+              onPress={handleToggleFavorite}
+              accessibilityLabel={isFavorite ? 'Remove from favourites' : 'Favourite'}
+            />
+          }
+        />
       </Animated.View>
 
       {canAddToCart ? (
@@ -369,127 +352,30 @@ export default function FoodDetailsScreen() {
           onIncrement={() => setQuantity((q) => q + 1)}
           onAddToCart={handleAddToCart}
           disabled={!allRequiredSatisfied}
-          hint={
-            allRequiredSatisfied
-              ? undefined
-              : "Choose an option in every required section to continue."
-          }
+          hint={missingGroup ? `Choose ${lowerFirst(missingGroup.title)}` : undefined}
         />
       ) : (
-        // Unorderable rather than free: either no price applies right now, or
-        // the dish was opened without the restaurant that serves it.
-        <View
-          style={[
-            styles.unorderable,
-            { paddingBottom: insets.bottom + Spacing.lg },
-          ]}
-        >
-          <Text style={styles.unorderableText}>
-            {isConfigurationPending
-              ? "Loading this dish's options…"
-              : isConfigurationBroken
-                ? "We couldn't load the choices this dish needs, so it can't be ordered yet."
-                : basePrice
-                  ? "Open this dish from its restaurant to order it."
-                  : "This dish isn't available to order right now."}
-          </Text>
-        </View>
+        <BottomBar>
+          <InfoNote style={styles.flex}>{unorderableReason}</InfoNote>
+        </BottomBar>
       )}
-    </View>
+    </Screen>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: Palette.background,
-  },
-  centered: {
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  scrollView: {
-    flex: 1,
-  },
-  scrollContent: {
-    paddingBottom: 0,
-  },
-  bottomSpacer: {
-    height: 20,
-  },
-  unorderable: {
-    borderTopWidth: 1,
-    borderTopColor: Palette.borderSubtle,
-    backgroundColor: Palette.surface,
-    paddingHorizontal: Spacing.xl,
-    paddingTop: Spacing.lg,
-  },
-  configNotice: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: Spacing.sm,
-    paddingHorizontal: Spacing.xl,
-    paddingTop: Spacing.xl,
-  },
-  configNoticeText: {
-    flex: 1,
-    fontSize: FontSize.md,
-    fontFamily: Fonts.medium,
-    color: Palette.textMuted,
-  },
-  unorderableText: {
-    fontSize: FontSize.md,
-    fontFamily: Fonts.medium,
-    color: Palette.textMuted,
-    textAlign: "center",
-  },
-  stickyHeader: {
-    position: "absolute",
+const useStyles = createStyles((t) => ({
+  flex: { flex: 1 },
+  heroBadge: { position: 'absolute', left: t.space[16], bottom: t.space[12] },
+  titleBlock: { paddingHorizontal: t.screenPadding, paddingTop: t.space[20], paddingBottom: t.space[20], gap: t.space[8] },
+  optionsLoading: { paddingHorizontal: t.screenPadding, paddingTop: t.space[24], gap: t.space[10] },
+  section: { paddingHorizontal: t.screenPadding, paddingTop: t.space[28], gap: t.space[14] },
+  sticky: {
+    position: 'absolute',
     top: 0,
     left: 0,
     right: 0,
-    backgroundColor: Palette.surface,
+    backgroundColor: t.colors.surface,
     borderBottomWidth: 1,
-    borderBottomColor: Palette.borderSubtle,
-    shadowColor: Palette.black,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 6,
-    elevation: 4,
+    borderBottomColor: t.colors.divider,
   },
-  stickyBar: {
-    height: COMPACT_BAR_HEIGHT,
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 12,
-    gap: 10,
-  },
-  stickyBack: {
-    width: 40,
-    height: 40,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  stickyInfo: {
-    flex: 1,
-  },
-  stickyName: {
-    fontSize: FontSize.lg,
-    fontFamily: Fonts.bold,
-    color: Palette.textPrimary,
-  },
-  stickyPrice: {
-    fontSize: 13,
-    fontFamily: Fonts.semiBold,
-    color: Palette.warning,
-    marginTop: 1,
-  },
-  cartBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: Palette.warning,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-});
+}));

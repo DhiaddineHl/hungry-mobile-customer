@@ -266,9 +266,8 @@ export function groupByRestaurant(items: CartLine[]): RestaurantCartGroup[] {
   return Array.from(map.values());
 }
 
-export function formatDT(value: number): string {
-  return value.toFixed(2).replace(".", ",") + " DT";
-}
+/** `9,68 DT`, `14 DT` — the shared formatter from the design system (§10). */
+export { formatDT } from "@/theme/format";
 
 /**
  * Total number of units across every line — what the tab-bar badge shows.

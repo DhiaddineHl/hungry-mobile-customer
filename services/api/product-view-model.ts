@@ -1,3 +1,4 @@
+import { formatDecimal } from '@/theme/format';
 import type { AddonGroupData, AddonOption } from '@/components/food';
 import type { AttributeGroup, Category, Currency, Price } from '@/schemas/product';
 import type { MenuProductOutput } from './product-service';
@@ -48,12 +49,14 @@ function decimalPlacesOf(currency: Currency | null | undefined): number {
 /**
  * Renders an amount against its currency.
  *
- * `PREFIX` puts the symbol first ("DT 9.68"), `SUFFIX` last ("9.68 DT"). A
+ * `PREFIX` puts the symbol first ("DT 9,68"), `SUFFIX` last ("9,68 DT"). A
  * missing currency formats the bare number rather than crashing or assuming a
  * symbol — the mock data this replaced hardcoded "DT", and real data must not.
  */
 export function formatAmount(amount: number, currency: Currency | null | undefined): string {
-  const rendered = amount.toFixed(decimalPlacesOf(currency));
+  // Comma decimal, trailing zeros dropped: "9,68 DT", "59,9 DT", "14 DT"
+  // (design system §10).
+  const rendered = formatDecimal(amount, decimalPlacesOf(currency));
 
   const symbol = currency?.symbol?.trim();
   if (!symbol) return rendered;

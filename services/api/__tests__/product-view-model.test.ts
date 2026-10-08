@@ -34,11 +34,11 @@ function price(partial: Partial<Price>): Price {
 
 describe('formatAmount', () => {
   it('puts the symbol after the amount for SUFFIX', () => {
-    expect(formatAmount(9.68, DINAR)).toBe('9.68 DT');
+    expect(formatAmount(9.68, DINAR)).toBe('9,68 DT');
   });
 
   it('puts the symbol before the amount for PREFIX', () => {
-    expect(formatAmount(9.68, { ...DINAR, displayFormat: 'PREFIX' })).toBe('DT 9.68');
+    expect(formatAmount(9.68, { ...DINAR, displayFormat: 'PREFIX' })).toBe('DT 9,68');
   });
 
   it('honours decimalPlaces of 0', () => {
@@ -46,30 +46,30 @@ describe('formatAmount', () => {
   });
 
   it('honours decimalPlaces of 2', () => {
-    expect(formatAmount(9.6, { ...DINAR, decimalPlaces: 2 })).toBe('9.60 DT');
+    expect(formatAmount(9.6, { ...DINAR, decimalPlaces: 2 })).toBe('9,6 DT');
   });
 
   it('honours decimalPlaces of 3, which is what the dinar actually uses', () => {
-    expect(formatAmount(9.68, { ...DINAR, decimalPlaces: 3 })).toBe('9.680 DT');
+    expect(formatAmount(9.68, { ...DINAR, decimalPlaces: 3 })).toBe('9,68 DT');
   });
 
   it('formats the bare number when the currency is missing rather than crashing', () => {
-    expect(formatAmount(9.68, null)).toBe('9.68');
-    expect(formatAmount(9.68, undefined)).toBe('9.68');
+    expect(formatAmount(9.68, null)).toBe('9,68');
+    expect(formatAmount(9.68, undefined)).toBe('9,68');
   });
 
   it('formats the bare number when the currency carries no symbol', () => {
-    expect(formatAmount(9.68, { ...DINAR, symbol: null })).toBe('9.68');
+    expect(formatAmount(9.68, { ...DINAR, symbol: null })).toBe('9,68');
   });
 
   it('never hardcodes DT — a different currency formats with its own symbol', () => {
     expect(formatAmount(9.68, { ...DINAR, symbol: '€', displayFormat: 'PREFIX' })).toBe(
-      '€ 9.68'
+      '€ 9,68'
     );
   });
 
   it('falls back to two decimal places when the currency does not say', () => {
-    expect(formatAmount(9.6, { ...DINAR, decimalPlaces: null })).toBe('9.60 DT');
+    expect(formatAmount(9.6, { ...DINAR, decimalPlaces: null })).toBe('9,6 DT');
   });
 });
 
@@ -82,7 +82,7 @@ describe('selectPrice', () => {
     const applied = selectPrice([price({ amount: 9.68 })], NOW);
 
     expect(applied?.amount).toBe(9.68);
-    expect(applied?.formatted).toBe('9.68 DT');
+    expect(applied?.formatted).toBe('9,68 DT');
     expect(applied?.original).toBeUndefined();
     expect(applied?.discountLabel).toBeUndefined();
   });
@@ -167,8 +167,8 @@ describe('selectPrice', () => {
     );
 
     expect(applied?.amount).toBe(9.68);
-    expect(applied?.formatted).toBe('9.68 DT');
-    expect(applied?.original).toBe('12.90 DT');
+    expect(applied?.formatted).toBe('9,68 DT');
+    expect(applied?.original).toBe('12,9 DT');
     expect(applied?.discountLabel).toBe('-25%');
   });
 
@@ -286,7 +286,7 @@ describe('toAddonGroups', () => {
     expect(groups[0].title).toBe('Add some sauce');
     expect(groups[0].subtitle).toBe('Pick your sauces');
     expect(groups[0].required).toBe(true);
-    expect(groups[0].options[0].price).toBe('+2.00 DT');
+    expect(groups[0].options[0].price).toBe('+2 DT');
   });
 
   it('renders a SINGLE group as a radio group', () => {
@@ -596,7 +596,7 @@ describe('groupBySection', () => {
     );
 
     const [priced, unpriced] = sections[0].products;
-    expect(priced.price?.formatted).toBe('9.68 DT');
+    expect(priced.price?.formatted).toBe('9,68 DT');
     expect(unpriced.price).toBeNull();
   });
 

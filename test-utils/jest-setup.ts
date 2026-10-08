@@ -13,3 +13,9 @@ jest.mock('react-native-reanimated', () => {
   // Not covered by the stock mock; the primitives read it to honour Reduce Motion.
   return { ...mock, useReducedMotion: () => false };
 });
+
+// The design-system barrel reaches persisted zustand stores (favourites on
+// restaurant cards); their AsyncStorage native module does not exist under jest.
+jest.mock('@react-native-async-storage/async-storage', () =>
+  require('@react-native-async-storage/async-storage/jest/async-storage-mock'),
+);

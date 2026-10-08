@@ -1,6 +1,6 @@
-import { View, Text, StyleSheet } from 'react-native';
-import { Check, X } from 'lucide-react-native';
-import { Fonts, Palette } from '@/constants/theme';
+import { View } from 'react-native';
+import { Badge, Separated, Text } from '@/components/ds';
+import { createStyles } from '@/theme';
 import { AddonItem } from './addon-item';
 
 export interface AddonOption {
@@ -15,10 +15,9 @@ export interface AddonGroupData {
   title: string;
   subtitle?: string;
   /**
-   * `radio` for a single-select group (one choice replaces the last),
-   * `checkbox` for a multi-select one. Mapped from the backend's
-   * `selectionType` — see `addonGroupType` in
-   * `services/api/product-view-model.ts`.
+   * `radio` allows exactly one option; `checkbox` any number (up to
+   * `maxSelect`). Decided by the backend's selection type — see
+   * `addonGroupType`.
    */
   type: 'checkbox' | 'radio';
   required: boolean;
@@ -33,162 +32,79 @@ interface AddonGroupProps {
   onToggle: (groupId: string, optionId: string) => void;
 }
 
+/** "Choose 1", "Choose up to 6", "Choose any" — the group's rule in words. */
+function ruleOf(group: AddonGroupData): string {
+  if (group.type === 'radio') return 'Choose 1';
+  if (group.maxSelect) return `Choose up to ${group.maxSelect}`;
+  return group.required ? 'Choose at least 1' : 'Choose any';
+}
+
+/**
+ * OptionGroup (design system §6): title (`sectionTitle`) + rule, and a badge
+ * that answers "is this settled?" at every moment — `Required` until an
+ * option is picked, then `Done`; `Optional` otherwise. The Add button stays
+ * disabled until every required group reads Done, so this badge is what tells
+ * the customer what is still owed.
+ */
 export function AddonGroup({ group, selectedIds, onToggle }: AddonGroupProps) {
+  const styles = useStyles();
   const isRadio = group.type === 'radio';
-
-  // One selection satisfies either kind of group; a radio group cannot hold
-  // more than one, and no multi-select group carries a minimum.
   const isSatisfied = !group.required || selectedIds.length > 0;
-
-  // A radio group is never capped this way: picking another option replaces
-  // the current one rather than being blocked by it.
-  const canSelectMore =
-    isRadio || !group.maxSelect || selectedIds.length < group.maxSelect;
+  const canSelectMore = isRadio || !group.maxSelect || selectedIds.length < group.maxSelect;
 
   return (
-    <View style={styles.container}>
+    <View style={styles.group}>
       <View style={styles.header}>
         <View style={styles.titleBlock}>
-          <Text style={styles.title}>{group.title}</Text>
-          {group.subtitle && (
-            <Text style={styles.subtitle}>{group.subtitle}</Text>
-          )}
+          <Text variant="sectionTitle" accessibilityRole="header">
+            {group.title}
+          </Text>
+          <View style={styles.ruleLine}>
+            <Text variant="meta" color="inkMuted">
+              {group.subtitle || ruleOf(group)}
+            </Text>
+            {/* A count only says something where more than one option can be
+                picked; in a radio group the selection shows in the row. */}
+            {!isRadio && selectedIds.length > 0 ? (
+              <Text variant="meta" color="inkMuted">
+                {`${selectedIds.length} ${selectedIds.length === 1 ? 'item' : 'items'} selected`}
+              </Text>
+            ) : null}
+          </View>
         </View>
-        {/*
-          The badge answers "is this group settled?" at every moment, not only
-          after a rejected attempt: it turns green the instant an option is
-          picked. Waiting for a submit to say so left the customer looking at a
-          red Required tag on a question they had already answered — and the
-          Add button is now disabled until every one of these is green, so this
-          is the only thing telling them what is still owed.
-        */}
-        {group.required && (
-          <View
-            style={[styles.badge, isSatisfied ? styles.badgeSatisfied : styles.badgeRequired]}
-            accessibilityLabel={
-              isSatisfied ? 'Required, answered' : 'Required, choose an option'
-            }
-          >
-            {isSatisfied ? (
-              <Check size={12} color={Palette.success} strokeWidth={2.5} />
-            ) : (
-              <X size={12} color={Palette.danger} strokeWidth={2.5} />
-            )}
-            <Text
-              style={[
-                styles.badgeText,
-                isSatisfied ? styles.badgeTextSatisfied : styles.badgeTextRequired,
-              ]}
-            >
-              Required
-            </Text>
+        {group.required ? (
+          <View accessibilityLabel={isSatisfied ? 'Required, answered' : 'Required, choose an option'}>
+            <Badge label={isSatisfied ? 'Done' : 'Required'} variant={isSatisfied ? 'done' : 'required'} />
           </View>
-        )}
-        {/*
-          A count only says something where more than one option can be picked;
-          in a radio group the selection is visible in the row itself.
-        */}
-        {!group.required && !isRadio && selectedIds.length > 0 && (
-          <View style={styles.selectedCountBadge}>
-            <Text style={styles.selectedCountText}>
-              {selectedIds.length} {selectedIds.length === 1 ? 'item' : 'items'} selected
-            </Text>
-          </View>
+        ) : (
+          <Badge label="Optional" variant="optional" />
         )}
       </View>
 
-      <View
-        style={styles.options}
-        accessibilityRole={isRadio ? 'radiogroup' : undefined}
-      >
-        {group.options.map((option, index) => {
-          const isSelected = selectedIds.includes(option.id);
-          const isDisabled = !isSelected && !canSelectMore;
-          return (
-            <View key={option.id}>
-              {index > 0 && <View style={styles.divider} />}
+      <View accessibilityRole={isRadio ? 'radiogroup' : undefined}>
+        <Separated>
+          {group.options.map((option) => {
+            const isSelected = selectedIds.includes(option.id);
+            return (
               <AddonItem
+                key={option.id}
                 {...option}
                 isSelected={isSelected}
-                isDisabled={isDisabled}
+                isDisabled={!isSelected && !canSelectMore}
                 type={group.type}
                 onToggle={(optId) => onToggle(group.id, optId)}
               />
-            </View>
-          );
-        })}
+            );
+          })}
+        </Separated>
       </View>
     </View>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    paddingHorizontal: 20,
-    paddingTop: 20,
-    paddingBottom: 4,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
-    marginBottom: 4,
-  },
-  titleBlock: {
-    flex: 1,
-    gap: 2,
-  },
-  title: {
-    fontSize: 17,
-    fontFamily: Fonts.bold,
-    color: '#1A2B3D',
-  },
-  subtitle: {
-    fontSize: 13,
-    fontFamily: Fonts.regular,
-    color: '#F5A623',
-  },
-  badge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 20,
-    marginTop: 2,
-  },
-  badgeRequired: {
-    backgroundColor: Palette.dangerSoft,
-  },
-  badgeSatisfied: {
-    backgroundColor: Palette.successSoft,
-  },
-  badgeText: {
-    fontSize: 12,
-    fontFamily: Fonts.semiBold,
-  },
-  badgeTextRequired: {
-    color: Palette.danger,
-  },
-  badgeTextSatisfied: {
-    color: Palette.success,
-  },
-  selectedCountBadge: {
-    backgroundColor: '#FFF3E0',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 20,
-  },
-  selectedCountText: {
-    fontSize: 12,
-    fontFamily: Fonts.semiBold,
-    color: '#F5A623',
-  },
-  options: {
-    marginTop: 8,
-  },
-  divider: {
-    height: 1,
-    backgroundColor: '#F0F0F0',
-  },
-});
+const useStyles = createStyles((t) => ({
+  group: { paddingHorizontal: t.screenPadding, paddingTop: t.space[24], gap: t.space[6] },
+  header: { flexDirection: 'row', alignItems: 'flex-start', gap: t.space[12] },
+  titleBlock: { flex: 1, gap: 2 },
+  ruleLine: { flexDirection: 'row', flexWrap: 'wrap', columnGap: t.space[8] },
+}));
