@@ -5,7 +5,8 @@ import Animated, {
   FadeInDown,
   ReduceMotion,
 } from 'react-native-reanimated';
-import { STAGGER_MS } from '@/constants/theme';
+/** Stagger delay per list/grid item for entrance sequences. */
+const STAGGER_MS = 60;
 
 interface AnimatedEntranceProps {
   children: ReactNode;

@@ -1,4 +1,4 @@
-import { Palette } from '@/constants/theme';
+import { lightColors } from '@/theme/colors';
 import { registerDevice, unregisterDevice, type DevicePlatform } from '@/services/api/device-service';
 import { isApiError } from '@/services/api/client';
 import Constants from 'expo-constants';
@@ -94,7 +94,7 @@ async function ensureAndroidChannel(): Promise<void> {
     // order into a confirmed one, and it should surface as a heads-up banner.
     importance: Notifications.AndroidImportance.MAX,
     vibrationPattern: [0, 250, 250, 250],
-    lightColor: Palette.primary,
+    lightColor: lightColors.primary,
   });
 }
 

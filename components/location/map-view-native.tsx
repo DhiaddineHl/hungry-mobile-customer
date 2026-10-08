@@ -81,6 +81,10 @@ export function NativeMapView({
   // everywhere, no key); Google stays the provider for Android dev builds.
   const isUnsupported = Platform.OS === 'android' && IS_EXPO_GO;
 
+  const pinStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: PIN_TIP_OFFSET - PIN_LIFT * lift.get() }],
+  }));
+
   if (isUnsupported) {
     return (
       <View style={styles.unsupported}>
@@ -93,9 +97,6 @@ export function NativeMapView({
     );
   }
 
-  const pinStyle = useAnimatedStyle(() => ({
-    transform: [{ translateY: PIN_TIP_OFFSET - PIN_LIFT * lift.get() }],
-  }));
 
   const handleRegionChange = () => {
     // Fires every frame of a camera move — only animate on the first one.

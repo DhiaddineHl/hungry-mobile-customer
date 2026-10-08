@@ -7,19 +7,6 @@ import {
 import { renderSheet } from '@/test-utils/sheet-harness';
 import { fireEvent, screen } from '@testing-library/react-native';
 
-// See the note in `service-fee-modal.test.tsx`: reanimated's native half is not
-// initialised under jest, so the press wrapper is swapped for a plain Pressable.
-jest.mock('@/components/ui/pressable-scale', () => {
-  const { Pressable } = jest.requireActual('react-native');
-  return {
-    PressableScale: ({
-      children,
-      ...props
-    }: React.PropsWithChildren<Record<string, unknown>>) => (
-      <Pressable {...props}>{children}</Pressable>
-    ),
-  };
-});
 
 function renderModal(overrides: Partial<React.ComponentProps<typeof PaymentMethodModal>> = {}) {
   return renderSheet(

@@ -1,6 +1,6 @@
 # Plan — Full customer-app redesign on the Hungry design system
 
-**Status:** In progress
+**Status:** Done — all ten branches pushed (2026-10-09)
 **Date:** 2026-10-08
 **Source of truth:** [`design system/handoff/DESIGN_SYSTEM.md`](../../design%20system/handoff/DESIGN_SYSTEM.md)
 (spec), `design system/handoff/tokens.json` (values), `design system/Hungry Home Search (offline).html`
@@ -204,7 +204,29 @@ Each branch is committed and pushed to `origin` when its task is verified. Merge
 
 ---
 
-## 5. Verification per task
+## 5. Outcome and deviations
+
+Every task landed on its branch as planned. Where the board asks for something
+the backend cannot back yet, the UI says less rather than inventing data:
+
+- **S-L2 (outside delivery area)** is not wired — there is no delivery-zone
+  check in the backend to drive it.
+- **Search (S1–S5)** runs client-side over the loaded catalog; the Dishes tab
+  is omitted until the Solr search API (`home-search-migration-plan.md`) lands.
+- **Filters / meta rows** show only what exists: "Open now" is the one filter
+  offered; liked %, time, fee, promo and Top rated render when the backend
+  supplies them (`UNBACKED_FIELDS`) and are hidden otherwise.
+- **"Picked for you"** is not invented: the restaurant's first menu section
+  renders as the DishCard grid, the rest as MenuRows.
+- **Partial checkout (S-C2 "Place 1 order")**: checkout is all-or-none on the
+  backend, so a blocked restaurant is flagged on its own card instead.
+- **Notifications** follow N1's "Mark all read": opening the inbox no longer
+  clears every unread dot; opening a row marks it read.
+- Remaining lint errors (`react-hooks/refs` in `components/ui/bottom-sheet.tsx`,
+  `set-state-in-effect` in `app/map-select.tsx`) predate the redesign and sit in
+  logic it did not change.
+
+## 6. Verification per task
 
 ```bash
 npx tsc --noEmit

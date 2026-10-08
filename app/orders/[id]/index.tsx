@@ -203,7 +203,7 @@ export default function CustomerOrderDetailsScreen() {
             // An empty list is NOT an empty order: the backend never sets the
             // `order_item.order_id` back-reference on a re-read.
             <Text variant="meta" color="inkMuted">
-              The items for this order aren't available. The restaurant has them.
+              {"The items for this order aren't available. The restaurant has them."}
             </Text>
           )}
 
@@ -238,7 +238,7 @@ export default function CustomerOrderDetailsScreen() {
                   <SummaryLine label="Items total" value={formatDT(pricing.itemsTotal)} total />
                 </View>
               ) : null}
-              <InfoNote>Today's menu prices, not a receipt — this order was placed before prices were recorded with orders.</InfoNote>
+              <InfoNote>{"Today's menu prices, not a receipt — this order was placed before prices were recorded with orders."}</InfoNote>
             </>
           ) : null}
         </Card>

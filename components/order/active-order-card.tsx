@@ -52,7 +52,7 @@ export function ActiveOrderCard({ order, onPress }: { order: CustomerOrder; onPr
             // `order_item.order_id` back-reference, so a real order re-reads
             // with an empty list. Say what is true.
             <Text variant="meta" color="inkMuted">
-              The items for this order aren't available. The restaurant has them.
+              {"The items for this order aren't available. The restaurant has them."}
             </Text>
           )}
         </View>

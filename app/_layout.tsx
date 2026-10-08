@@ -1,4 +1,3 @@
-import { Palette } from "@/constants/theme";
 import { fontFamily, lightColors, ThemeProvider as DesignThemeProvider } from "@/theme";
 import { ToastHost } from "@/components/ds";
 import { AuthProvider, useAuth } from "@/contexts/auth-context";
@@ -164,28 +163,28 @@ function RootNavigator() {
           name="login"
           options={{
             animation: "fade",
-            contentStyle: { backgroundColor: Palette.navy },
+            contentStyle: { backgroundColor: lightColors.ink },
           }}
         />
         <Stack.Screen
           name="password"
           options={{
             animation: "fade",
-            contentStyle: { backgroundColor: Palette.navy },
+            contentStyle: { backgroundColor: lightColors.ink },
           }}
         />
         <Stack.Screen
           name="signup"
           options={{
             animation: "fade",
-            contentStyle: { backgroundColor: Palette.navy },
+            contentStyle: { backgroundColor: lightColors.ink },
           }}
         />
         <Stack.Screen
           name="forgot-password"
           options={{
             animation: "fade",
-            contentStyle: { backgroundColor: Palette.navy },
+            contentStyle: { backgroundColor: lightColors.ink },
           }}
         />
         <Stack.Screen name="reset-code" options={{ animation: "fade" }} />
@@ -193,7 +192,7 @@ function RootNavigator() {
           name="new-password"
           options={{
             animation: "fade",
-            contentStyle: { backgroundColor: Palette.navy },
+            contentStyle: { backgroundColor: lightColors.ink },
           }}
         />
         <Stack.Screen name="verification" options={{ animation: "fade" }} />
@@ -201,7 +200,7 @@ function RootNavigator() {
           name="auth/callback"
           options={{
             animation: "fade",
-            contentStyle: { backgroundColor: Palette.navy },
+            contentStyle: { backgroundColor: lightColors.ink },
           }}
         />
         <Stack.Screen
@@ -218,7 +217,7 @@ function RootNavigator() {
           name="complete-profile"
           options={{
             animation: "fade",
-            contentStyle: { backgroundColor: Palette.navy },
+            contentStyle: { backgroundColor: lightColors.ink },
           }}
         />
         <Stack.Screen name="location" />
@@ -266,10 +265,6 @@ function RootNavigator() {
         <Stack.Screen name="notifications" />
         {/* Search opens in place over Home: a fade keeps the field steady. */}
         <Stack.Screen name="search" options={{ animation: "fade" }} />
-        <Stack.Screen
-          name="modal"
-          options={{ presentation: "modal", title: "Modal" }}
-        />
       </Stack>
       {/* Inline success toasts (design system §7) float above every screen. */}
       <ToastHost />

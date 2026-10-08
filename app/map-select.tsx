@@ -124,6 +124,18 @@ export default function MapSelectScreen() {
   // must not re-trigger autocomplete.
   const suppressAutocompleteRef = useRef(false);
 
+  const animateTo = (latitude: number, longitude: number) => {
+    mapRef.current?.animateToRegion(
+      {
+        latitude,
+        longitude,
+        latitudeDelta: DEFAULT_REGION.latitudeDelta,
+        longitudeDelta: DEFAULT_REGION.longitudeDelta,
+      },
+      400,
+    );
+  };
+
   const reverseGeocode = async (lat: number, lng: number) => {
     const requestId = ++geocodeIdRef.current;
     setIsLoadingAddress(true);
@@ -187,17 +199,6 @@ export default function MapSelectScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchQuery]);
 
-  const animateTo = (latitude: number, longitude: number) => {
-    mapRef.current?.animateToRegion(
-      {
-        latitude,
-        longitude,
-        latitudeDelta: DEFAULT_REGION.latitudeDelta,
-        longitudeDelta: DEFAULT_REGION.longitudeDelta,
-      },
-      400,
-    );
-  };
 
   const handleSelectSuggestion = async (suggestion: PlaceSuggestion) => {
     Keyboard.dismiss();

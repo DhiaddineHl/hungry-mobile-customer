@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-require-imports -- jest.mock factories must require lazily */
 /**
  * Global jest setup.
  *

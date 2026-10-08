@@ -574,7 +574,7 @@ export default function OrderDetailsScreen() {
         {/* Said once, where the decision is made: a custom point is for this
             order only, not a new saved address. */}
         {customPoint && !pendingPoint ? (
-          <InfoNote>This order goes to the custom location above. It won't be added to your saved addresses.</InfoNote>
+          <InfoNote>{"This order goes to the custom location above. It won't be added to your saved addresses."}</InfoNote>
         ) : null}
 
         <Card>

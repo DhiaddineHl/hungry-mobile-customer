@@ -1,6 +1,7 @@
 import { CustomTabBar } from '@/components/navigation/custom-tab-bar';
 import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { Tabs } from 'expo-router';
+import { lightColors } from '@/theme';
 
 export default function TabLayout() {
   return (
@@ -10,7 +11,7 @@ export default function TabLayout() {
       )}
       screenOptions={{
         headerShown: false,
-        sceneStyle: { backgroundColor: '#FFFFFF' },
+        sceneStyle: { backgroundColor: lightColors.background },
       }}
     >
       <Tabs.Screen name="index" />

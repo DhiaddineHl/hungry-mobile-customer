@@ -2,29 +2,6 @@ import { AddToCartBar } from '@/components/food/add-to-cart-bar';
 import { renderSheet } from '@/test-utils/sheet-harness';
 import { fireEvent, screen } from '@testing-library/react-native';
 
-/**
- * The Add button is the gate on a dish whose required choices are unanswered.
- *
- * `PressableScale` drives its press animation through reanimated worklets,
- * whose native half is not initialised under jest — importing it throws before
- * a single assertion runs. It is replaced with a plain `Pressable`, which
- * honours the same `onPress` / `disabled` / `accessibilityLabel` contract these
- * tests exercise (and, like the real one, does not fire `onPress` when
- * disabled).
- */
-jest.mock('@/components/ui/pressable-scale', () => {
-  const { Pressable } = jest.requireActual('react-native');
-  return {
-    PressableScale: ({
-      children,
-      ...props
-    }: React.PropsWithChildren<Record<string, unknown>>) => (
-      <Pressable accessibilityRole="button" {...props}>
-        {children}
-      </Pressable>
-    ),
-  };
-});
 
 const HINT = 'Choose an option in every required section to continue.';
 
