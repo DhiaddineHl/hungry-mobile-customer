@@ -1,7 +1,6 @@
 import { DriverTrackingMap } from '@/components/order/driver-tracking-map';
 import { MapPlaceholder } from '@/components/location/map-placeholder';
-import { PressableScale } from '@/components/ui/pressable-scale';
-import { Fonts, FontSize, Palette, Radius, Shadows, Spacing } from '@/constants/theme';
+import { IconButton, IconWell, InfoTag, LocateButton, MapSheet, Text, UnreadDot } from '@/components/ds';
 import { useCustomerOrder } from '@/hooks/use-customer-orders';
 import { useDriverLocation } from '@/hooks/use-driver-location';
 import { useOrderDelivery } from '@/hooks/use-order-delivery';
@@ -10,9 +9,9 @@ import { formatLastSeen, isTrackable } from '@/services/api/driver-location-view
 import { orderStatusLabel, withDeliveryStatus } from '@/services/api/order-list-view-model';
 import Constants, { ExecutionEnvironment } from 'expo-constants';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { Bike, LocateFixed, PackageCheck, Star, X } from 'lucide-react-native';
 import { useEffect, useMemo, useState } from 'react';
-import { Platform, StyleSheet, Text, View } from 'react-native';
+import { Platform, View } from 'react-native';
+import { createStyles } from '@/theme';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 /**
@@ -34,6 +33,7 @@ const IS_EXPO_GO = Constants.executionEnvironment === ExecutionEnvironment.Store
 const CLOSE_AFTER_DELIVERED_MS = 2_500;
 
 export default function TrackDriverScreen() {
+  const styles = useStyles();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -100,169 +100,72 @@ export default function TrackDriverScreen() {
         />
       )}
 
-      <PressableScale
-        style={[styles.roundButton, styles.closeButton, { top: insets.top + Spacing.sm }]}
-        onPress={() => router.back()}
-        scaleTo={0.92}
-        accessibilityLabel="Close the map"
-      >
-        <X size={22} color={Palette.ink} />
-      </PressableScale>
+      <View style={[styles.topRow, { top: insets.top + 8 }]}>
+        <IconButton icon="close" variant="add" onPress={() => router.back()} accessibilityLabel="Close the map" />
+        {!following && !mapUnsupported ? (
+          <LocateButton
+            onPress={() => {
+              setFollowing(true);
+              setRecenterSignal((n) => n + 1);
+            }}
+          />
+        ) : null}
+      </View>
 
-      {!following && !mapUnsupported ? (
-        <PressableScale
-          style={[styles.roundButton, styles.recenterButton, { top: insets.top + Spacing.sm }]}
-          onPress={() => {
-            setFollowing(true);
-            setRecenterSignal((n) => n + 1);
-          }}
-          scaleTo={0.92}
-          accessibilityLabel="Recenter on the driver"
-        >
-          <LocateFixed size={22} color={Palette.ink} />
-        </PressableScale>
-      ) : null}
+      <View style={styles.bottom}>
+        <MapSheet bottomInset={insets.bottom}>
+          <View style={styles.driverRow}>
+            <IconWell
+              icon={delivered ? 'delivered' : 'delivery'}
+              tone={delivered ? 'success' : 'warm'}
+              size={48}
+              round
+              iconSize={22}
+              iconColor={delivered ? 'success' : 'primary'}
+            />
+            <View style={styles.flex}>
+              <Text variant="rowTitle" numberOfLines={1}>
+                {delivery?.driverName ?? 'Your driver'}
+              </Text>
+              <Text variant="meta" color="inkMuted" numberOfLines={2}>
+                {statusLine}
+              </Text>
+            </View>
+            {delivery?.driverRating != null ? <InfoTag label={delivery.driverRating.toFixed(1)} icon="star" /> : null}
+          </View>
 
-      <View style={[styles.panel, Shadows.lg, { paddingBottom: insets.bottom + Spacing.lg }]}>
-        <View style={styles.driverRow}>
-          <View style={[styles.avatar, delivered && styles.avatarDone]}>
-            {delivered ? (
-              <PackageCheck size={22} color={Palette.success} />
-            ) : (
-              <Bike size={22} color={Palette.primaryDark} />
-            )}
-          </View>
-          <View style={styles.driverText}>
-            <Text style={styles.driverName} numberOfLines={1}>
-              {delivery?.driverName ?? 'Your driver'}
-            </Text>
-            <Text style={styles.status} numberOfLines={2}>
-              {statusLine}
-            </Text>
-          </View>
-          {delivery?.driverRating != null ? (
-            <View style={styles.rating}>
-              <Star size={14} color={Palette.warning} fill={Palette.warning} />
-              <Text style={styles.ratingText}>{delivery.driverRating.toFixed(1)}</Text>
+          {freshnessLine ? (
+            <View style={styles.freshness} accessibilityLiveRegion="polite">
+              {freshness === 'live' ? <UnreadDot /> : <View style={styles.idleDot} />}
+              <Text variant="caption" color={freshness === 'live' ? 'ink' : 'inkMuted'}>
+                {freshnessLine}
+              </Text>
             </View>
           ) : null}
-        </View>
 
-        {freshnessLine ? (
-          <View style={styles.freshnessRow}>
-            <View style={[styles.dot, freshness === 'live' ? styles.dotLive : styles.dotIdle]} />
-            <Text style={styles.freshnessText}>{freshnessLine}</Text>
-          </View>
-        ) : null}
-
-        {order?.dropoffAddress ? (
-          <Text style={styles.address} numberOfLines={2}>
-            Delivering to {order.dropoffAddress}
-          </Text>
-        ) : null}
+          {order?.dropoffAddress ? (
+            <Text variant="meta" color="inkMuted" numberOfLines={2}>
+              {`Delivering to ${order.dropoffAddress}`}
+            </Text>
+          ) : null}
+        </MapSheet>
       </View>
     </View>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: Palette.background,
-  },
-  roundButton: {
+const useStyles = createStyles((t) => ({
+  container: { flex: 1, backgroundColor: t.colors.surfaceSunken },
+  flex: { flex: 1 },
+  topRow: {
     position: 'absolute',
-    width: 44,
-    height: 44,
-    borderRadius: Radius.pill,
-    backgroundColor: Palette.surface,
-    alignItems: 'center',
-    justifyContent: 'center',
-    ...Shadows.md,
-  },
-  closeButton: {
-    left: Spacing.lg,
-  },
-  recenterButton: {
-    right: Spacing.lg,
-  },
-  panel: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    paddingTop: Spacing.xl,
-    paddingHorizontal: Spacing.xl,
-    gap: Spacing.md,
-    backgroundColor: Palette.surface,
-    borderTopLeftRadius: Radius.xxl,
-    borderTopRightRadius: Radius.xxl,
-  },
-  driverRow: {
+    left: t.chromePadding,
+    right: t.chromePadding,
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.md,
+    justifyContent: 'space-between',
   },
-  avatar: {
-    width: 48,
-    height: 48,
-    borderRadius: Radius.pill,
-    backgroundColor: Palette.primarySoft,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  avatarDone: {
-    backgroundColor: Palette.successSoft,
-  },
-  driverText: {
-    flex: 1,
-    gap: 2,
-  },
-  driverName: {
-    fontSize: FontSize.lg,
-    fontFamily: Fonts.semiBold,
-    color: Palette.textPrimary,
-  },
-  status: {
-    fontSize: FontSize.md,
-    fontFamily: Fonts.regular,
-    color: Palette.textSecondary,
-  },
-  rating: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  ratingText: {
-    fontSize: FontSize.sm,
-    fontFamily: Fonts.semiBold,
-    color: Palette.textSecondary,
-  },
-  freshnessRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.sm,
-  },
-  dot: {
-    width: 8,
-    height: 8,
-    borderRadius: Radius.pill,
-  },
-  dotLive: {
-    backgroundColor: Palette.success,
-  },
-  dotIdle: {
-    backgroundColor: Palette.textPlaceholder,
-  },
-  freshnessText: {
-    fontSize: FontSize.sm,
-    fontFamily: Fonts.medium,
-    color: Palette.textMuted,
-  },
-  address: {
-    fontSize: FontSize.sm,
-    fontFamily: Fonts.regular,
-    color: Palette.textMuted,
-    lineHeight: 18,
-  },
-});
+  bottom: { position: 'absolute', left: 0, right: 0, bottom: 0 },
+  driverRow: { flexDirection: 'row', alignItems: 'center', gap: t.space[14] },
+  freshness: { flexDirection: 'row', alignItems: 'center', gap: t.space[8] },
+  idleDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: t.colors.outline },
+}));

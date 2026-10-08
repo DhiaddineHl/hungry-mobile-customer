@@ -1,17 +1,13 @@
-import { Fonts, FontSize, Palette, Radius, Spacing } from '@/constants/theme';
+import { View } from 'react-native';
+import { IconWell, InfoTag, Text } from '@/components/ds';
 import type { DeliveryStatus } from '@/schemas/delivery';
-import { Bike, ChevronRight, Star } from 'lucide-react-native';
-import { StyleSheet, Text, View } from 'react-native';
+import { createStyles, Icon } from '@/theme';
 
 /**
  * Who's delivering this order, and what they're doing right now
- * (`GET /orders/{id}/delivery`).
- *
- * Identity + status only. The live position is on the tracking map
- * (`app/orders/[id]/track.tsx`); with `trackable` set the card shows a
- * "Track" affordance, and the order screen makes it open that map.
+ * (`GET /orders/{id}/delivery`). Identity + status only; the live position is
+ * on the tracking map, which `trackable` advertises with a "Track" link.
  */
-
 const DELIVERY_STATUS_LABELS: Record<DeliveryStatus, string> = {
   CREATED: 'Looking for a driver…',
   QUEUED: 'Looking for a driver…',
@@ -25,98 +21,44 @@ const DELIVERY_STATUS_LABELS: Record<DeliveryStatus, string> = {
   FAILED: 'There’s an issue with this delivery — contact support',
 };
 
-interface DriverInfoCardProps {
-  status: DeliveryStatus | null;
-  driverName: string | null;
-  driverRating: number | null;
-  /** The driver can be followed live — shows the "Track" affordance. */
-  trackable?: boolean;
-}
-
 export function DriverInfoCard({
   status,
   driverName,
   driverRating,
   trackable = false,
-}: DriverInfoCardProps) {
+}: {
+  status: DeliveryStatus | null;
+  driverName: string | null;
+  driverRating: number | null;
+  trackable?: boolean;
+}) {
+  const styles = useStyles();
   const statusLabel = status ? DELIVERY_STATUS_LABELS[status] : 'Looking for a driver…';
-
+  const problem = status === 'FAILED' || status === 'RETURNED';
   return (
-    <View style={styles.card}>
-      <View style={styles.iconWrap}>
-        <Bike size={20} color={Palette.primaryDark} />
-      </View>
-      <View style={styles.textGroup}>
-        <Text style={styles.name} numberOfLines={1}>
+    <View style={styles.row}>
+      <IconWell icon="delivery" tone={problem ? 'danger' : 'warm'} size={40} round iconColor={problem ? 'danger' : 'primary'} />
+      <View style={styles.flex}>
+        <Text variant="itemTitle" numberOfLines={1}>
           {driverName ?? 'Finding your driver'}
         </Text>
-        <Text style={styles.status} numberOfLines={2}>
+        <Text variant="meta" color={problem ? 'danger' : 'inkMuted'} numberOfLines={2}>
           {statusLabel}
         </Text>
       </View>
-      {driverName && driverRating != null ? (
-        <View style={styles.ratingRow}>
-          <Star size={14} color={Palette.warning} fill={Palette.warning} />
-          <Text style={styles.ratingText}>{driverRating.toFixed(1)}</Text>
-        </View>
-      ) : null}
+      {driverName && driverRating != null ? <InfoTag label={driverRating.toFixed(1)} icon="star" /> : null}
       {trackable ? (
-        <View style={styles.trackRow}>
-          <Text style={styles.trackText}>Track</Text>
-          <ChevronRight size={16} color={Palette.primaryDark} />
+        <View style={styles.track}>
+          <Text variant="label">Track</Text>
+          <Icon name="chevronRight" size="row" />
         </View>
       ) : null}
     </View>
   );
 }
 
-const styles = StyleSheet.create({
-  card: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.md,
-  },
-  iconWrap: {
-    width: 40,
-    height: 40,
-    borderRadius: Radius.pill,
-    backgroundColor: Palette.primarySoft,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  textGroup: {
-    flex: 1,
-    gap: 2,
-  },
-  name: {
-    fontSize: FontSize.md,
-    fontFamily: Fonts.semiBold,
-    color: Palette.textPrimary,
-  },
-  status: {
-    fontSize: FontSize.sm,
-    fontFamily: Fonts.regular,
-    color: Palette.textMuted,
-  },
-  ratingRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  ratingText: {
-    fontSize: FontSize.sm,
-    fontFamily: Fonts.semiBold,
-    color: Palette.textSecondary,
-  },
-  trackRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 2,
-    paddingLeft: Spacing.sm,
-  },
-  trackText: {
-    fontSize: FontSize.sm,
-    fontFamily: Fonts.semiBold,
-    color: Palette.primaryDark,
-  },
-});
+const useStyles = createStyles((t) => ({
+  flex: { flex: 1 },
+  row: { flexDirection: 'row', alignItems: 'center', gap: t.space[12] },
+  track: { flexDirection: 'row', alignItems: 'center', gap: 2 },
+}));

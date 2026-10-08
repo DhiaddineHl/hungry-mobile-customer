@@ -1,117 +1,59 @@
-import { Fonts, FontSize, Palette, Radius, Spacing } from '@/constants/theme';
-import {
-  ORDER_PROGRESS_STEPS,
-  ORDER_STEP_COUNT,
-} from '@/services/api/order-list-view-model';
-import { Bike, ChefHat, CircleCheck, PackageCheck, Receipt } from 'lucide-react-native';
-import { StyleSheet, Text, View } from 'react-native';
+import { View } from 'react-native';
+import { Text } from '@/components/ds';
+import { ORDER_PROGRESS_STEPS, ORDER_STEP_COUNT } from '@/services/api/order-list-view-model';
+import { createStyles, Icon, useTheme, type IconName } from '@/theme';
+
+const STEP_ICONS: IconName[] = ['receipt', 'check', 'preparing', 'delivery', 'delivered'];
 
 /**
- * The five-stage bar on an active order: Placed → Confirmed → Preparing → On
- * the way → Delivered.
+ * ProgressSteps (design system §6): the current step named in words with
+ * `Step 3 of 5`, five 4 pt segments (done/current orange, upcoming sunken)
+ * and the icon row — receipt, check, chef hat, motorbike, package.
  *
- * The first three move with the order status (the restaurant), the last two
- * with the delivery status (the driver's pickup, then drop-off). Nothing is
- * inferred from elapsed time and the customer app never advances one.
- * `orderProgressStep` in `order-list-view-model.ts` owns the mapping.
+ * `step` is how many stages are done (0–5), straight from the backend's two
+ * statuses (`orderProgressStep`); nothing is inferred from elapsed time.
  */
-
-const STEP_ICONS = [Receipt, CircleCheck, ChefHat, Bike, PackageCheck];
-
-interface OrderProgressProps {
-  /** How many stages are done, 0–5. 0 renders every stage as pending. */
-  step: number;
-  /** The sentence above the bar, e.g. "Preparing your food…". */
-  statusLabel: string;
-}
-
-export function OrderProgress({ step, statusLabel }: OrderProgressProps) {
+export function OrderProgress({ step, statusLabel }: { step: number; statusLabel: string }) {
+  const styles = useStyles();
+  const { opacity } = useTheme();
+  const shown = Math.max(1, Math.min(step, ORDER_STEP_COUNT));
   return (
-    <View style={styles.container}>
-      <View style={styles.headerRow}>
-        <Text style={styles.status} numberOfLines={1}>
+    <View
+      style={styles.wrap}
+      accessible
+      accessibilityRole="progressbar"
+      accessibilityLabel={`${statusLabel}. Step ${shown} of ${ORDER_STEP_COUNT}`}
+      accessibilityValue={{ min: 0, max: ORDER_STEP_COUNT, now: step }}
+    >
+      <View style={styles.labels}>
+        <Text variant="itemTitle" numberOfLines={1} style={styles.flex}>
           {statusLabel}
         </Text>
-        {step > 0 ? (
-          <Text style={styles.stepCount}>
-            Step {step} of {ORDER_STEP_COUNT}
-          </Text>
-        ) : null}
+        <Text variant="meta" color="inkMuted" tabular>{`Step ${shown} of ${ORDER_STEP_COUNT}`}</Text>
       </View>
-
-      <View
-        style={styles.bars}
-        accessibilityRole="progressbar"
-        accessibilityValue={{ min: 0, max: ORDER_STEP_COUNT, now: step }}
-      >
-        {ORDER_PROGRESS_STEPS.map((name, index) => (
-          <View
-            key={name}
-            style={[styles.bar, index < step ? styles.barDone : styles.barPending]}
-          />
+      <View style={styles.segments}>
+        {ORDER_PROGRESS_STEPS.map((name, i) => (
+          <View key={name} style={[styles.segment, i < step && styles.segmentDone]} />
         ))}
       </View>
-
       <View style={styles.icons}>
-        {ORDER_PROGRESS_STEPS.map((name, index) => {
-          const Icon = STEP_ICONS[index];
-          const done = index < step;
-          return (
-            <View key={name} style={styles.iconSlot}>
-              <Icon
-                size={20}
-                color={done ? Palette.primary : Palette.textPlaceholder}
-                strokeWidth={done ? 2.2 : 2}
-              />
-            </View>
-          );
-        })}
+        {STEP_ICONS.map((icon, i) => (
+          <View key={icon} style={[styles.iconCell, i >= step && { opacity: opacity.upcomingStep }]}>
+            <Icon name={icon} size="row" color={i < step ? 'ink' : 'inkMuted'} />
+          </View>
+        ))}
       </View>
     </View>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    gap: Spacing.sm,
-  },
-  headerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: Spacing.sm,
-  },
-  status: {
-    flex: 1,
-    fontSize: FontSize.md,
-    fontFamily: Fonts.medium,
-    color: Palette.textPrimary,
-  },
-  stepCount: {
-    fontSize: FontSize.sm,
-    fontFamily: Fonts.semiBold,
-    color: Palette.primary,
-  },
-  bars: {
-    flexDirection: 'row',
-    gap: 6,
-  },
-  bar: {
-    flex: 1,
-    height: 6,
-    borderRadius: Radius.pill,
-  },
-  barDone: {
-    backgroundColor: Palette.primary,
-  },
-  barPending: {
-    backgroundColor: Palette.surfaceMuted,
-  },
-  icons: {
-    flexDirection: 'row',
-  },
-  iconSlot: {
-    flex: 1,
-    alignItems: 'center',
-  },
-});
+const useStyles = createStyles((t) => ({
+  flex: { flex: 1 },
+  wrap: { gap: t.space[10] },
+  labels: { flexDirection: 'row', alignItems: 'center', gap: t.space[12] },
+  segments: { flexDirection: 'row', gap: t.space[4] },
+  segment: { flex: 1, height: t.size.progressSegment, borderRadius: 2, backgroundColor: t.colors.surfaceSunken },
+  segmentDone: { backgroundColor: t.colors.primary },
+  icons: { flexDirection: 'row' },
+  iconCell: { flex: 1, alignItems: 'center' },
+}));

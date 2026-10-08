@@ -1,3 +1,4 @@
+import { formatShortDate } from '@/theme/format';
 import {
   DELIVERED_STATUSES,
   UNDELIVERED_STATUSES,
@@ -455,12 +456,6 @@ export function orderReference(id: string): string {
   return `#${head.slice(0, 4)}-${head.slice(4)}`;
 }
 
-const DATE_FORMAT: Intl.DateTimeFormatOptions = {
-  month: 'short',
-  day: 'numeric',
-  year: 'numeric',
-};
-
 const TIME_FORMAT: Intl.DateTimeFormatOptions = {
   hour: 'numeric',
   minute: '2-digit',
@@ -480,17 +475,17 @@ function toDate(value: string | null | undefined): Date | null {
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
-/** "Oct 12, 2025", or an em dash when the server sent nothing readable. */
+/** "29 Sept 2026" (design system §10), or an em dash when the server sent nothing readable. */
 export function formatOrderDate(value: string | null | undefined): string {
   const date = toDate(value);
-  return date ? date.toLocaleDateString(undefined, DATE_FORMAT) : '—';
+  return date ? formatShortDate(date) : '—';
 }
 
-/** "Oct 12, 2025 at 8:45 PM". */
+/** "29 Sept 2026 at 8:45 PM". */
 export function formatOrderDateTime(value: string | null | undefined): string {
   const date = toDate(value);
   if (!date) return '—';
-  const day = date.toLocaleDateString(undefined, DATE_FORMAT);
+  const day = formatShortDate(date);
   const time = date.toLocaleTimeString(undefined, TIME_FORMAT);
   return `${day} at ${time}`;
 }

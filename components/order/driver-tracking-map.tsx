@@ -1,6 +1,5 @@
-import { Palette, Radius, Shadows } from '@/constants/theme';
+import { Icon, lightTheme } from '@/theme';
 import type { Coordinates } from '@/services/api/driver-location-view-model';
-import { Bike, House, Store } from 'lucide-react-native';
 import { useEffect, useMemo, useRef, type ReactNode } from 'react';
 import { Platform, StyleSheet, View } from 'react-native';
 import MapView, {
@@ -119,21 +118,21 @@ export function DriverTrackingMap({
       pitchEnabled={false}
       rotateEnabled={false}
       loadingEnabled
-      loadingIndicatorColor={Palette.primary}
-      loadingBackgroundColor={Palette.background}
+      loadingIndicatorColor={lightTheme.colors.ink}
+      loadingBackgroundColor={lightTheme.colors.surfaceSunken}
     >
       {pickup ? (
         <Marker coordinate={pickup} anchor={{ x: 0.5, y: 0.5 }} title="Restaurant">
-          <Pin background={Palette.ink}>
-            <Store size={16} color={Palette.textInverse} />
+          <Pin background={lightTheme.colors.surface}>
+            <Icon name="store" size="small" />
           </Pin>
         </Marker>
       ) : null}
 
       {dropoff ? (
         <Marker coordinate={dropoff} anchor={{ x: 0.5, y: 0.5 }} title="Delivery address">
-          <Pin background={Palette.success}>
-            <House size={16} color={Palette.textInverse} />
+          <Pin background={lightTheme.colors.ink}>
+            <Icon name="home" size="small" color="onInk" />
           </Pin>
         </Marker>
       ) : null}
@@ -143,8 +142,8 @@ export function DriverTrackingMap({
           coordinate={driverRegion as unknown as LatLng}
           anchor={{ x: 0.5, y: 0.5 }} title="Your driver">
           <View style={[styles.driverHalo, driverStale && styles.stale]}>
-            <Pin background={Palette.primary} large>
-              <Bike size={20} color={Palette.textInverse} />
+            <Pin background={lightTheme.colors.ink} large>
+              <Icon name="delivery" color="onInk" />
             </Pin>
           </View>
         </MarkerAnimated>
@@ -163,7 +162,7 @@ function Pin({
   children: ReactNode;
 }) {
   return (
-    <View style={[styles.pin, large && styles.pinLarge, { backgroundColor: background }, Shadows.md]}>
+    <View style={[styles.pin, large && styles.pinLarge, { backgroundColor: background }, lightTheme.shadow.floatingButton]}>
       {children}
     </View>
   );
@@ -173,11 +172,11 @@ const styles = StyleSheet.create({
   pin: {
     width: 32,
     height: 32,
-    borderRadius: Radius.pill,
+    borderRadius: lightTheme.radius.pill,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 2,
-    borderColor: Palette.white,
+    borderColor: lightTheme.colors.surface,
   },
   pinLarge: {
     width: 40,
@@ -185,8 +184,9 @@ const styles = StyleSheet.create({
   },
   driverHalo: {
     padding: 6,
-    borderRadius: Radius.pill,
-    backgroundColor: 'rgba(245, 166, 35, 0.2)',
+    borderRadius: lightTheme.radius.pill,
+    // The orange halo is the signal: this pin is the one that moves.
+    backgroundColor: lightTheme.colors.pinHalo,
   },
   stale: {
     opacity: 0.45,

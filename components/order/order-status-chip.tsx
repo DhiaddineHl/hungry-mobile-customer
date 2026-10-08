@@ -1,101 +1,38 @@
-import { Fonts, FontSize, Palette, Radius, Spacing } from '@/constants/theme';
+import { Badge, StatusPill, type BadgeVariant } from '@/components/ds';
 import {
   orderStage,
   orderStatusLabel,
   type CustomerOrder,
   type OrderStage,
 } from '@/services/api/order-list-view-model';
-import { Bike, CircleAlert, CircleCheck, CircleX, Clock, PackageCheck } from 'lucide-react-native';
-import { StyleSheet, Text, View } from 'react-native';
+import type { IconName } from '@/theme';
 
-/**
- * The pill that says where an order stands, from its order AND delivery
- * status (`orderStage`).
- *
- * Four looks, one per kind of truth: delivered or closed (green), declined,
- * cancelled or not delivered (red), a status the app cannot read (neutral
- * grey), and in progress (brand — a bike once the driver has it). An unknown
- * status is never dressed as progress — see `orderStatusLabel`.
- */
+type StagedOrder = Pick<CustomerOrder, 'status' | 'deliveryStatus' | 'createdAt'>;
 
-type Tone = 'success' | 'danger' | 'muted' | 'brand';
-
-const STAGE_TONES: Record<OrderStage, Tone> = {
-  PLACED: 'brand',
-  CONFIRMED: 'brand',
-  PREPARING: 'brand',
-  READY: 'brand',
-  ON_THE_WAY: 'brand',
+/** In progress reads warm, delivered green, refused or failed red, closed neutral. */
+const VARIANT: Record<OrderStage, BadgeVariant> = {
+  PLACED: 'status',
+  CONFIRMED: 'status',
+  PREPARING: 'status',
+  READY: 'status',
+  ON_THE_WAY: 'status',
   DELIVERED: 'success',
-  COMPLETED: 'success',
   DELIVERY_FAILED: 'danger',
+  COMPLETED: 'neutral',
   REJECTED: 'danger',
   CANCELLED: 'danger',
-  UNKNOWN: 'muted',
+  UNKNOWN: 'neutral',
 };
 
-interface OrderStatusChipProps {
-  order: Pick<CustomerOrder, 'status' | 'deliveryStatus' | 'createdAt'>;
-  /** Uses the short label, for tight rows like the completed card. */
-  compact?: boolean;
+/** The order's status as a Badge (`Placed`, `Ready`…). */
+export function OrderStatusChip({ order }: { order: StagedOrder; compact?: boolean }) {
+  return <Badge label={orderStatusLabel(order, true)} variant={VARIANT[orderStage(order)]} />;
 }
 
-export function OrderStatusChip({ order, compact = false }: OrderStatusChipProps) {
+/** The outcome of a finished order as a StatusPill (`Delivered`, `Cancelled`). */
+export function OrderOutcomePill({ order }: { order: StagedOrder }) {
   const stage = orderStage(order);
-  const label = orderStatusLabel(order, compact);
-  const tone = STAGE_TONES[stage];
-
-  const Icon =
-    stage === 'DELIVERED'
-      ? PackageCheck
-      : stage === 'ON_THE_WAY'
-        ? Bike
-        : tone === 'success'
-          ? CircleCheck
-          : tone === 'danger'
-            ? CircleX
-            : tone === 'muted'
-              ? CircleAlert
-              : Clock;
-
-  const color = TONE_COLORS[tone];
-
-  return (
-    <View style={[styles.chip, { backgroundColor: TONE_BACKGROUNDS[tone] }]}>
-      <Icon size={14} color={color} />
-      <Text style={[styles.label, { color }]} numberOfLines={1}>
-        {label}
-      </Text>
-    </View>
-  );
+  const tone = stage === 'DELIVERED' ? 'success' : VARIANT[stage] === 'danger' ? 'danger' : 'neutral';
+  const icon: IconName = stage === 'DELIVERED' ? 'delivered' : tone === 'danger' ? 'error' : 'check';
+  return <StatusPill label={orderStatusLabel(order, true)} tone={tone} icon={icon} />;
 }
-
-const TONE_COLORS = {
-  success: Palette.success,
-  danger: Palette.danger,
-  muted: Palette.textMuted,
-  brand: Palette.primaryDark,
-} as const;
-
-const TONE_BACKGROUNDS = {
-  success: Palette.successSoft,
-  danger: Palette.dangerSoft,
-  muted: Palette.surfaceMuted,
-  brand: Palette.primarySoft,
-} as const;
-
-const styles = StyleSheet.create({
-  chip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    alignSelf: 'flex-start',
-    paddingHorizontal: Spacing.md,
-    paddingVertical: 6,
-    borderRadius: Radius.pill,
-  },
-  label: {
-    fontSize: FontSize.sm,
-    fontFamily: Fonts.semiBold,
-  },
-});

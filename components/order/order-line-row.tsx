@@ -1,91 +1,38 @@
-import { Fonts, FontSize, Palette, Radius, Spacing } from '@/constants/theme';
+import { View } from 'react-native';
+import { Text } from '@/components/ds';
 import type { CustomerOrderLine } from '@/services/api/order-list-view-model';
-import { StyleSheet, Text, View } from 'react-native';
+import { createStyles } from '@/theme';
 
-/**
- * One line of an order: what was ordered, how many, and — when it can be
- * priced — what it cost.
- *
- * The price does NOT come from the line: `OrderItem` has no price column. It is
- * passed in already resolved and already formatted by whoever knows where it
- * came from (`priceOrder`), so this component cannot accidentally present a
- * menu price as a receipt. A line with no price simply shows none, because the
- * alternative is inventing one.
- *
- * Still absent for the same reason as before: the addons the customer picked
- * (`OrderedProductAttributeDirectBasePopulator` never persists them) and the
- * per-line note (`comment` is per-order).
- */
-
-interface OrderLineRowProps {
+/** One ordered dish: `2× Crispy Chicken`, its line total and unit price. */
+export function OrderLineRow({
+  line,
+  total,
+  unit,
+}: {
   line: CustomerOrderLine;
-  /** `unit × quantity`, formatted. Omitted when the line cannot be priced. */
+  /** Formatted line total; absent when nothing prices the line. */
   total?: string;
-  /** The per-unit price, shown only when it is not simply the total again. */
+  /** Formatted unit price, shown under the name when the quantity is > 1. */
   unit?: string;
-}
-
-export function OrderLineRow({ line, total, unit }: OrderLineRowProps) {
+}) {
+  const styles = useStyles();
   return (
     <View style={styles.row}>
-      <View style={styles.quantityChip}>
-        <Text style={styles.quantityText}>{line.quantity}x</Text>
-      </View>
-
-      <View style={styles.nameGroup}>
-        <Text style={styles.name} numberOfLines={2}>
+      <View style={styles.flex}>
+        <Text variant="itemLabel" numberOfLines={2}>
+          <Text variant="itemTitle">{`${line.quantity}× `}</Text>
           {line.name}
         </Text>
-        {/* "2 × 9,68 DT" — the arithmetic behind the figure on the right. */}
         {unit && line.quantity > 1 ? (
-          <Text style={styles.unit}>
-            {line.quantity} × {unit}
-          </Text>
+          <Text variant="caption" color="inkMuted" tabular>{`${unit} each`}</Text>
         ) : null}
       </View>
-
-      {total ? <Text style={styles.total}>{total}</Text> : null}
+      {total ? <Text variant="price">{total}</Text> : null}
     </View>
   );
 }
 
-const styles = StyleSheet.create({
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.md,
-    paddingVertical: Spacing.md,
-  },
-  quantityChip: {
-    minWidth: 36,
-    paddingHorizontal: Spacing.sm,
-    paddingVertical: 4,
-    borderRadius: Radius.md,
-    backgroundColor: Palette.surfaceMuted,
-    alignItems: 'center',
-  },
-  quantityText: {
-    fontSize: FontSize.sm,
-    fontFamily: Fonts.semiBold,
-    color: Palette.textSecondary,
-  },
-  nameGroup: {
-    flex: 1,
-  },
-  name: {
-    fontSize: FontSize.lg,
-    fontFamily: Fonts.medium,
-    color: Palette.textPrimary,
-  },
-  unit: {
-    marginTop: 2,
-    fontSize: FontSize.sm,
-    fontFamily: Fonts.regular,
-    color: Palette.textMuted,
-  },
-  total: {
-    fontSize: FontSize.lg,
-    fontFamily: Fonts.semiBold,
-    color: Palette.textPrimary,
-  },
-});
+const useStyles = createStyles((t) => ({
+  flex: { flex: 1 },
+  row: { flexDirection: 'row', alignItems: 'flex-start', gap: t.space[12], paddingVertical: t.space[10] },
+}));

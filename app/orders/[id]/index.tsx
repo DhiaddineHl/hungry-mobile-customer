@@ -1,84 +1,69 @@
+import { useMemo } from 'react';
+import { RefreshControl, ScrollView, View } from 'react-native';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
-  DriverInfoCard,
-  OrderLineRow,
-  OrderProgress,
-  OrderStatusChip,
-} from "@/components/order";
-import { PressableScale } from "@/components/ui/pressable-scale";
-import { QueryEmpty, QueryError } from "@/components/ui/query-state";
-import { Fonts, FontSize, Palette, Radius, Spacing } from "@/constants/theme";
-import { useCustomerOrder } from "@/hooks/use-customer-orders";
-import { useOrderDelivery } from "@/hooks/use-order-delivery";
-import { useMenuUnitPrices } from "@/hooks/use-products";
-import { useRestaurant } from "@/hooks/use-restaurants";
+  Card,
+  InfoNote,
+  InfoRow,
+  PrimaryButton,
+  RestaurantGroupHeader,
+  Screen,
+  Separated,
+  Skeleton,
+  StateView,
+  SummaryLine,
+  Text,
+  TopBar,
+  Touchable,
+} from '@/components/ds';
+import { DriverInfoCard } from '@/components/order/driver-info-card';
+import { OrderLineRow } from '@/components/order/order-line-row';
+import { OrderProgress } from '@/components/order/order-progress';
+import { OrderStatusChip } from '@/components/order/order-status-chip';
+import { useCustomerOrder } from '@/hooks/use-customer-orders';
+import { useOrderDelivery } from '@/hooks/use-order-delivery';
+import { useMenuUnitPrices } from '@/hooks/use-products';
+import { useRestaurantImageSource } from '@/hooks/use-restaurant-image';
+import { useRestaurant } from '@/hooks/use-restaurants';
+import { isTrackable } from '@/services/api/driver-location-view-model';
 import {
   formatOrderDateTime,
   orderBucket,
   orderProgressStep,
   orderStatusLabel,
   withDeliveryStatus,
-} from "@/services/api/order-list-view-model";
-import { isTrackable } from "@/services/api/driver-location-view-model";
-import { priceOrder } from "@/services/api/order-price-view-model";
-import { formatDT } from "@/store/cart-store";
-import { useOrderPriceSnapshot } from "@/store/order-price-store";
-import { useLocalSearchParams, useRouter } from "expo-router";
-import {
-  ArrowLeft,
-  CalendarDays,
-  CreditCard,
-  RotateCcw,
-  Store,
-} from "lucide-react-native";
-import { useMemo } from "react";
-import {
-  ActivityIndicator,
-  RefreshControl,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-} from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+} from '@/services/api/order-list-view-model';
+import { priceOrder } from '@/services/api/order-price-view-model';
+import { formatDT } from '@/store/cart-store';
+import { useOrderPriceSnapshot } from '@/store/order-price-store';
+import { createStyles, useTheme } from '@/theme';
 
 /**
- * One order, read from `GET /orders/{id}` and polled while it is still in
- * progress.
+ * One order, read from `GET /orders/{id}` and polled while in progress.
  *
- * Read-only, like the list: status is the restaurant's, the delivery agent's
- * and the back-office's to move. The only action here is "Order again", which
- * opens the restaurant's menu — it does not re-submit anything, because a
- * create enqueues a real delivery.
+ * Read-only, like the list: the only action is "Order again", which opens the
+ * restaurant's menu — it does not re-submit anything, because a create
+ * enqueues a real delivery.
  *
  * Prices come from the order itself — line prices and the fees it was placed
- * with, as the backend recorded them at checkout. An order placed before that
- * falls back to the receipt this device kept, then to today's menu prices,
- * labelled as such. See `services/api/order-price-view-model.ts`.
- *
- * Still absent, because no source supplies them: a delivery ETA, and the addons
- * and per-line note that were sent at checkout. The payment line is the one this
- * app wrote into the order's `comment` — the only place a payment choice can be
- * recorded, since the backend has no payment concept at all.
+ * with. An older order falls back to the receipt this device kept, then to
+ * today's menu prices, labelled as such (`order-price-view-model.ts`).
  */
 export default function CustomerOrderDetailsScreen() {
+  const styles = useStyles();
+  const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
 
-  const {
-    order: baseOrder,
-    isLoading,
-    isRefetching,
-    isMissing,
-    error,
-    refetch,
-  } = useCustomerOrder(id);
+  const { order: baseOrder, isLoading, isRefetching, isMissing, error, refetch } = useCustomerOrder(id);
   const { data: restaurant } = useRestaurant(baseOrder?.restaurantId);
+  const imageSource = useRestaurantImageSource();
   const { delivery, status: deliveryStatus } = useOrderDelivery(baseOrder?.id);
 
-  // The order closes (`FINISHED`) at pickup — where it stands after that is
-  // the delivery's to say, so the two are read together (`orderStage`).
+  // The order closes (`FINISHED`) at pickup — after that it is the delivery's
+  // to say, so the two are read together (`orderStage`).
   const order = useMemo(
     () => (baseOrder ? withDeliveryStatus(baseOrder, deliveryStatus) : null),
     [baseOrder, deliveryStatus],
@@ -88,481 +73,203 @@ export default function CustomerOrderDetailsScreen() {
   // to the backend. Orders placed since carry their own price block.
   const snapshot = useOrderPriceSnapshot(order?.id);
 
-  // Only when neither the backend nor a receipt prices the lines: one product
-  // read per distinct dish, from today's menu. Empty otherwise.
+  // Only when neither the backend nor a receipt prices the lines.
   const needsMenuPrices =
-    !order?.charges?.itemized &&
-    !snapshot &&
-    (order?.lines ?? []).some((line) => line.unitPrice == null);
+    !order?.charges?.itemized && !snapshot && (order?.lines ?? []).some((line) => line.unitPrice == null);
   const productIds = useMemo(
     () =>
       needsMenuPrices
-        ? (order?.lines ?? [])
-            .map((line) => line.productId)
-            .filter((productId): productId is string => !!productId)
+        ? (order?.lines ?? []).map((line) => line.productId).filter((productId): productId is string => !!productId)
         : [],
     [order?.lines, needsMenuPrices],
   );
   const menuUnitPrices = useMenuUnitPrices(productIds);
 
   const pricing = useMemo(
-    () =>
-      priceOrder({
-        lines: order?.lines ?? [],
-        charges: order?.charges,
-        snapshot,
-        menuUnitPrices,
-      }),
+    () => priceOrder({ lines: order?.lines ?? [], charges: order?.charges, snapshot, menuUnitPrices }),
     [order?.lines, order?.charges, snapshot, menuUnitPrices],
   );
 
   if (isLoading) {
     return (
-      <View style={styles.container}>
-        <Header onBack={() => router.back()} insetTop={insets.top} />
-        <View style={styles.centered}>
-          <ActivityIndicator color={Palette.primary} />
+      <Screen>
+        <TopBar title="Order" onBack={() => router.back()} />
+        <View style={styles.content}>
+          <Skeleton height={72} radius={20} />
+          <Skeleton height={110} radius={20} />
+          <Skeleton height={180} radius={20} />
         </View>
-      </View>
+      </Screen>
     );
   }
 
-  if (error) {
+  if (error || !order || isMissing) {
     return (
-      <View style={styles.container}>
-        <Header onBack={() => router.back()} insetTop={insets.top} />
-        <QueryError error={error} onRetry={refetch} />
-      </View>
+      <Screen>
+        <TopBar title="Order" onBack={() => router.back()} />
+        {error ? (
+          <StateView
+            icon="offline"
+            title="Couldn't load this order"
+            body="Check your connection, then try again."
+            actions={[{ label: 'Try again', onPress: () => refetch() }]}
+          />
+        ) : (
+          <StateView icon="noResults" title="Order not found" body="This order is no longer available." />
+        )}
+      </Screen>
     );
   }
 
-  if (!order || isMissing) {
-    return (
-      <View style={styles.container}>
-        <Header onBack={() => router.back()} insetTop={insets.top} />
-        <QueryEmpty
-          title="Order not found"
-          body="The server didn’t return this order. It may have been removed."
-        />
-      </View>
-    );
-  }
-
-  const isActive = orderBucket(order) === "active";
+  const isActive = orderBucket(order) === 'active';
+  const trackable = isTrackable(delivery?.status);
 
   return (
-    <View style={styles.container}>
-      <Header onBack={() => router.back()} insetTop={insets.top} />
-
+    <Screen>
+      <TopBar title={`Order ${order.reference}`} onBack={() => router.back()} />
       <ScrollView
-        style={styles.scrollView}
+        style={styles.flex}
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.scrollContent}
-        refreshControl={
-          <RefreshControl
-            refreshing={isRefetching}
-            onRefresh={refetch}
-            tintColor={Palette.primary}
-            colors={[Palette.primary]}
-          />
-        }
+        contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 32 }]}
+        refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={refetch} tintColor={colors.ink} />}
       >
-        <View style={styles.card}>
-          <Text style={styles.orderReference}>Order {order.reference}</Text>
-          <View style={styles.dateRow}>
-            <CalendarDays size={14} color={Palette.textMuted} />
-            <Text style={styles.dateText}>
-              {formatOrderDateTime(order.createdAt)}
-            </Text>
-          </View>
-          <OrderStatusChip order={order} />
-          <View style={styles.restaurantRow}>
-            <Store size={16} color={Palette.textSecondary} />
-            <Text style={styles.restaurantName}>
-              {restaurant?.name ?? order.restaurantName}
-            </Text>
-          </View>
-        </View>
+        <Card padded>
+          <RestaurantGroupHeader
+            logo={restaurant?.logoUrl ? imageSource(restaurant.logoUrl) : undefined}
+            name={restaurant?.name ?? order.restaurantName}
+            meta={formatOrderDateTime(order.createdAt)}
+            trailing={<OrderStatusChip order={order} />}
+            onPress={order.restaurantId ? () => router.push(`/restaurant/${order.restaurantId}`) : undefined}
+          />
+        </Card>
 
         {isActive ? (
-          <View style={styles.card}>
-            <OrderProgress
-              step={orderProgressStep(order)}
-              statusLabel={orderStatusLabel(order)}
-            />
-            <Text style={styles.footnote}>
-              Updates as the restaurant and your delivery agent move the order
-              along. Pull down to refresh.
+          <Card padded style={styles.gap}>
+            <OrderProgress step={orderProgressStep(order)} statusLabel={orderStatusLabel(order)} />
+            <Text variant="caption" color="inkMuted">
+              Updates as the restaurant and your driver move the order along. Pull down to refresh.
             </Text>
-          </View>
+          </Card>
         ) : null}
 
-        {isActive && order.status !== "CREATED" ? (
-          isTrackable(delivery?.status) ? (
+        {isActive && order.status !== 'CREATED' ? (
+          trackable ? (
             // From the accept to the drop-off the driver can be followed live.
-            <PressableScale
-              style={styles.card}
+            <Touchable
               onPress={() => router.push(`/orders/${order.id}/track`)}
-              scaleTo={0.98}
-              haptic
+              scaleTo={0.99}
               accessibilityLabel="Track your driver on the map"
               accessibilityHint="Opens a live map of your driver"
             >
-              <DriverInfoCard
-                status={delivery?.status ?? null}
-                driverName={delivery?.driverName ?? null}
-                driverRating={delivery?.driverRating ?? null}
-                trackable
-              />
-            </PressableScale>
+              <Card padded>
+                <DriverInfoCard
+                  status={delivery?.status ?? null}
+                  driverName={delivery?.driverName ?? null}
+                  driverRating={delivery?.driverRating ?? null}
+                  trackable
+                />
+              </Card>
+            </Touchable>
           ) : (
-            <View style={styles.card}>
+            <Card padded>
               <DriverInfoCard
                 status={delivery?.status ?? null}
                 driverName={delivery?.driverName ?? null}
                 driverRating={delivery?.driverRating ?? null}
               />
-            </View>
+            </Card>
           )
         ) : null}
 
-        <View style={styles.card}>
-          <Text style={styles.sectionTitle}>Items</Text>
+        <Card padded style={styles.gap}>
+          <Text variant="sectionTitle" accessibilityRole="header">
+            Items
+          </Text>
           {order.hasLineDetail ? (
-            order.lines.map((line, index) => {
-              const price = pricing.byLine.get(line.id);
-              return (
-                <View key={line.id}>
-                  {index > 0 ? <View style={styles.rowDivider} /> : null}
+            <Separated>
+              {order.lines.map((line) => {
+                const price = pricing.byLine.get(line.id);
+                return (
                   <OrderLineRow
+                    key={line.id}
                     line={line}
-                    total={
-                      price?.total != null ? formatDT(price.total) : undefined
-                    }
-                    unit={
-                      price?.unit != null ? formatDT(price.unit) : undefined
-                    }
+                    total={price?.total != null ? formatDT(price.total) : undefined}
+                    unit={price?.unit != null ? formatDT(price.unit) : undefined}
                   />
-                </View>
-              );
-            })
+                );
+              })}
+            </Separated>
           ) : (
-            /*
-              An empty list is NOT an empty order: the backend never sets the
-              `order_item.order_id` back-reference, so the items it accepted
-              do not come back on a re-read (plan §2.2).
-            */
-            <Text style={styles.noDetail}>
-              The server didn’t return the items for this order. The restaurant
-              has them.
+            // An empty list is NOT an empty order: the backend never sets the
+            // `order_item.order_id` back-reference on a re-read.
+            <Text variant="meta" color="inkMuted">
+              The items for this order aren't available. The restaurant has them.
             </Text>
           )}
 
-          {/*
-            What the order cost, fees included — the backend's own price block,
-            or for an older order the receipt this device kept. Shown even when
-            the item list came back empty (plan §2.2).
-          */}
           {pricing.totals ? (
-            <>
-              <View style={styles.rowDivider} />
-              <View style={styles.priceRow}>
-                <Text style={styles.priceLabel}>Subtotal</Text>
-                <Text style={styles.priceValue}>
-                  {formatDT(pricing.totals.subtotal)}
-                </Text>
-              </View>
+            <View style={styles.totals}>
+              <View style={styles.rule} />
+              <SummaryLine label="Subtotal" value={formatDT(pricing.totals.subtotal)} />
               {pricing.totals.discount > 0 ? (
-                <View style={styles.priceRow}>
-                  <Text style={styles.priceLabel}>Discount</Text>
-                  <Text style={styles.priceValue}>
-                    −{formatDT(pricing.totals.discount)}
-                  </Text>
-                </View>
+                <SummaryLine label="Discount" value={`−${formatDT(pricing.totals.discount)}`} valueColor="success" />
               ) : null}
-              <View style={styles.priceRow}>
-                <Text style={styles.priceLabel}>Service Fee</Text>
-                <Text style={styles.priceValue}>
-                  {formatDT(pricing.totals.serviceFee)}
-                </Text>
-              </View>
-              <View style={styles.priceRow}>
-                <Text style={styles.priceLabel}>Delivery Fee</Text>
-                <Text style={styles.priceValue}>
-                  {pricing.totals.deliveryFee === 0
-                    ? "Free"
-                    : formatDT(pricing.totals.deliveryFee)}
-                </Text>
-              </View>
+              <SummaryLine label="Service" value={formatDT(pricing.totals.serviceFee)} />
+              <SummaryLine
+                label="Delivery"
+                value={pricing.totals.deliveryFee === 0 ? 'Free' : formatDT(pricing.totals.deliveryFee)}
+                valueColor={pricing.totals.deliveryFee === 0 ? 'success' : undefined}
+              />
               {pricing.totals.additionalFees > 0 ? (
-                <View style={styles.priceRow}>
-                  <Text style={styles.priceLabel}>Additional Fees</Text>
-                  <Text style={styles.priceValue}>
-                    {formatDT(pricing.totals.additionalFees)}
-                  </Text>
-                </View>
+                <SummaryLine label="Additional fees" value={formatDT(pricing.totals.additionalFees)} />
               ) : null}
-              <View style={styles.rowDivider} />
-              <View style={styles.priceRow}>
-                <Text style={styles.totalLabel}>Total</Text>
-                <Text style={styles.totalValue}>
-                  {formatDT(pricing.totals.total)}
-                </Text>
-              </View>
-            </>
+              <View style={styles.rule} />
+              <SummaryLine label="Total" value={formatDT(pricing.totals.total)} total />
+            </View>
           ) : null}
 
-          {/*
-            An older order with no receipt — these are the CURRENT prices of
-            the same dishes, with no fees, which is not the same claim. Say so
-            rather than letting them read as what was charged.
-          */}
-          {pricing.source === "menu" ? (
+          {/* Today's prices for an older order with no receipt — not what was
+              charged, so it says so. */}
+          {pricing.source === 'menu' ? (
             <>
               {pricing.itemsTotal != null ? (
-                <>
-                  <View style={styles.rowDivider} />
-                  <View style={styles.priceRow}>
-                    <Text style={styles.totalLabel}>Items total</Text>
-                    <Text style={styles.totalValue}>
-                      {formatDT(pricing.itemsTotal)}
-                    </Text>
-                  </View>
-                </>
+                <View style={styles.totals}>
+                  <View style={styles.rule} />
+                  <SummaryLine label="Items total" value={formatDT(pricing.itemsTotal)} total />
+                </View>
               ) : null}
-              <Text style={styles.footnote}>
-                Today’s menu prices, not a receipt — this order was placed
-                before prices were recorded with orders.
-              </Text>
+              <InfoNote>Today's menu prices, not a receipt — this order was placed before prices were recorded with orders.</InfoNote>
             </>
           ) : null}
-        </View>
+        </Card>
 
-        {order.paymentLabel || order.note ? (
-          <View style={styles.card}>
-            {order.paymentLabel ? (
-              <>
-                <Text style={styles.blockLabel}>PAYMENT METHOD</Text>
-                <View style={styles.paymentRow}>
-                  <View style={styles.paymentIcon}>
-                    <CreditCard size={18} color={Palette.textPrimary} />
-                  </View>
-                  <Text style={styles.blockValue}>{order.paymentLabel}</Text>
-                </View>
-              </>
-            ) : null}
-
-            {order.note ? (
-              <>
-                {order.paymentLabel ? <View style={styles.rowDivider} /> : null}
-                <Text style={styles.blockLabel}>NOTE</Text>
-                <Text style={styles.blockValue}>{order.note}</Text>
-              </>
-            ) : null}
-          </View>
+        {order.paymentLabel || order.note || order.dropoffAddress ? (
+          <Card>
+            <Separated inset={66}>
+              {order.dropoffAddress ? <InfoRow icon="pin" caption="Delivering to" value={order.dropoffAddress} /> : null}
+              {order.paymentLabel ? <InfoRow icon="cash" caption="Payment" value={order.paymentLabel} /> : null}
+              {order.note ? <InfoRow icon="terms" caption="Note" value={order.note} /> : null}
+            </Separated>
+          </Card>
         ) : null}
 
-        <View
-          style={[
-            styles.actions,
-            { paddingBottom: insets.bottom + Spacing.xl },
-          ]}
-        >
-          {order.restaurantId ? (
-            <PressableScale
-              style={styles.action}
-              onPress={() => router.push(`/restaurant/${order.restaurantId}`)}
-              scaleTo={0.97}
-              haptic
-              accessibilityLabel={`Order again from ${order.restaurantName}`}
-              accessibilityHint="Opens the restaurant’s menu"
-            >
-              <RotateCcw size={18} color={Palette.textInverse} />
-              <Text style={styles.actionText}>Order again</Text>
-            </PressableScale>
-          ) : null}
-        </View>
+        {!isActive && order.restaurantId ? (
+          <PrimaryButton
+            label="Order again"
+            onPress={() => router.push(`/restaurant/${order.restaurantId}`)}
+            accessibilityLabel={`Order again from ${order.restaurantName}`}
+            accessibilityHint="Opens the restaurant's menu"
+          />
+        ) : null}
       </ScrollView>
-    </View>
+    </Screen>
   );
 }
 
-function Header({
-  onBack,
-  insetTop,
-}: {
-  onBack: () => void;
-  insetTop: number;
-}) {
-  return (
-    <View style={[styles.header, { paddingTop: insetTop + Spacing.sm }]}>
-      <TouchableOpacity onPress={onBack} hitSlop={8}>
-        <ArrowLeft size={24} color={Palette.ink} />
-      </TouchableOpacity>
-      <Text style={styles.headerTitle}>Order Details</Text>
-      <View style={styles.headerSpacer} />
-    </View>
-  );
-}
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: Palette.background,
-  },
-  centered: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: Spacing.xl,
-    paddingBottom: Spacing.lg,
-    borderBottomWidth: 1,
-    borderBottomColor: Palette.borderSubtle,
-  },
-  headerTitle: {
-    fontSize: FontSize.xl,
-    fontFamily: Fonts.semiBold,
-    color: Palette.ink,
-  },
-  headerSpacer: {
-    width: 24,
-  },
-  scrollView: {
-    flex: 1,
-  },
-  scrollContent: {
-    paddingTop: Spacing.lg,
-    gap: Spacing.lg,
-  },
-  card: {
-    marginHorizontal: Spacing.xl,
-    padding: Spacing.lg,
-    gap: Spacing.sm,
-    backgroundColor: Palette.surfaceAlt,
-    borderRadius: Radius.xl,
-  },
-  orderReference: {
-    fontSize: FontSize.xxl,
-    fontFamily: Fonts.bold,
-    color: Palette.textPrimary,
-  },
-  dateRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-  },
-  dateText: {
-    fontSize: FontSize.md,
-    fontFamily: Fonts.regular,
-    color: Palette.textMuted,
-  },
-  restaurantRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: Spacing.sm,
-    marginTop: Spacing.xs,
-  },
-  restaurantName: {
-    fontSize: FontSize.md,
-    fontFamily: Fonts.medium,
-    color: Palette.textSecondary,
-  },
-  footnote: {
-    fontSize: FontSize.sm,
-    fontFamily: Fonts.regular,
-    color: Palette.textMuted,
-    lineHeight: 18,
-    marginTop: Spacing.xs,
-  },
-  sectionTitle: {
-    fontSize: FontSize.xl,
-    fontFamily: Fonts.bold,
-    color: Palette.textPrimary,
-    marginBottom: Spacing.xs,
-  },
-  rowDivider: {
-    height: 1,
-    backgroundColor: Palette.border,
-  },
-  noDetail: {
-    fontSize: FontSize.md,
-    fontFamily: Fonts.regular,
-    color: Palette.textMuted,
-    lineHeight: 20,
-  },
-  priceRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingVertical: 2,
-  },
-  priceLabel: {
-    fontSize: FontSize.md,
-    fontFamily: Fonts.regular,
-    color: Palette.textSecondary,
-  },
-  priceValue: {
-    fontSize: FontSize.md,
-    fontFamily: Fonts.medium,
-    color: Palette.textPrimary,
-  },
-  totalLabel: {
-    fontSize: FontSize.md,
-    fontFamily: Fonts.semiBold,
-    color: Palette.textPrimary,
-  },
-  totalValue: {
-    fontSize: FontSize.lg,
-    fontFamily: Fonts.bold,
-    color: Palette.textPrimary,
-  },
-  blockLabel: {
-    fontSize: FontSize.xs,
-    fontFamily: Fonts.semiBold,
-    letterSpacing: 1,
-    color: Palette.textMuted,
-  },
-  blockValue: {
-    fontSize: FontSize.md,
-    fontFamily: Fonts.medium,
-    color: Palette.textPrimary,
-  },
-  paymentRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: Spacing.md,
-  },
-  paymentIcon: {
-    width: 40,
-    height: 32,
-    borderRadius: Radius.sm,
-    backgroundColor: Palette.surface,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: Palette.borderSubtle,
-  },
-  actions: {
-    paddingHorizontal: Spacing.xl,
-    gap: Spacing.sm,
-  },
-  action: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: Spacing.sm,
-    paddingVertical: Spacing.lg,
-    borderRadius: Radius.pill,
-    backgroundColor: Palette.ink,
-  },
-  actionText: {
-    fontSize: FontSize.lg,
-    fontFamily: Fonts.semiBold,
-    color: Palette.textInverse,
-  },
-});
+const useStyles = createStyles((t) => ({
+  flex: { flex: 1 },
+  content: { paddingHorizontal: t.screenPadding, paddingTop: t.space[12], gap: t.space[14] },
+  gap: { gap: t.space[12] },
+  totals: { gap: t.space[8] },
+  rule: { height: 1, backgroundColor: t.colors.divider },
+}));
