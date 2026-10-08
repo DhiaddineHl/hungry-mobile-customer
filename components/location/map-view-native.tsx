@@ -1,5 +1,5 @@
-import { RefObject, useRef } from 'react';
-import { View, Text, StyleSheet, Platform } from 'react-native';
+import { RefObject, useRef, useState } from 'react';
+import { View, StyleSheet, Platform } from 'react-native';
 import MapView, {
   MapPressEvent,
   PROVIDER_DEFAULT,
@@ -12,8 +12,8 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 import Constants, { ExecutionEnvironment } from 'expo-constants';
-import { MapPinned } from 'lucide-react-native';
-import { Duration, Fonts, FontSize, Palette, Radius, Shadows, Spacing } from '@/constants/theme';
+import { MapPin, PIN_TIP_OFFSET, StateView } from '@/components/ds';
+import { createStyles, useTheme } from '@/theme';
 
 const IS_EXPO_GO = Constants.executionEnvironment === ExecutionEnvironment.StoreClient;
 
@@ -38,14 +38,16 @@ interface NativeMapViewProps {
    * screen is not where that prompt belongs.
    */
   showsUserLocation?: boolean;
+  /** Shown under the street on the pin label (JetBrains Mono). */
+  coords?: { latitude: number; longitude: number } | null;
+  /** Searching halo while the device position is being found (S-L1). */
+  locating?: boolean;
+  /** Hide the label bubble (small embedded maps). */
+  hideLabel?: boolean;
 }
 
 // The pin's tip must sit on the map's visual center: shift the whole column
 // up by half its height minus half the dot, so the dot lands on the center.
-const PIN_DOT = 12;
-const PIN_STEM = 12;
-const PIN_BUBBLE = 36;
-const PIN_ANCHOR_OFFSET = -((PIN_BUBBLE + PIN_STEM + PIN_DOT) / 2 - PIN_DOT / 2);
 const PIN_LIFT = 10;
 
 /**
@@ -63,9 +65,15 @@ export function NativeMapView({
   onRegionChangeComplete,
   onPress,
   showsUserLocation = true,
+  coords,
+  locating,
+  hideLabel,
 }: NativeMapViewProps) {
+  const styles = useStyles();
+  const { colors } = useTheme();
   const isMovingRef = useRef(false);
   const lift = useSharedValue(0);
+  const [moving, setMoving] = useState(false);
 
   // Android maps are always Google-backed, and since SDK 53 Expo Go ships
   // without a Google Maps key — the map renders as a black rectangle there.
@@ -76,31 +84,31 @@ export function NativeMapView({
   if (isUnsupported) {
     return (
       <View style={styles.unsupported}>
-        <MapPinned size={48} color={Palette.textMuted} strokeWidth={1.5} />
-        <Text style={styles.unsupportedTitle}>The map needs a development build</Text>
-        <Text style={styles.unsupportedText}>
-          Google Maps can’t render inside Expo Go on Android. Build the app once with{' '}
-          <Text style={styles.unsupportedCommand}>npx expo run:android</Text> and open that build
-          instead.
-        </Text>
+        <StateView
+          icon="pin"
+          title="The map needs a development build"
+          body="Google Maps can't render inside Expo Go on Android. Build the app once with npx expo run:android and open that build instead."
+        />
       </View>
     );
   }
 
   const pinStyle = useAnimatedStyle(() => ({
-    transform: [{ translateY: PIN_ANCHOR_OFFSET - PIN_LIFT * lift.get() }],
+    transform: [{ translateY: PIN_TIP_OFFSET - PIN_LIFT * lift.get() }],
   }));
 
   const handleRegionChange = () => {
     // Fires every frame of a camera move — only animate on the first one.
     if (isMovingRef.current) return;
     isMovingRef.current = true;
-    lift.set(withTiming(1, { duration: Duration.fast }));
+    setMoving(true);
+    lift.set(withTiming(1, { duration: 150 }));
   };
 
   const handleRegionChangeComplete = (region: Region) => {
     isMovingRef.current = false;
-    lift.set(withTiming(0, { duration: Duration.fast }));
+    setMoving(false);
+    lift.set(withTiming(0, { duration: 150 }));
     onRegionChangeComplete(region);
   };
 
@@ -131,53 +139,26 @@ export function NativeMapView({
         pitchEnabled={false}
         rotateEnabled={false}
         loadingEnabled
-        loadingIndicatorColor={Palette.primary}
-        loadingBackgroundColor={Palette.background}
+        loadingIndicatorColor={colors.ink}
+        loadingBackgroundColor={colors.surfaceSunken}
       />
       <View style={styles.pinOverlay} pointerEvents="none">
-        <Animated.View style={[styles.pin, pinStyle]}>
-          <View style={[styles.markerBubble, Shadows.md]}>
-            <Text style={styles.markerText} numberOfLines={1}>
-              {isLoadingAddress || !addressText ? 'Locating…' : addressText}
-            </Text>
-          </View>
-          <View style={styles.markerStem} />
-          <View style={styles.markerDot} />
+        <Animated.View style={pinStyle}>
+          <MapPin
+            choosing={moving}
+            halo={locating}
+            label={hideLabel || moving ? null : isLoadingAddress || !addressText ? 'Finding the address…' : addressText}
+            coords={hideLabel || moving || isLoadingAddress ? null : coords}
+          />
         </Animated.View>
       </View>
     </View>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  unsupported: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: Spacing.md,
-    paddingHorizontal: Spacing.xxxl,
-    backgroundColor: Palette.background,
-  },
-  unsupportedTitle: {
-    fontSize: FontSize.lg,
-    fontFamily: Fonts.semiBold,
-    color: Palette.ink,
-    textAlign: 'center',
-  },
-  unsupportedText: {
-    fontSize: FontSize.md,
-    fontFamily: Fonts.regular,
-    color: Palette.textMuted,
-    textAlign: 'center',
-    lineHeight: 22,
-  },
-  unsupportedCommand: {
-    fontFamily: Fonts.semiBold,
-    color: Palette.ink,
-  },
+const useStyles = createStyles((t) => ({
+  container: { flex: 1, backgroundColor: t.colors.surfaceSunken },
+  unsupported: { flex: 1, backgroundColor: t.colors.background },
   pinOverlay: {
     position: 'absolute',
     top: 0,
@@ -187,33 +168,4 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  pin: {
-    alignItems: 'center',
-  },
-  markerBubble: {
-    height: PIN_BUBBLE,
-    justifyContent: 'center',
-    backgroundColor: Palette.ink,
-    paddingHorizontal: 12,
-    borderRadius: Radius.pill,
-    maxWidth: 220,
-  },
-  markerText: {
-    color: Palette.textInverse,
-    fontSize: FontSize.sm,
-    fontFamily: Fonts.medium,
-  },
-  markerStem: {
-    width: 2,
-    height: PIN_STEM,
-    backgroundColor: Palette.ink,
-  },
-  markerDot: {
-    width: PIN_DOT,
-    height: PIN_DOT,
-    borderRadius: PIN_DOT / 2,
-    backgroundColor: Palette.ink,
-    borderWidth: 2,
-    borderColor: Palette.textInverse,
-  },
-});
+}));

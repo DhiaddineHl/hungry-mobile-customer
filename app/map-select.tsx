@@ -1,24 +1,26 @@
 import { useEffect, useRef, useState } from 'react';
-import {
-  ActivityIndicator,
-  Keyboard,
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  TextInput,
-  Platform,
-} from 'react-native';
+import { Keyboard, Platform, ScrollView, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { ArrowLeft, Search, Crosshair, MapPin } from 'lucide-react-native';
 import * as Location from 'expo-location';
 import type MapView from 'react-native-maps';
 import type { Region } from 'react-native-maps';
-import { Fonts } from '@/constants/theme';
-import { AddressType, LocationCoords } from '@/types/location';
-import { AddressTypeSelector } from '@/components/location/address-type-selector';
+import {
+  ErrorBanner,
+  IconWell,
+  LocateButton,
+  MapSearchPill,
+  MapSheet,
+  PrimaryButton,
+  Separated,
+  Skeleton,
+  Spinner,
+  Text,
+  Touchable,
+  TypeTile,
+} from '@/components/ds';
 import { MapPlaceholder } from '@/components/location/map-placeholder';
+import { AddressType, LocationCoords } from '@/types/location';
 import {
   PlaceSuggestion,
   autocompletePlaces,
@@ -26,6 +28,7 @@ import {
   newPlacesSessionToken,
 } from '@/services/api/places-service';
 import { describeCoordinates } from '@/services/location/delivery-point';
+import { createStyles, type IconName } from '@/theme';
 
 const DEFAULT_REGION: Region = {
   latitude: 35.8256,
@@ -34,9 +37,52 @@ const DEFAULT_REGION: Region = {
   longitudeDelta: 0.01,
 };
 
+const ADDRESS_TYPES: { type: AddressType; label: string; icon: IconName }[] = [
+  { type: 'apartment', label: 'Apartment', icon: 'apartment' },
+  { type: 'office', label: 'Office', icon: 'office' },
+  { type: 'house', label: 'House', icon: 'house' },
+  { type: 'other', label: 'Other', icon: 'pin' },
+];
+
 type BottomSheetState = 'deliver' | 'address-type';
 
+/** "Yasser Arafat Avenue, Sahloul, Sousse, Tunisia" → title + the rest. */
+function splitAddress(text: string): { title: string; sub: string } {
+  const parts = text
+    .split(',')
+    .map((p) => p.trim())
+    .filter(Boolean);
+  if (parts.length <= 2) return { title: parts.join(', '), sub: '' };
+  return { title: parts.slice(0, 2).join(', '), sub: parts.slice(2).join(', ') };
+}
+
+/** The suggestion's primary text with the typed letters in bold (L2). */
+function HighlightedMatch({ text, query }: { text: string; query: string }) {
+  const q = query.trim();
+  const at = q ? text.toLowerCase().indexOf(q.toLowerCase()) : -1;
+  if (at < 0) {
+    return (
+      <Text variant="itemLabel" numberOfLines={1}>
+        {text}
+      </Text>
+    );
+  }
+  return (
+    <Text variant="itemLabel" numberOfLines={1}>
+      {text.slice(0, at)}
+      <Text variant="itemTitle">{text.slice(at, at + q.length)}</Text>
+      {text.slice(at + q.length)}
+    </Text>
+  );
+}
+
+/**
+ * L1–L3 — drop the pin, search for a place, say what kind of place it is.
+ * The map is the selection: whatever it settles on under the fixed centre pin
+ * is reverse-geocoded into the sheet.
+ */
 export default function MapSelectScreen() {
+  const styles = useStyles();
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const mapRef = useRef<MapView | null>(null);
@@ -62,6 +108,10 @@ export default function MapSelectScreen() {
   const [addressText, setAddressText] = useState('');
   const [isLoadingAddress, setIsLoadingAddress] = useState(false);
   const [suggestions, setSuggestions] = useState<PlaceSuggestion[]>([]);
+  // L2: the search takes over the screen while the pill is focused.
+  const [searchFocused, setSearchFocused] = useState(false);
+  // L3: the tile is chosen first, then confirmed with Continue.
+  const [selectedType, setSelectedType] = useState<AddressType | null>(null);
 
   // Reverse geocodes race when the user moves the map quickly — only the
   // latest request may write its result.
@@ -79,8 +129,7 @@ export default function MapSelectScreen() {
     setIsLoadingAddress(true);
     // Naming and the coordinate fallback live in `describeCoordinates`, which
     // the checkout card resolves its own dragged points through — one answer to
-    // "what is this point called" for both maps. The race guard stays here:
-    // only this screen knows which request is still the current one.
+    // "what is this point called" for both maps.
     const described = await describeCoordinates({ latitude: lat, longitude: lng });
     if (requestId !== geocodeIdRef.current) return;
     setAddressText(described);
@@ -89,7 +138,7 @@ export default function MapSelectScreen() {
 
   // Resolve the starting point: the default region's address right away, and
   // — when permission was already granted on the previous screen — jump to
-  // the user's position. Never prompts; that stays behind the crosshair button.
+  // the user's position. Never prompts; that stays behind the locate button.
   useEffect(() => {
     if (Platform.OS === 'web') return;
     reverseGeocode(DEFAULT_REGION.latitude, DEFAULT_REGION.longitude);
@@ -138,8 +187,21 @@ export default function MapSelectScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchQuery]);
 
+  const animateTo = (latitude: number, longitude: number) => {
+    mapRef.current?.animateToRegion(
+      {
+        latitude,
+        longitude,
+        latitudeDelta: DEFAULT_REGION.latitudeDelta,
+        longitudeDelta: DEFAULT_REGION.longitudeDelta,
+      },
+      400,
+    );
+  };
+
   const handleSelectSuggestion = async (suggestion: PlaceSuggestion) => {
     Keyboard.dismiss();
+    setSearchFocused(false);
     suppressAutocompleteRef.current = true;
     setSearchQuery(suggestion.description);
     setSuggestions([]);
@@ -152,25 +214,13 @@ export default function MapSelectScreen() {
       const coords = await getPlaceLocation(suggestion.placeId, sessionToken ?? undefined);
       animateTo(coords.latitude, coords.longitude);
     } catch {
-      setHint('Could not load that place. Try another result.');
+      setHint("Couldn't load that place. Try another result.");
     } finally {
       setIsSearching(false);
     }
   };
 
-  const animateTo = (latitude: number, longitude: number) => {
-    mapRef.current?.animateToRegion(
-      {
-        latitude,
-        longitude,
-        latitudeDelta: DEFAULT_REGION.latitudeDelta,
-        longitudeDelta: DEFAULT_REGION.longitudeDelta,
-      },
-      400
-    );
-  };
-
-  // The map settled (drag, tap, or animation) — the center is the selection.
+  // The map settled (drag, tap, or animation) — the centre is the selection.
   const handleRegionChangeComplete = (region: Region) => {
     setSelectedCoords({ latitude: region.latitude, longitude: region.longitude });
     reverseGeocode(region.latitude, region.longitude);
@@ -192,6 +242,8 @@ export default function MapSelectScreen() {
         setHint(`No results for "${query}". Try a street or city name.`);
         return;
       }
+      Keyboard.dismiss();
+      setSearchFocused(false);
       animateTo(results[0].latitude, results[0].longitude);
     } catch {
       setHint('Search failed. Check your connection and try again.');
@@ -207,7 +259,7 @@ export default function MapSelectScreen() {
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') {
-        setHint('Location permission denied — search or drag the map instead.');
+        setHint('Location access is off. Search or move the map instead.');
         return;
       }
       const location = await Location.getCurrentPositionAsync({
@@ -215,7 +267,7 @@ export default function MapSelectScreen() {
       });
       animateTo(location.coords.latitude, location.coords.longitude);
     } catch {
-      setHint('Could not get your location. Try again.');
+      setHint("Couldn't find your location. Try again.");
     } finally {
       setIsLocating(false);
     }
@@ -251,17 +303,18 @@ export default function MapSelectScreen() {
   };
 
   const handleBack = () => {
-    if (suggestions.length > 0) {
+    if (searchFocused || suggestions.length > 0) {
+      Keyboard.dismiss();
       setSuggestions([]);
+      setSearchFocused(false);
     } else if (bottomSheet === 'address-type') {
       setBottomSheet('deliver');
     } else if (router.canGoBack()) {
       router.back();
     } else {
       // Reached by a `replace` with nothing beneath it — the profile-completion
-      // screen hands over that way, because going back to a form whose record
-      // is already created makes no sense. Fall back to the address
-      // onboarding's own entry point rather than leaving a dead button.
+      // screen hands over that way. Fall back to the address onboarding's own
+      // entry point rather than leaving a dead button.
       router.replace('/location');
     }
   };
@@ -278,242 +331,182 @@ export default function MapSelectScreen() {
         initialRegion={DEFAULT_REGION}
         addressText={addressText}
         isLoadingAddress={isLoadingAddress}
+        coords={selectedCoords}
+        locating={isLocating}
         onRegionChangeComplete={handleRegionChangeComplete}
       />
     );
   };
 
+  const searching = searchFocused || suggestions.length > 0;
+  const { title, sub } = splitAddress(addressText);
+  const pillTop = insets.top + 8;
+
   return (
     <View style={styles.container}>
       {renderMap()}
 
-      <View style={[styles.topOverlay, { top: insets.top + 12 }]}>
-        <View style={styles.searchBar}>
-          <TouchableOpacity style={styles.backButton} onPress={handleBack}>
-            <ArrowLeft size={18} color="#1A2B3D" />
-          </TouchableOpacity>
-          <TextInput
-            style={styles.searchInput}
-            placeholder="Search for location"
-            placeholderTextColor="#AAAAAA"
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-            onSubmitEditing={handleSearch}
-            returnKeyType="search"
-            autoCorrect={false}
-          />
-          <TouchableOpacity style={styles.searchIcon} onPress={handleSearch} disabled={isSearching}>
-            {isSearching ? (
-              <ActivityIndicator size="small" color="#F5A623" />
-            ) : (
-              <Search size={18} color="#AAAAAA" />
-            )}
-          </TouchableOpacity>
-        </View>
-        {suggestions.length > 0 && (
-          <View style={styles.suggestions}>
-            {suggestions.map((suggestion, index) => (
-              <TouchableOpacity
-                key={suggestion.placeId}
-                style={[styles.suggestionRow, index > 0 && styles.suggestionRowBorder]}
-                onPress={() => handleSelectSuggestion(suggestion)}
-              >
-                <MapPin size={16} color="#AAAAAA" />
-                <View style={styles.suggestionTextGroup}>
-                  <Text style={styles.suggestionPrimary} numberOfLines={1}>
-                    {suggestion.primaryText}
-                  </Text>
-                  {!!suggestion.secondaryText && (
-                    <Text style={styles.suggestionSecondary} numberOfLines={1}>
-                      {suggestion.secondaryText}
-                    </Text>
-                  )}
-                </View>
-              </TouchableOpacity>
-            ))}
-          </View>
-        )}
-        {hint && (
-          <View style={styles.hintPill}>
-            <Text style={styles.hintText}>{hint}</Text>
-          </View>
-        )}
+      {searching ? <View style={styles.searchPanel} /> : null}
+
+      <View style={[styles.top, { top: pillTop }]}>
+        <MapSearchPill
+          placeholder="Search for a location"
+          value={searchQuery}
+          onChangeText={setSearchQuery}
+          onSubmitEditing={handleSearch}
+          onSearch={handleSearch}
+          onClear={() => {
+            setSearchQuery('');
+            setSuggestions([]);
+          }}
+          onFocus={() => setSearchFocused(true)}
+          onBack={handleBack}
+          busy={isSearching}
+        />
+        {hint ? <ErrorBanner title={hint} /> : null}
       </View>
 
-      {bottomSheet === 'deliver' && (
-        <View style={[styles.deliverContainer, { paddingBottom: Math.max(insets.bottom, 16) }]}>
-          <TouchableOpacity style={styles.centerButton} onPress={handleCenterOnUser}>
-            {isLocating ? (
-              <ActivityIndicator size="small" color="#F5A623" />
-            ) : (
-              <Crosshair size={20} color="#F5A623" />
-            )}
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.deliverButton, !addressText && styles.deliverButtonDisabled]}
-            onPress={handleDeliverHere}
-            activeOpacity={0.9}
-            disabled={!addressText}
-          >
-            <Text style={styles.deliverButtonText}>Deliver to this point</Text>
-          </TouchableOpacity>
-        </View>
-      )}
+      {searching ? (
+        <ScrollView
+          style={[styles.results, { top: pillTop + 56 + 16 }]}
+          contentContainerStyle={styles.resultsContent}
+          keyboardShouldPersistTaps="handled"
+        >
+          {suggestions.length > 0 ? (
+            <>
+              <Text variant="overline" color="inkMuted" style={styles.overline}>
+                Results
+              </Text>
+              <Separated>
+                {suggestions.map((suggestion) => (
+                  <Touchable
+                    key={suggestion.placeId}
+                    onPress={() => handleSelectSuggestion(suggestion)}
+                    scaleTo={1}
+                    accessibilityLabel={suggestion.description}
+                    style={styles.result}
+                  >
+                    <IconWell icon="pin" size={36} round />
+                    <View style={styles.flex}>
+                      <HighlightedMatch text={suggestion.primaryText} query={searchQuery} />
+                      {suggestion.secondaryText ? (
+                        <Text variant="meta" color="inkMuted" numberOfLines={1}>
+                          {suggestion.secondaryText}
+                        </Text>
+                      ) : null}
+                    </View>
+                  </Touchable>
+                ))}
+              </Separated>
+            </>
+          ) : (
+            <Text variant="meta" color="inkMuted" style={styles.overline}>
+              {searchQuery.trim().length < 3 ? 'Type a street, a place or a city.' : 'Searching…'}
+            </Text>
+          )}
+        </ScrollView>
+      ) : null}
 
-      {bottomSheet === 'address-type' && (
-        <View style={[styles.addressTypeSheet, { paddingBottom: Math.max(insets.bottom, 16) }]}>
-          <AddressTypeSelector onSelect={handleAddressTypeSelect} />
+      {!searching && bottomSheet === 'deliver' ? (
+        <View style={styles.bottom}>
+          <LocateButton onPress={handleCenterOnUser} busy={isLocating} style={styles.locate} />
+          <MapSheet bottomInset={insets.bottom}>
+            <View style={styles.deliverRow}>
+              {isLoadingAddress || !addressText ? (
+                <>
+                  <View style={styles.loadingWell}>
+                    <Spinner />
+                  </View>
+                  <View style={[styles.flex, styles.skeletons]}>
+                    <Text variant="caption" color="inkMuted">
+                      Finding the address…
+                    </Text>
+                    <Skeleton width="70%" height={16} />
+                    <Skeleton width="45%" height={12} />
+                  </View>
+                </>
+              ) : (
+                <>
+                  <IconWell icon="pin" tone="warm" size={40} />
+                  <View style={styles.flex}>
+                    <Text variant="caption" color="inkMuted">
+                      Deliver to
+                    </Text>
+                    <Text variant="rowTitle" numberOfLines={2}>
+                      {title}
+                    </Text>
+                    {sub ? (
+                      <Text variant="meta" color="inkMuted" numberOfLines={1}>
+                        {sub}
+                      </Text>
+                    ) : null}
+                  </View>
+                </>
+              )}
+            </View>
+            <PrimaryButton
+              label="Deliver to this point"
+              onPress={handleDeliverHere}
+              disabled={!addressText || isLoadingAddress}
+            />
+          </MapSheet>
         </View>
-      )}
+      ) : null}
+
+      {!searching && bottomSheet === 'address-type' ? (
+        <View style={styles.bottom}>
+          <MapSheet bottomInset={insets.bottom}>
+            <View>
+              <Text variant="heading" accessibilityRole="header">
+                What kind of place is it?
+              </Text>
+              <Text variant="meta" color="inkMuted" numberOfLines={1}>
+                {title}
+              </Text>
+            </View>
+            <View style={styles.tiles} accessibilityRole="radiogroup">
+              {ADDRESS_TYPES.map((option) => (
+                <TypeTile
+                  key={option.type}
+                  icon={option.icon}
+                  label={option.label}
+                  selected={selectedType === option.type}
+                  onPress={() => setSelectedType(option.type)}
+                />
+              ))}
+            </View>
+            <PrimaryButton
+              label={selectedType ? 'Continue' : 'Choose a type'}
+              disabled={!selectedType}
+              onPress={() => selectedType && handleAddressTypeSelect(selectedType)}
+            />
+          </MapSheet>
+        </View>
+      ) : null}
     </View>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#F5F5F5',
-  },
-  topOverlay: {
-    position: 'absolute',
-    left: 16,
-    right: 16,
-    gap: 8,
-  },
-  searchBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 28,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 4,
-    gap: 8,
-  },
-  backButton: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: '#F5F5F5',
+const useStyles = createStyles((t) => ({
+  container: { flex: 1, backgroundColor: t.colors.surfaceSunken },
+  flex: { flex: 1 },
+  top: { position: 'absolute', left: t.chromePadding, right: t.chromePadding, gap: t.space[10] },
+  searchPanel: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: t.colors.surface },
+  results: { position: 'absolute', left: 0, right: 0, bottom: 0 },
+  resultsContent: { paddingHorizontal: t.screenPadding, paddingBottom: 40 },
+  overline: { marginBottom: t.space[8] },
+  result: { flexDirection: 'row', alignItems: 'center', gap: t.space[14], paddingVertical: t.space[12] },
+  bottom: { position: 'absolute', left: 0, right: 0, bottom: 0 },
+  locate: { alignSelf: 'flex-end', marginRight: t.chromePadding, marginBottom: t.space[16] },
+  deliverRow: { flexDirection: 'row', alignItems: 'center', gap: t.space[14] },
+  loadingWell: {
+    width: 40,
+    height: 40,
+    borderRadius: t.radius.control,
+    backgroundColor: t.colors.primarySoft,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  searchInput: {
-    flex: 1,
-    fontSize: 14,
-    fontFamily: Fonts.regular,
-    color: '#1A2B3D',
-    padding: 0,
-  },
-  searchIcon: {
-    padding: 4,
-  },
-  suggestions: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    paddingVertical: 4,
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  suggestionRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-  },
-  suggestionRowBorder: {
-    borderTopWidth: 1,
-    borderTopColor: '#F0F0F0',
-  },
-  suggestionTextGroup: {
-    flex: 1,
-  },
-  suggestionPrimary: {
-    fontSize: 14,
-    fontFamily: Fonts.medium,
-    color: '#1A2B3D',
-  },
-  suggestionSecondary: {
-    fontSize: 12,
-    fontFamily: Fonts.regular,
-    color: '#AAAAAA',
-  },
-  hintPill: {
-    alignSelf: 'center',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  hintText: {
-    fontSize: 12,
-    fontFamily: Fonts.medium,
-    color: '#856404',
-    textAlign: 'center',
-  },
-  deliverContainer: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    paddingHorizontal: 20,
-    paddingTop: 12,
-  },
-  centerButton: {
-    position: 'absolute',
-    right: 20,
-    bottom: 72,
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: '#FFFFFF',
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.15,
-    shadowRadius: 4,
-    elevation: 4,
-  },
-  deliverButton: {
-    backgroundColor: '#1A2B3D',
-    borderRadius: 28,
-    paddingVertical: 16,
-    alignItems: 'center',
-  },
-  deliverButtonDisabled: {
-    opacity: 0.6,
-  },
-  deliverButtonText: {
-    fontSize: 16,
-    fontFamily: Fonts.semiBold,
-    color: '#FFFFFF',
-  },
-  addressTypeSheet: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: '#FFFFFF',
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: -4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 12,
-    elevation: 8,
-  },
-});
+  skeletons: { gap: t.space[6] },
+  tiles: { flexDirection: 'row', flexWrap: 'wrap', gap: t.space[10] },
+}));

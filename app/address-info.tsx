@@ -1,30 +1,39 @@
 import { useState } from 'react';
+import { KeyboardAvoidingView, Platform, ScrollView, View } from 'react-native';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import {
-  Alert,
-  View,
+  BottomBar,
+  Card,
+  Checkbox,
+  ErrorBanner,
+  FilterChip,
+  IconButton,
+  IconWell,
+  PrimaryButton,
+  Radio,
+  Screen,
+  SecondaryButton,
+  Separated,
   Text,
-  StyleSheet,
-  ScrollView,
-  TouchableOpacity,
-  TextInput,
-  KeyboardAvoidingView,
-  Platform,
-} from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useRouter, useLocalSearchParams } from 'expo-router';
-import { ArrowLeft, Building2, Briefcase, Home, MapPin, Plus, X } from 'lucide-react-native';
-import { Fonts } from '@/constants/theme';
+  TextField,
+  TextLink,
+  TopBar,
+  Touchable,
+  toast,
+  useBottomBarInset,
+} from '@/components/ds';
 import { useAuth } from '@/contexts/auth-context';
 import { useSaveAddresses } from '@/hooks/use-customer';
 import { useCustomerStore } from '@/store/customer-store';
 import { useAddressDraftStore } from '@/store/address-draft-store';
 import { AddressType, AddressLabel, AddressData } from '@/types/location';
+import { createStyles, Icon, type IconName } from '@/theme';
 
-const ADDRESS_TYPE_CONFIG: Record<AddressType, { label: string; icon: React.ReactNode }> = {
-  apartment: { label: 'Apartment', icon: <Building2 size={16} color="#1A2B3D" /> },
-  office: { label: 'Office', icon: <Briefcase size={16} color="#1A2B3D" /> },
-  house: { label: 'House', icon: <Home size={16} color="#1A2B3D" /> },
-  other: { label: 'Other', icon: <MapPin size={16} color="#1A2B3D" /> },
+const ADDRESS_TYPE_CONFIG: Record<AddressType, { label: string; icon: IconName }> = {
+  apartment: { label: 'Apartment', icon: 'apartment' },
+  office: { label: 'Office', icon: 'office' },
+  house: { label: 'House', icon: 'house' },
+  other: { label: 'Other', icon: 'pin' },
 };
 
 const LABEL_OPTIONS: { value: AddressLabel; display: string }[] = [
@@ -37,14 +46,22 @@ const LABEL_OPTIONS: { value: AddressLabel; display: string }[] = [
 const resolveName = (label: AddressLabel, customLabel?: string) =>
   label === 'custom' ? customLabel?.trim() || 'other' : label;
 
-const displayName = (address: AddressData) => {
-  const name = resolveName(address.label, address.customLabel);
-  return name.charAt(0).toUpperCase() + name.slice(1);
-};
+const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
+const displayName = (address: AddressData) => capitalize(resolveName(address.label, address.customLabel));
+
+/** "Yasser Arafat Avenue, Sahloul, Sousse" → "Sahloul" (the area after the street). */
+const areaOf = (text: string) => text.split(',').map((p) => p.trim()).filter(Boolean)[1] ?? '';
+
+/**
+ * L4 Address details — floor, door, notes, a label and the default flag for
+ * the point picked on the map. Several addresses can be queued ("Add another
+ * address") and saved together.
+ */
 export default function AddressInfoScreen() {
-  const insets = useSafeAreaInsets();
+  const styles = useStyles();
   const router = useRouter();
+  const bottomInset = useBottomBarInset();
   const { isAuthenticated, user } = useAuth();
   // During post-sign-up onboarding there is no session yet, so fall back to
   // the account id persisted by the registration mutation.
@@ -74,6 +91,8 @@ export default function AddressInfoScreen() {
   const [additionalInfo, setAdditionalInfo] = useState('');
   const [selectedLabel, setSelectedLabel] = useState<AddressLabel>('home');
   const [customLabel, setCustomLabel] = useState('');
+  const [labelError, setLabelError] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const isSaving = saveAddresses.isPending;
 
   const typeConfig = ADDRESS_TYPE_CONFIG[addressType];
@@ -93,16 +112,17 @@ export default function AddressInfoScreen() {
     additionalInfo: additionalInfo || undefined,
   });
 
+  /** Errors are local: a clash is flagged on the label, with what to do. */
   const hasDuplicateLabel = () => {
     const currentName = resolveName(selectedLabel, customLabel);
-    if (!drafts.some((d) => resolveName(d.label, d.customLabel) === currentName)) {
-      return false;
-    }
-    Alert.alert(
-      'Label already used',
-      `You already added an address labeled "${currentName}". Pick a different label for this one.`
-    );
+    if (!drafts.some((d) => resolveName(d.label, d.customLabel) === currentName)) return false;
+    setLabelError(`You already added an address called "${capitalize(currentName)}". Pick another label.`);
     return true;
+  };
+
+  const chooseLabel = (label: AddressLabel) => {
+    setSelectedLabel(label);
+    setLabelError(null);
   };
 
   const handleAddAnother = () => {
@@ -113,433 +133,216 @@ export default function AddressInfoScreen() {
 
   const handleSave = async () => {
     if (isSaving) return;
+    setSaveError(null);
     if (!keycloakUserId) {
-      Alert.alert('Not signed in', 'Please log in before saving an address.');
       router.replace('/login');
       return;
     }
     if (hasDuplicateLabel()) return;
     try {
       const addresses = [...drafts, buildCurrentAddress()];
-      await saveAddresses.mutateAsync({
-        keycloakUserId,
-        addresses,
-        defaultIndex: Math.min(defaultIndex, addresses.length - 1),
-      });
+      const nextDefault = Math.min(defaultIndex, addresses.length - 1);
+      await saveAddresses.mutateAsync({ keycloakUserId, addresses, defaultIndex: nextDefault });
       clearDrafts();
+      // S-L3: back to Home with a toast naming where orders now go.
+      const chosen = addresses[nextDefault];
+      const area = areaOf(chosen.addressText);
+      toast.show({
+        message: `Address saved. Delivering to ${displayName(chosen)}${area ? ` · ${area}` : ''}`,
+        aboveBar: isAuthenticated,
+      });
       // Saving seeds the customer cache with the new addresses, which is what
-      // releases the root navigator's onboarding hold.
-      // A user who saved an address without a session (registration whose
-      // sign-in failed) still has to log in; an already-signed-in one goes
-      // straight back to the app.
+      // releases the root navigator's onboarding hold. A user who saved an
+      // address without a session still has to log in.
       router.replace(isAuthenticated ? '/(tabs)' : '/login');
     } catch (err) {
-      Alert.alert(
-        'Could not save address',
-        err instanceof Error ? err.message : 'Something went wrong. Please try again.'
-      );
+      setSaveError(err instanceof Error ? err.message : 'Something went wrong.');
     }
   };
 
+  const saveLabel = drafts.length > 0 ? `Save ${drafts.length + 1} addresses` : 'Save address';
+
   return (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      keyboardVerticalOffset={0}
-    >
-      <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
-        <TouchableOpacity onPress={() => router.back()}>
-          <ArrowLeft size={24} color="#1A2B3D" />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Address Information</Text>
-        <View style={styles.headerSpacer} />
-      </View>
+    <Screen>
+      <TopBar title="Address details" onBack={() => router.back()} />
+      <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        <ScrollView
+          style={styles.flex}
+          contentContainerStyle={[styles.content, { paddingBottom: bottomInset + 24 }]}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          {drafts.length > 0 ? (
+            <View style={styles.group}>
+              <Text variant="overline" color="inkMuted">
+                Added addresses
+              </Text>
+              <Card>
+                <Separated inset={66}>
+                  {drafts.map((draft, index) => (
+                    <View key={`${resolveName(draft.label, draft.customLabel)}-${index}`} style={styles.draftRow}>
+                      <IconWell icon={ADDRESS_TYPE_CONFIG[draft.addressType].icon} />
+                      <View style={styles.flex}>
+                        <Text variant="itemLabel">{displayName(draft)}</Text>
+                        <Text variant="meta" color="inkMuted" numberOfLines={1}>
+                          {draft.addressText}
+                        </Text>
+                      </View>
+                      <Touchable
+                        onPress={() => setDefaultIndex(index)}
+                        accessibilityRole="radio"
+                        accessibilityState={{ selected: defaultIndex === index }}
+                        accessibilityLabel={`Make ${displayName(draft)} the default`}
+                        hitSlop={8}
+                      >
+                        <Radio selected={defaultIndex === index} />
+                      </Touchable>
+                      <IconButton
+                        icon="close"
+                        variant="plain"
+                        iconColor="inkMuted"
+                        accessibilityLabel={`Remove ${displayName(draft)}`}
+                        onPress={() => removeDraft(index)}
+                      />
+                    </View>
+                  ))}
+                </Separated>
+              </Card>
+            </View>
+          ) : null}
 
-      <ScrollView
-        style={styles.scrollView}
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.scrollContent}
-        keyboardShouldPersistTaps="handled"
-      >
-        {drafts.length > 0 && (
-          <View style={styles.field}>
-            <Text style={styles.fieldLabel}>Added Addresses</Text>
-            {drafts.map((draft, index) => (
-              <View key={`${resolveName(draft.label, draft.customLabel)}-${index}`} style={styles.draftCard}>
-                <View style={styles.draftIcon}>
-                  {ADDRESS_TYPE_CONFIG[draft.addressType].icon}
-                </View>
-                <View style={styles.draftInfo}>
-                  <Text style={styles.draftName}>{displayName(draft)}</Text>
-                  <Text style={styles.draftAddress} numberOfLines={1}>
-                    {draft.addressText}
-                  </Text>
-                </View>
-                <TouchableOpacity
-                  style={styles.radioRow}
-                  onPress={() => setDefaultIndex(index)}
-                  hitSlop={8}
-                >
-                  <View style={[styles.radioOuter, defaultIndex === index && styles.radioOuterActive]}>
-                    {defaultIndex === index && <View style={styles.radioInner} />}
-                  </View>
-                  <Text style={styles.radioText}>Default</Text>
-                </TouchableOpacity>
-                <TouchableOpacity onPress={() => removeDraft(index)} hitSlop={8}>
-                  <X size={18} color="#8A8A8A" />
-                </TouchableOpacity>
+          <Card padded style={styles.addressCard}>
+            <View style={styles.thumb}>
+              <Icon name="pin" />
+            </View>
+            <View style={styles.flex}>
+              <View style={styles.typeLine}>
+                <Icon name={typeConfig.icon} size="inline" color="inkMuted" />
+                <Text variant="caption" color="inkMuted">
+                  {typeConfig.label}
+                </Text>
               </View>
-            ))}
-          </View>
-        )}
+              <Text variant="rowTitle" numberOfLines={2}>
+                {addressText}
+              </Text>
+              <Text variant="coords" color="inkMuted">
+                {`${latitude.toFixed(4)}, ${longitude.toFixed(4)}`}
+              </Text>
+            </View>
+            <TextLink label="Edit" onPress={() => router.back()} accessibilityLabel="Edit the address on the map" />
+          </Card>
 
-        <View style={styles.addressRow}>
-          <View style={styles.addressTypeBadge}>
-            {typeConfig.icon}
-            <Text style={styles.addressTypeBadgeText}>{typeConfig.label}</Text>
-          </View>
-          <Text style={styles.addressText} numberOfLines={1}>{addressText}</Text>
-        </View>
-
-        <View style={styles.row}>
-          <View style={styles.halfField}>
-            <Text style={styles.fieldLabel}>Floor Number</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Floor Number"
-              placeholderTextColor="#CCCCCC"
+          <View style={styles.row}>
+            <TextField
+              label="Floor"
+              placeholder="Floor"
               value={floorNumber}
               onChangeText={setFloorNumber}
+              locked={isSaving}
+              containerStyle={styles.flex}
             />
-          </View>
-          <View style={styles.halfField}>
-            <Text style={styles.fieldLabel}>Door Number</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Door Number"
-              placeholderTextColor="#CCCCCC"
+            <TextField
+              label="Door number"
+              placeholder="Door number"
               value={doorNumber}
               onChangeText={setDoorNumber}
+              locked={isSaving}
+              containerStyle={styles.flex}
             />
           </View>
-        </View>
 
-        <View style={styles.field}>
-          <Text style={styles.fieldLabel}>Addtional Information</Text>
-          <TextInput
-            style={[styles.input, styles.textArea]}
-            placeholder="Information"
-            placeholderTextColor="#CCCCCC"
+          <TextField
+            label="Additional information"
+            placeholder="Building name, landmark, entry code"
             value={additionalInfo}
             onChangeText={setAdditionalInfo}
-            multiline
-            numberOfLines={3}
-            textAlignVertical="top"
+            locked={isSaving}
+            area
           />
-        </View>
 
-        <View style={styles.field}>
-          <Text style={styles.fieldLabel}>Label</Text>
-          <Text style={styles.fieldSubLabel}>For simpler location identification</Text>
-          <View style={styles.labelRow}>
-            {LABEL_OPTIONS.map((option) => (
-              <TouchableOpacity
-                key={option.value}
-                style={[
-                  styles.labelButton,
-                  selectedLabel === option.value && styles.labelButtonActive,
-                ]}
-                onPress={() => setSelectedLabel(option.value)}
-              >
-                <Text
-                  style={[
-                    styles.labelButtonText,
-                    selectedLabel === option.value && styles.labelButtonTextActive,
-                  ]}
-                >
-                  {option.display}
-                </Text>
-              </TouchableOpacity>
-            ))}
+          <View style={styles.group}>
+            <View>
+              <Text variant="label">Label</Text>
+              <Text variant="caption" color="inkMuted">
+                Helps you find this address later.
+              </Text>
+            </View>
+            <View style={styles.chips} accessibilityRole="radiogroup">
+              {LABEL_OPTIONS.map((option) => (
+                <FilterChip
+                  key={option.value}
+                  label={option.display}
+                  selected={selectedLabel === option.value}
+                  showClear={false}
+                  onPress={() => chooseLabel(option.value)}
+                  disabled={isSaving}
+                />
+              ))}
+            </View>
+            {selectedLabel === 'custom' ? (
+              <TextField
+                placeholder="Name this address"
+                value={customLabel}
+                onChangeText={(text) => {
+                  setCustomLabel(text);
+                  setLabelError(null);
+                }}
+                error={labelError}
+                locked={isSaving}
+                accessibilityLabel="Custom label"
+              />
+            ) : labelError ? (
+              <ErrorBanner title={labelError} />
+            ) : null}
           </View>
-          {selectedLabel === 'custom' && (
-            <TextInput
-              style={[styles.input, styles.customLabelInput]}
-              placeholder="Enter custom label"
-              placeholderTextColor="#CCCCCC"
-              value={customLabel}
-              onChangeText={setCustomLabel}
-            />
-          )}
-        </View>
 
-        <TouchableOpacity
-          style={styles.defaultRow}
-          onPress={() => setDefaultIndex(currentIndex)}
-          hitSlop={8}
-        >
-          <View style={[styles.radioOuter, isCurrentDefault && styles.radioOuterActive]}>
-            {isCurrentDefault && <View style={styles.radioInner} />}
-          </View>
-          <Text style={styles.defaultRowText}>Set as default address</Text>
-        </TouchableOpacity>
+          <Touchable
+            onPress={() => setDefaultIndex(currentIndex)}
+            accessibilityRole="checkbox"
+            accessibilityState={{ checked: isCurrentDefault }}
+            accessibilityLabel="Set as default address"
+            scaleTo={1}
+            style={styles.defaultRow}
+          >
+            <Checkbox checked={isCurrentDefault} />
+            <Text variant="itemLabel">Set as default address</Text>
+          </Touchable>
 
-        <TouchableOpacity
-          style={styles.addAnotherButton}
-          onPress={handleAddAnother}
-          activeOpacity={0.8}
-          disabled={isSaving}
-        >
-          <Plus size={18} color="#F5A623" />
-          <Text style={styles.addAnotherButtonText}>Add Another Address</Text>
-        </TouchableOpacity>
-      </ScrollView>
+          <SecondaryButton label="Add another address" icon="add" onPress={handleAddAnother} disabled={isSaving} />
 
-      <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 16) }]}>
-        <TouchableOpacity
-          style={[styles.saveButton, isSaving && styles.saveButtonDisabled]}
+          {saveError ? <ErrorBanner title="Couldn't save the address" body={`${saveError} Try again.`} /> : null}
+        </ScrollView>
+      </KeyboardAvoidingView>
+
+      <BottomBar>
+        <PrimaryButton
+          label={saveError ? 'Try again' : saveLabel}
+          loadingLabel="Saving…"
           onPress={handleSave}
-          activeOpacity={0.9}
-          disabled={isSaving}
-        >
-          <Text style={styles.saveButtonText}>
-            {isSaving
-              ? 'Saving...'
-              : drafts.length > 0
-                ? `Save ${drafts.length + 1} Addresses`
-                : 'Save Address Info'}
-          </Text>
-        </TouchableOpacity>
-      </View>
-    </KeyboardAvoidingView>
+          loading={isSaving}
+          style={styles.flex}
+        />
+      </BottomBar>
+    </Screen>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#FFFFFF',
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingBottom: 16,
-  },
-  headerTitle: {
-    flex: 1,
-    textAlign: 'center',
-    fontSize: 18,
-    fontFamily: Fonts.semiBold,
-    color: '#1A2B3D',
-  },
-  headerSpacer: {
-    width: 24,
-  },
-  scrollView: {
-    flex: 1,
-  },
-  scrollContent: {
-    paddingHorizontal: 20,
-    paddingTop: 8,
-    paddingBottom: 20,
-    gap: 24,
-  },
-  draftCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    borderWidth: 1,
-    borderColor: '#EEEEEE',
-    borderRadius: 12,
-    padding: 12,
-    backgroundColor: '#FAFAFA',
-  },
-  draftIcon: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: '#F0F0F0',
+const useStyles = createStyles((t) => ({
+  flex: { flex: 1 },
+  content: { paddingHorizontal: t.screenPadding, paddingTop: t.space[16], gap: t.space[20] },
+  group: { gap: t.space[10] },
+  draftRow: { flexDirection: 'row', alignItems: 'center', gap: t.space[12], paddingVertical: t.space[8], paddingLeft: t.space[16], paddingRight: t.space[4] },
+  addressCard: { flexDirection: 'row', alignItems: 'center', gap: t.space[12], padding: t.space[12] },
+  thumb: {
+    width: 56,
+    height: 56,
+    borderRadius: t.radius.control,
+    backgroundColor: t.colors.surfaceSunken,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  draftInfo: {
-    flex: 1,
-    gap: 2,
-  },
-  draftName: {
-    fontSize: 14,
-    fontFamily: Fonts.semiBold,
-    color: '#1A2B3D',
-  },
-  draftAddress: {
-    fontSize: 12,
-    fontFamily: Fonts.regular,
-    color: '#8A8A8A',
-  },
-  radioRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  radioOuter: {
-    width: 18,
-    height: 18,
-    borderRadius: 9,
-    borderWidth: 1.5,
-    borderColor: '#CCCCCC',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  radioOuterActive: {
-    borderColor: '#F5A623',
-  },
-  radioInner: {
-    width: 9,
-    height: 9,
-    borderRadius: 4.5,
-    backgroundColor: '#F5A623',
-  },
-  radioText: {
-    fontSize: 12,
-    fontFamily: Fonts.medium,
-    color: '#1A2B3D',
-  },
-  defaultRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  defaultRowText: {
-    fontSize: 14,
-    fontFamily: Fonts.medium,
-    color: '#1A2B3D',
-  },
-  addAnotherButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    borderWidth: 1.5,
-    borderColor: '#F5A623',
-    borderRadius: 28,
-    paddingVertical: 14,
-  },
-  addAnotherButtonText: {
-    fontSize: 15,
-    fontFamily: Fonts.semiBold,
-    color: '#F5A623',
-  },
-  addressRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    flexWrap: 'wrap',
-  },
-  addressTypeBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    backgroundColor: '#F5F5F5',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 20,
-  },
-  addressTypeBadgeText: {
-    fontSize: 13,
-    fontFamily: Fonts.semiBold,
-    color: '#1A2B3D',
-  },
-  addressText: {
-    flex: 1,
-    fontSize: 13,
-    fontFamily: Fonts.regular,
-    color: '#1A2B3D',
-  },
-  row: {
-    flexDirection: 'row',
-    gap: 12,
-  },
-  halfField: {
-    flex: 1,
-    gap: 8,
-  },
-  field: {
-    gap: 8,
-  },
-  fieldLabel: {
-    fontSize: 14,
-    fontFamily: Fonts.semiBold,
-    color: '#1A2B3D',
-  },
-  fieldSubLabel: {
-    fontSize: 12,
-    fontFamily: Fonts.regular,
-    color: '#8A8A8A',
-    marginTop: -4,
-  },
-  input: {
-    borderWidth: 1,
-    borderColor: '#EEEEEE',
-    borderRadius: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 14,
-    fontSize: 14,
-    fontFamily: Fonts.regular,
-    color: '#1A2B3D',
-    backgroundColor: '#FAFAFA',
-  },
-  textArea: {
-    minHeight: 80,
-    paddingTop: 14,
-  },
-  customLabelInput: {
-    marginTop: 8,
-  },
-  labelRow: {
-    flexDirection: 'row',
-    gap: 10,
-    flexWrap: 'wrap',
-  },
-  labelButton: {
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 20,
-    borderWidth: 1.5,
-    borderColor: '#DDDDDD',
-    backgroundColor: '#FFFFFF',
-  },
-  labelButtonActive: {
-    borderColor: '#1A2B3D',
-    backgroundColor: '#1A2B3D',
-  },
-  labelButtonText: {
-    fontSize: 14,
-    fontFamily: Fonts.medium,
-    color: '#1A2B3D',
-  },
-  labelButtonTextActive: {
-    color: '#FFFFFF',
-  },
-  footer: {
-    paddingHorizontal: 20,
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: '#F0F0F0',
-    backgroundColor: '#FFFFFF',
-  },
-  saveButton: {
-    backgroundColor: '#1A2B3D',
-    borderRadius: 28,
-    paddingVertical: 16,
-    alignItems: 'center',
-  },
-  saveButtonDisabled: {
-    opacity: 0.7,
-  },
-  saveButtonText: {
-    fontSize: 16,
-    fontFamily: Fonts.semiBold,
-    color: '#FFFFFF',
-  },
-});
+  typeLine: { flexDirection: 'row', alignItems: 'center', gap: t.space[4] },
+  row: { flexDirection: 'row', gap: t.space[10], alignItems: 'flex-start' },
+  chips: { flexDirection: 'row', gap: t.space[8], flexWrap: 'wrap' },
+  defaultRow: { flexDirection: 'row', alignItems: 'center', gap: t.space[12], minHeight: t.size.minTouch },
+}));
