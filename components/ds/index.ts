@@ -16,3 +16,4 @@ export * from './map';
 export * from './restaurant';
 export * from './hero';
 export * from './dish';
+export * from './order';

@@ -7,10 +7,10 @@ import React from 'react';
 import type { StyleProp, ViewStyle } from 'react-native';
 import {
   Banknote, Bell, BellOff, Briefcase, Building2, Check, ChefHat, ChevronDown, ChevronLeft, ChevronRight,
-  ChevronUp, CircleAlert, CircleCheck, CircleHelp, Clock, Copy, Eye, EyeOff, FileText, Flag, Heart, House,
+  ChevronUp, CircleAlert, CircleCheck, CircleHelp, Clock, Coins, Copy, CreditCard, Eye, EyeOff, FileText, Flag, Heart, House,
   Info, Languages, LocateFixed, LogOut, Mail, MapPin, MapPinOff, MessageCircle, Minus, Motorbike, Navigation,
   Package, Pencil, Phone, Plus, Receipt, RefreshCw, RotateCcw, Search, SearchX, Send, ShieldCheck, ShoppingBag,
-  ShoppingCart, Star, Store, ThumbsUp, Trash2, User, UserCog, WifiOff, X,
+  ShoppingCart, Smartphone, Star, Store, ThumbsUp, Trash2, User, UserCog, WifiOff, X,
   type LucideIcon,
 } from 'lucide-react-native';
 import { useTheme } from './theme';
@@ -29,7 +29,7 @@ export const icons = {
   // Not on the board — screens the board does not draw (order detail, tracking,
   // support, password visibility toggle). Same Lucide set, same stroke.
   hidePassword: EyeOff, chevronUp: ChevronUp, retry: RefreshCw, edit: Pencil, navigate: Navigation,
-  message: MessageCircle, send: Send, copy: Copy, store: Store,
+  message: MessageCircle, send: Send, copy: Copy, store: Store, card: CreditCard, mobile: Smartphone, points: Coins,
 } satisfies Record<string, LucideIcon>;
 
 export type IconName = keyof typeof icons;

@@ -1,8 +1,26 @@
 import { DeliveryFeeModal, PaymentMethodModal, ServiceFeeModal } from '@/components/checkout';
-import { DeliveryLocationCard, OrderInfoRow, OrderRestaurantRow } from '@/components/order';
-import { PressableScale } from '@/components/ui/pressable-scale';
+import {
+  BottomBar,
+  Card,
+  ErrorBanner,
+  IconButton,
+  InfoNote,
+  InfoRow,
+  PrimaryButton,
+  RestaurantGroupHeader,
+  Screen,
+  SectionHeader,
+  Separated,
+  Spinner,
+  SuccessScreen,
+  SummaryLine,
+  Text,
+  TextLink,
+  TopBar,
+  useBottomBarInset,
+} from '@/components/ds';
+import { DeliveryLocationCard } from '@/components/order/delivery-location-card';
 import { paymentMethodLabel } from '@/constants/payment-methods';
-import { Fonts, FontSize, Palette, Radius, Spacing } from '@/constants/theme';
 import { formatAddressName, useDeliveryAddress } from '@/hooks/use-delivery-address';
 import { useCheckoutQuote, usePlaceCheckout } from '@/hooks/use-orders';
 import { useStoredImageSource } from '@/hooks/use-restaurant-image';
@@ -11,19 +29,15 @@ import { useReverseGeocode } from '@/hooks/use-reverse-geocode';
 import type { CartCheckoutOptionsInput } from '@/schemas/cart';
 import { CheckoutNotReadyError } from '@/services/api/cart-service';
 import { toCheckoutBlocker, type CheckoutBlocker } from '@/services/api/cart-view-model';
-import {
-  coordinatesDiffer,
-  toOrderDeliveryAddress,
-} from '@/services/location/delivery-point';
+import { coordinatesDiffer, toOrderDeliveryAddress } from '@/services/location/delivery-point';
 import { formatDT, groupByRestaurant, useCartStore } from '@/store/cart-store';
 import { usePaymentMethodStore } from '@/store/payment-method-store';
 import type { LocationCoords } from '@/types/location';
+import { createStyles, Icon } from '@/theme';
 import { useQueries } from '@tanstack/react-query';
 import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
-import { ArrowLeft, DollarSign, Info, Phone } from 'lucide-react-native';
 import { useMemo, useState } from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { ScrollView, View } from 'react-native';
 
 /**
  * Checkout for the WHOLE cart. No route param: there is one cart, and the
@@ -92,8 +106,9 @@ type ResettableNavigation = {
 };
 
 export default function OrderDetailsScreen() {
-  const insets = useSafeAreaInsets();
+  const styles = useStyles();
   const router = useRouter();
+  const bottomInset = useBottomBarInset();
   // The root stack, for the post-checkout reset in `goToPlacedOrder`; `router`
   // has no equivalent of a reset. Typed structurally for the one method used:
   // the default generic keys route names off `ReactNavigation.RootParamList`,
@@ -115,6 +130,16 @@ export default function OrderDetailsScreen() {
    * backend creates every order or none — so the cart is exactly as it was.
    */
   const [failure, setFailure] = useState<Error | null>(null);
+  /**
+   * S-C3: what was just placed, captured before the mutation empties the cart
+   * so the confirmation can still name it.
+   */
+  const [placed, setPlaced] = useState<{ count: number; total: string; restaurants: string[] } | null>(null);
+  /**
+   * Order cards the customer opened. `null` until they touch one: the first
+   * card is open by default.
+   */
+  const [expanded, setExpanded] = useState<string[] | null>(null);
   /**
    * A delivery point the customer confirmed for THIS order — dragged or picked,
    * then "Deliver here". Screen state only: it is sent with the order as its
@@ -425,6 +450,20 @@ export default function OrderDetailsScreen() {
     });
   };
 
+  /** Home tab only — the checkout branch is discarded the same way. */
+  const goHome = () => {
+    navigation.reset({
+      index: 0,
+      routes: [{ name: '(tabs)', state: { index: 0, routes: [{ name: 'index' }] } }],
+    });
+  };
+
+  const toggleExpanded = (id: string) =>
+    setExpanded((prev) => {
+      const base = prev ?? (restaurants[0] ? [restaurants[0].id] : []);
+      return base.includes(id) ? base.filter((x) => x !== id) : [...base, id];
+    });
+
   const handleContinueCheckout = () => {
     if (!canSubmit) return;
 
@@ -433,7 +472,12 @@ export default function OrderDetailsScreen() {
       // The cart is emptied inside the mutation itself, never here: it must
       // happen whether or not this screen is still mounted. The customer lands
       // on My Orders, where the orders they just placed are the top cards.
-      onSuccess: goToPlacedOrder,
+      onSuccess: () =>
+        setPlaced({
+          count: orderCount,
+          total: quote ? formatDT(quote.total) : '',
+          restaurants: restaurants.map((r) => r.name),
+        }),
       onError: (error) => {
         setFailure(error);
         // The cart may have changed server-side (a restaurant lost its
@@ -451,8 +495,8 @@ export default function OrderDetailsScreen() {
       return BLOCKER_COPY[first].message;
     }
     return orderCount > 1
-      ? "We couldn't place your orders. Your cart is untouched — tap Try Again."
-      : "We couldn't place your order. Your cart is untouched — tap Try Again.";
+      ? "We couldn't place your orders. Your cart is untouched — try again."
+      : "We couldn't place your order. Your cart is untouched — try again.";
   })();
 
   const quoteMessage = quote
@@ -465,261 +509,218 @@ export default function OrderDetailsScreen() {
       ? "We couldn't load the prices for this cart."
       : 'Calculating prices…';
 
+  // S-C3: what was placed, snapshotted before the mutation empties the cart.
+  const placedSummary = placed;
+
+  if (placedSummary) {
+    return (
+      <SuccessScreen
+        title={placedSummary.count > 1 ? `${placedSummary.count} orders placed` : 'Order placed'}
+        body={
+          placedSummary.count > 1
+            ? 'Each restaurant prepares and delivers its own order. Follow them in My orders.'
+            : 'The restaurant has your order. Follow it in My orders.'
+        }
+        summary={
+          <Card padded style={styles.summaryCard}>
+            {placedSummary.restaurants.map((name) => (
+              <SummaryLine key={name} label={name} value="Placed" valueColor="success" />
+            ))}
+            <View style={styles.rule} />
+            <SummaryLine label="Total" value={placedSummary.total} total />
+          </Card>
+        }
+        primaryLabel="Track my orders"
+        onPrimary={goToPlacedOrder}
+        linkLabel="Back to home"
+        onLink={goHome}
+      />
+    );
+  }
+
   return (
-    <View style={styles.container}>
-      <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
-        <TouchableOpacity onPress={() => router.back()}>
-          <ArrowLeft size={24} color={Palette.ink} />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Order Details</Text>
-        <View style={styles.headerSpacer} />
-      </View>
+    <Screen>
+      <TopBar title="Checkout" onBack={() => router.back()} />
 
       <ScrollView
-        style={styles.scrollView}
+        style={[styles.flex, isSubmitting && styles.busy]}
+        pointerEvents={isSubmitting ? 'none' : 'auto'}
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={[styles.scrollContent, { paddingBottom: 20 }]}
+        contentContainerStyle={[styles.content, { paddingBottom: bottomInset + 120 }]}
       >
         {address || customPoint ? (
           <DeliveryLocationCard
             addressLabel={
-              customPoint
-                ? 'Custom location'
-                : selectedAddress
-                  ? formatAddressName(selectedAddress.name)
-                  : 'Delivery'
+              customPoint ? 'Custom location' : selectedAddress ? formatAddressName(selectedAddress.name) : 'Delivery'
             }
             addressText={
-              customPoint
-                ? deliveryAddress!.formattedAddress
-                : (address?.formattedAddress ?? 'Address on file')
+              customPoint ? deliveryAddress!.formattedAddress : (address?.formattedAddress ?? 'Address on file')
             }
             latitude={shownPoint?.latitude}
             longitude={shownPoint?.longitude}
             onPress={handleBlockerAction}
             onOpenMap={handleOpenMap}
             onPointChange={handlePointChange}
-            pending={
-              pendingPoint
-                ? {
-                    text: pendingText,
-                    isResolving: isNamingPoint,
-                    isSaving: false,
-                  }
-                : null
-            }
+            pending={pendingPoint ? { text: pendingText, isResolving: isNamingPoint, isSaving: false } : null}
             onConfirmPending={handleConfirmPoint}
             onCancelPending={handleCancelPoint}
           />
-        ) : null}
-
-        <View style={styles.sectionDivider} />
-
-        <View style={styles.sectionCard}>
-          <Text style={styles.sectionTitle}>Order Info</Text>
-
-          {/* Rendered only when the customer actually has a phone on file — an
-              order row showing a blank number is worse than no row. */}
-          {phone ? (
-            <>
-              <OrderInfoRow
-                icon={<Phone size={18} color={Palette.ink} />}
-                label={phone}
-                chevron={false}
-              />
-              <View style={styles.rowDivider} />
-            </>
-          ) : null}
-
-          <OrderInfoRow
-            icon={<DollarSign size={18} color={Palette.ink} />}
-            label={`Payment Method - ${paymentMethodLabel(paymentMethod)}`}
-            onPress={() => setPaymentSheetVisible(true)}
-          />
-
-          {/*
-            The estimated-time and arrival rows that used to sit here are gone.
-            Nothing in the backend carries an ETA, a prep time or a delivery
-            estimate, and an invented "~45 min" is a promise the app cannot
-            keep. RESTO-01's `UNBACKED_FIELDS` convention: render nothing.
-          */}
-        </View>
-
-        <View style={styles.sectionDivider} />
-
-        <Text style={styles.summarySectionTitle}>
-          {orderCount > 1 ? `Order Summary · ${orderCount} orders` : 'Order Summary'}
-        </Text>
-
-        {orderCount > 1 ? (
-          <Text style={styles.splitNote}>
-            Each restaurant prepares and delivers separately, so this checkout
-            places {orderCount} orders — each with its own delivery fee.
-          </Text>
-        ) : null}
-
-        {restaurants.map((restaurant) =>
-          restaurant.logo ? (
-            <OrderRestaurantRow
-              key={restaurant.id}
-              name={restaurant.name}
-              itemCount={restaurant.itemCount}
-              logo={restaurant.logo}
-              onPress={() => router.push('/cart/review')}
-            />
-          ) : null
+        ) : (
+          <Card>
+            <InfoRow icon="pin" caption="Deliver to" value="Add a delivery address" onPress={handleBlockerAction} />
+          </Card>
         )}
 
-        <View style={styles.pricingCard}>
-          <View style={styles.priceRow}>
-            <Text style={styles.priceLabel}>Subtotal</Text>
-            <Text style={styles.priceValue}>{quote ? formatDT(quote.subtotal) : '—'}</Text>
-          </View>
+        {/* Said once, where the decision is made: a custom point is for this
+            order only, not a new saved address. */}
+        {customPoint && !pendingPoint ? (
+          <InfoNote>This order goes to the custom location above. It won't be added to your saved addresses.</InfoNote>
+        ) : null}
 
-          {quote && quote.discountTotal > 0 ? (
-            <View style={styles.priceRow}>
-              <Text style={styles.priceLabel}>Discount</Text>
-              <Text style={styles.priceValue}>−{formatDT(quote.discountTotal)}</Text>
-            </View>
-          ) : null}
+        <Card>
+          <Separated inset={66}>
+            {/* Only when the customer actually has a phone on file. */}
+            {phone ? (
+              <InfoRow icon="phone" caption="Contact number" value={phone} onPress={() => router.push('/account-settings')} />
+            ) : null}
+            <InfoRow
+              icon="cash"
+              caption="Payment"
+              value={paymentMethodLabel(paymentMethod)}
+              onPress={() => setPaymentSheetVisible(true)}
+            />
+          </Separated>
+        </Card>
 
-          <View style={styles.priceRow}>
-            <View style={styles.priceLabelRow}>
-              <Text style={styles.priceLabel}>Service Fee</Text>
-              <TouchableOpacity
-                onPress={() => setFeeSheet('service')}
-                accessibilityLabel="What is the service fee?"
-                hitSlop={8}
-              >
-                <Info size={14} color={Palette.textMuted} />
-              </TouchableOpacity>
-            </View>
-            <Text style={styles.priceValue}>{quote ? formatDT(quote.serviceFee) : '—'}</Text>
-          </View>
+        <SectionHeader
+          title={orderCount > 1 ? `${orderCount} orders` : 'Your order'}
+          meta={orderCount > 1 ? 'Prepared and delivered separately' : undefined}
+          style={styles.sectionHeader}
+        />
 
-          <View style={styles.priceRow}>
-            <View style={styles.priceLabelRow}>
-              <Text style={styles.priceLabel}>Delivery Fee</Text>
-              <TouchableOpacity
-                onPress={() => setFeeSheet('delivery')}
-                accessibilityLabel="What is the delivery fee?"
-                hitSlop={8}
-              >
-                <Info size={14} color={Palette.textMuted} />
-              </TouchableOpacity>
-            </View>
-            <View style={styles.deliveryFeeRight}>
-              {quote && quote.deliveryPriced && quote.deliveryFee === 0 ? (
-                <View style={styles.freeBadge}>
-                  <Text style={styles.freeText}>Free</Text>
+        {restaurants.map((restaurant, index) => {
+          const quoted = quote?.orders.find((o) => o.restaurantId === restaurant.id);
+          const open = expanded === null ? index === 0 : expanded.includes(restaurant.id);
+          const isBlocked = blockedRestaurant?.id === restaurant.id || (blocker === 'no-restaurant-coords' && orderCount === 1);
+          return (
+            <Card key={restaurant.id}>
+              <RestaurantGroupHeader
+                logo={restaurant.logo}
+                name={restaurant.name}
+                meta={`${restaurant.itemCount} ${restaurant.itemCount === 1 ? 'item' : 'items'}`}
+                onPress={() => toggleExpanded(restaurant.id)}
+                style={styles.orderHeader}
+                trailing={
+                  <View style={styles.orderTotal}>
+                    <Text variant="price">{quoted ? formatDT(quoted.total) : '—'}</Text>
+                    <Icon name={open ? 'chevronUp' : 'chevronDown'} size="row" />
+                  </View>
+                }
+              />
+              {isBlocked && blockerCopy ? (
+                <ErrorBanner title={blockerCopy.message} style={styles.orderBanner} />
+              ) : null}
+              {open ? (
+                <View style={styles.orderLines}>
+                  <View style={styles.rule} />
+                  {restaurant.lines.map((line) => (
+                    <SummaryLine
+                      key={line.lineId}
+                      label={`${line.quantity}× ${line.name}`}
+                      value={formatDT(line.unitPrice * line.quantity)}
+                    />
+                  ))}
+                  {quoted ? (
+                    <>
+                      {quoted.discount > 0 ? (
+                        <SummaryLine label="Discount" value={`−${formatDT(quoted.discount)}`} valueColor="success" />
+                      ) : null}
+                      <SummaryLine
+                        label="Delivery"
+                        value={quote?.deliveryPriced ? (quoted.deliveryFee === 0 ? 'Free' : formatDT(quoted.deliveryFee)) : '—'}
+                        valueColor={quote?.deliveryPriced && quoted.deliveryFee === 0 ? 'success' : undefined}
+                      />
+                      <SummaryLine label="Service" value={formatDT(quoted.serviceFee)} />
+                      {quoted.additionalFees.map((fee) => (
+                        <SummaryLine key={fee.code ?? fee.label} label={fee.label} value={formatDT(fee.amount)} />
+                      ))}
+                    </>
+                  ) : null}
                 </View>
-              ) : (
-                <Text style={styles.priceValue}>
-                  {quote && quote.deliveryPriced ? formatDT(quote.deliveryFee) : '—'}
-                </Text>
-              )}
-            </View>
-          </View>
+              ) : null}
+            </Card>
+          );
+        })}
 
+        <Card padded style={styles.summaryCard}>
+          <SummaryLine label="Subtotal" value={quote ? formatDT(quote.subtotal) : '—'} />
+          {quote && quote.discountTotal > 0 ? (
+            <SummaryLine label="Discount" value={`−${formatDT(quote.discountTotal)}`} valueColor="success" />
+          ) : null}
+          <SummaryLine
+            label="Service"
+            value={quote ? formatDT(quote.serviceFee) : '—'}
+            trailing={<IconButton icon="info" variant="plain" iconColor="inkMuted" onPress={() => setFeeSheet('service')} accessibilityLabel="What is the service fee?" style={styles.infoButton} />}
+          />
+          <SummaryLine
+            label="Delivery"
+            value={quote && quote.deliveryPriced ? (quote.deliveryFee === 0 ? 'Free' : formatDT(quote.deliveryFee)) : '—'}
+            valueColor={quote && quote.deliveryPriced && quote.deliveryFee === 0 ? 'success' : undefined}
+            trailing={<IconButton icon="info" variant="plain" iconColor="inkMuted" onPress={() => setFeeSheet('delivery')} accessibilityLabel="What is the delivery fee?" style={styles.infoButton} />}
+          />
           {/* Situational fees (night, bad weather…) — labelled by their fee rule. */}
           {quote?.additionalFees.map((fee) => (
-            <View key={fee.code ?? fee.label} style={styles.priceRow}>
-              <Text style={styles.priceLabel}>{fee.label}</Text>
-              <Text style={styles.priceValue}>{formatDT(fee.amount)}</Text>
-            </View>
+            <SummaryLine key={fee.code ?? fee.label} label={fee.label} value={formatDT(fee.amount)} />
           ))}
-
-          <View style={styles.totalDivider} />
-
-          <View style={styles.priceRow}>
-            {/* Reads `Total`. The old label said `Delivery Fee` while showing
-                the total, which named the row above it. */}
-            <Text style={styles.totalLabel}>Total</Text>
-            <Text style={styles.totalValue}>{quote ? formatDT(quote.total) : '—'}</Text>
-          </View>
-
+          <View style={styles.rule} />
+          <SummaryLine label="Total" value={quote ? formatDT(quote.total) : '—'} total />
           {quoteMessage ? (
-            <View style={styles.blockerRow}>
-              <Text style={styles.blockerText}>{quoteMessage}</Text>
+            <View style={styles.quoteLine}>
+              {isRepricing || (!quote && !quoteQuery.isError) ? <Spinner size={14} /> : null}
+              <Text variant="caption" color="inkMuted" style={styles.flex}>
+                {quoteMessage}
+              </Text>
               {quoteQuery.isError && !quote ? (
-                <TouchableOpacity onPress={() => void quoteQuery.refetch()} hitSlop={8}>
-                  <Text style={styles.blockerAction}>Retry</Text>
-                </TouchableOpacity>
+                <TextLink label="Try again" onPress={() => void quoteQuery.refetch()} />
               ) : null}
             </View>
           ) : null}
-        </View>
+        </Card>
       </ScrollView>
 
-      <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 16) }]}>
-        {/*
-          A failed checkout is stated plainly and retried only by hand: an
-          automatic retry could put a second driver on the road.
-        */}
-        {failureMessage ? (
-          <Text style={styles.errorText}>{failureMessage}</Text>
-        ) : null}
+      <BottomBar style={styles.footer}>
+        <View style={styles.footerInner}>
+          {/* A failed checkout is stated plainly and retried only by hand: an
+              automatic retry could put a second driver on the road. */}
+          {failureMessage ? <ErrorBanner title={failureMessage} /> : null}
 
-        {/*
-          The pin has been moved but not confirmed, so the map and the order
-          disagree about where this is going. Say which tap resolves it rather
-          than leaving a disabled button unexplained.
-        */}
-        {pendingPoint ? (
-          <Text style={styles.blockerText}>
-            Confirm the new delivery point above — tap Deliver here, or Cancel to
-            keep the current one.
-          </Text>
-        ) : null}
+          {/* The pin moved but is not confirmed: say which tap resolves it. */}
+          {pendingPoint ? (
+            <InfoNote>Confirm the new delivery point above — tap Deliver here, or Cancel to keep the current one.</InfoNote>
+          ) : null}
 
-        {/*
-          Said once, where the decision is made: a custom point is for this
-          order only. Otherwise a customer who expected it under their saved
-          addresses next time would think the app lost it.
-        */}
-        {customPoint && !pendingPoint ? (
-          <Text style={styles.blockerText}>
-            This order will be delivered to the custom location above. It
-            won&apos;t be added to your saved addresses.
-          </Text>
-        ) : null}
+          {blockerCopy && !(blocker === 'no-restaurant-coords') ? (
+            <View style={styles.blocker}>
+              <Text variant="meta" color="inkMuted" style={styles.flex}>
+                {blockerCopy.message}
+              </Text>
+              {needsAddress && blockerCopy.action ? <TextLink label={blockerCopy.action} onPress={handleBlockerAction} /> : null}
+            </View>
+          ) : null}
 
-        {blockerCopy ? (
-          <View style={styles.blockerRow}>
-            <Text style={styles.blockerText}>{blockerCopy.message}</Text>
-            {needsAddress && blockerCopy.action ? (
-              <TouchableOpacity onPress={handleBlockerAction} hitSlop={8}>
-                <Text style={styles.blockerAction}>{blockerCopy.action}</Text>
-              </TouchableOpacity>
-            ) : null}
-          </View>
-        ) : null}
+          <PrimaryButton
+            label={failure ? 'Try again' : orderCount > 1 ? `Place ${orderCount} orders` : 'Place order'}
+            right={quote ? formatDT(quote.total) : undefined}
+            loading={isSubmitting}
+            loadingLabel={orderCount > 1 ? `Placing ${orderCount} orders…` : 'Placing your order…'}
+            disabled={!canSubmit}
+            onPress={handleContinueCheckout}
+          />
+        </View>
+      </BottomBar>
 
-        <PressableScale
-          style={[styles.checkoutButton, !canSubmit && styles.checkoutButtonDisabled]}
-          onPress={handleContinueCheckout}
-          disabled={!canSubmit}
-          scaleTo={0.98}
-          accessibilityLabel="Continue to Checkout"
-        >
-          {isSubmitting ? (
-            <ActivityIndicator color={Palette.textInverse} />
-          ) : (
-            <Text style={styles.checkoutButtonText}>
-              {failure ? 'Try Again' : 'Continue to Checkout'}
-            </Text>
-          )}
-        </PressableScale>
-      </View>
-
-      <ServiceFeeModal
-        visible={feeSheet === 'service'}
-        onClose={() => setFeeSheet(null)}
-      />
-      <DeliveryFeeModal
-        visible={feeSheet === 'delivery'}
-        onClose={() => setFeeSheet(null)}
-      />
+      <ServiceFeeModal visible={feeSheet === 'service'} onClose={() => setFeeSheet(null)} />
+      <DeliveryFeeModal visible={feeSheet === 'delivery'} onClose={() => setFeeSheet(null)} />
       <PaymentMethodModal
         visible={paymentSheetVisible}
         selected={paymentMethod}
@@ -729,181 +730,24 @@ export default function OrderDetailsScreen() {
         }}
         onClose={() => setPaymentSheetVisible(false)}
       />
-    </View>
+    </Screen>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: Palette.background,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: Spacing.xl,
-    paddingBottom: Spacing.lg,
-    borderBottomWidth: 1,
-    borderBottomColor: Palette.borderSubtle,
-  },
-  headerTitle: {
-    fontSize: FontSize.xl,
-    fontFamily: Fonts.semiBold,
-    color: Palette.ink,
-  },
-  headerSpacer: {
-    width: 24,
-  },
-  scrollView: {
-    flex: 1,
-  },
-  scrollContent: {
-    gap: 0,
-  },
-  sectionDivider: {
-    height: 8,
-    backgroundColor: Palette.surfaceAlt,
-    marginVertical: Spacing.sm,
-  },
-  sectionCard: {
-    marginHorizontal: Spacing.xl,
-    borderRadius: Radius.xl,
-    borderWidth: 1,
-    borderColor: Palette.borderSubtle,
-    overflow: 'hidden',
-  },
-  sectionTitle: {
-    fontSize: FontSize.lg,
-    fontFamily: Fonts.bold,
-    color: Palette.ink,
-    paddingHorizontal: Spacing.xl,
-    paddingTop: Spacing.lg,
-    paddingBottom: Spacing.xs,
-  },
-  rowDivider: {
-    height: 1,
-    backgroundColor: Palette.borderSubtle,
-    marginHorizontal: Spacing.xl,
-  },
-  summarySectionTitle: {
-    fontSize: FontSize.lg,
-    fontFamily: Fonts.bold,
-    color: Palette.ink,
-    paddingHorizontal: Spacing.xl,
-    paddingTop: Spacing.sm,
-    paddingBottom: Spacing.lg,
-  },
-  splitNote: {
-    fontSize: FontSize.sm,
-    fontFamily: Fonts.regular,
-    color: Palette.textSecondary,
-    lineHeight: 18,
-    paddingHorizontal: Spacing.xl,
-    paddingBottom: Spacing.lg,
-  },
-  pricingCard: {
-    marginHorizontal: Spacing.xl,
-    marginBottom: Spacing.sm,
-    backgroundColor: Palette.surfaceAlt,
-    borderRadius: Radius.lg,
-    padding: Spacing.lg,
-    gap: Spacing.md,
-  },
-  priceRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  priceLabelRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  priceLabel: {
-    fontSize: FontSize.md,
-    fontFamily: Fonts.regular,
-    color: Palette.ink,
-  },
-  priceValue: {
-    fontSize: FontSize.md,
-    fontFamily: Fonts.medium,
-    color: Palette.ink,
-  },
-  deliveryFeeRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.sm,
-  },
-  freeBadge: {
-    backgroundColor: Palette.successSoft,
-    paddingHorizontal: Spacing.sm,
-    paddingVertical: 2,
-    borderRadius: Radius.sm,
-  },
-  freeText: {
-    fontSize: FontSize.sm,
-    fontFamily: Fonts.semiBold,
-    color: Palette.success,
-  },
-  totalDivider: {
-    height: 1,
-    backgroundColor: Palette.border,
-  },
-  totalLabel: {
-    fontSize: FontSize.md,
-    fontFamily: Fonts.semiBold,
-    color: Palette.ink,
-  },
-  totalValue: {
-    fontSize: FontSize.lg,
-    fontFamily: Fonts.bold,
-    color: Palette.ink,
-  },
-  footer: {
-    paddingHorizontal: Spacing.xl,
-    paddingTop: Spacing.md,
-    borderTopWidth: 1,
-    borderTopColor: Palette.borderSubtle,
-    backgroundColor: Palette.background,
-    gap: Spacing.sm,
-  },
-  errorText: {
-    fontSize: FontSize.sm,
-    fontFamily: Fonts.regular,
-    color: Palette.danger,
-    lineHeight: 18,
-  },
-  blockerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: Spacing.sm,
-  },
-  blockerText: {
-    flex: 1,
-    fontSize: FontSize.sm,
-    fontFamily: Fonts.regular,
-    color: Palette.textSecondary,
-    lineHeight: 18,
-  },
-  blockerAction: {
-    fontSize: FontSize.sm,
-    fontFamily: Fonts.semiBold,
-    color: Palette.primary,
-  },
-  checkoutButton: {
-    backgroundColor: Palette.ink,
-    borderRadius: Radius.xxl + 4,
-    paddingVertical: Spacing.lg,
-    alignItems: 'center',
-  },
-  checkoutButtonDisabled: {
-    backgroundColor: Palette.disabled,
-  },
-  checkoutButtonText: {
-    fontSize: FontSize.lg,
-    fontFamily: Fonts.semiBold,
-    color: Palette.textInverse,
-  },
-});
+const useStyles = createStyles((t) => ({
+  flex: { flex: 1 },
+  busy: { opacity: t.opacity.pageBusy },
+  content: { paddingHorizontal: t.screenPadding, paddingTop: t.space[12], gap: t.space[16] },
+  sectionHeader: { marginTop: t.space[12], marginBottom: 0 },
+  orderHeader: { padding: t.space[16] },
+  orderTotal: { flexDirection: 'row', alignItems: 'center', gap: t.space[6] },
+  orderBanner: { marginHorizontal: t.space[16], marginBottom: t.space[16] },
+  orderLines: { paddingHorizontal: t.space[16], paddingBottom: t.space[16], gap: t.space[8] },
+  rule: { height: 1, backgroundColor: t.colors.divider },
+  summaryCard: { gap: t.space[10] },
+  infoButton: { width: 28, height: 28 },
+  quoteLine: { flexDirection: 'row', alignItems: 'center', gap: t.space[8] },
+  footer: { flexDirection: 'column' },
+  footerInner: { flex: 1, gap: t.space[10] },
+  blocker: { flexDirection: 'row', alignItems: 'center', gap: t.space[12] },
+}));

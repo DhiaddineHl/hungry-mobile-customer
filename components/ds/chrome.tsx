@@ -58,20 +58,23 @@ export function TopBar({
 // ---------------------------------------------------------------------------
 
 /** Height the bar covers — give scroll content this much bottom padding. */
-export function useBottomBarInset(): number {
+export function useBottomBarInset(withSafeArea = true): number {
   const insets = useSafeAreaInsets();
   const { size, space } = useTheme();
-  return space[12] + size.button + Math.max(insets.bottom, space[12]);
+  return space[12] + size.button + (withSafeArea ? Math.max(insets.bottom, space[12]) : space[12]);
 }
 
 export function BottomBar({
   children,
   absolute = true,
+  withSafeArea = true,
   style,
 }: {
   children: ReactNode;
   /** Pinned over the scroll view (default). `false` flows at the end of a column layout. */
   absolute?: boolean;
+  /** Off above a tab bar, which already sits over the home indicator. */
+  withSafeArea?: boolean;
   style?: StyleProp<ViewStyle>;
 }) {
   const styles = useStyles();
@@ -82,7 +85,7 @@ export function BottomBar({
       style={[
         styles.bottomBar,
         absolute && styles.bottomBarAbsolute,
-        { paddingBottom: Math.max(insets.bottom, space[12]) },
+        { paddingBottom: withSafeArea ? Math.max(insets.bottom, space[12]) : space[12] },
         style,
       ]}
     >

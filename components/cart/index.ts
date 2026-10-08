@@ -1,7 +1,2 @@
-export { CartHeader } from './cart-header';
-export { RestaurantCartCard } from './restaurant-cart-card';
-export { CartItem } from './cart-item';
-export { SuggestedItems } from './suggested-items';
+export { CartView } from './cart-view';
 export { SyncBadge } from './sync-badge';
-export { OrderSummary } from './order-summary';
-export { CheckoutButton } from './checkout-button';
