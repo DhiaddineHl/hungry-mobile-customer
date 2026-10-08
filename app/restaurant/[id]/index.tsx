@@ -1,4 +1,4 @@
-import { SearchBar } from "@/components/home";
+import { SearchField } from "@/components/ds";
 import {
   MenuFilterTabs,
   MenuSection,
@@ -324,7 +324,7 @@ export default function RestaurantDetailsScreen() {
         />
 
         <View style={styles.toolbar}>
-          <SearchBar
+          <SearchField
             value={searchQuery}
             placeholder="Search the menu"
             onChangeText={setSearchQuery}

@@ -1,7 +1,8 @@
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
-import { ChevronRight } from 'lucide-react-native';
-import { Fonts } from '@/constants/theme';
-import { SvgProps } from 'react-native-svg';
+import type React from 'react';
+import { ScrollView, View } from 'react-native';
+import type { SvgProps } from 'react-native-svg';
+import { Text, Touchable } from '@/components/ds';
+import { createStyles } from '@/theme';
 import Mekla1 from '@/assets/categories-icons/Mekla_1.svg';
 import Mekla2 from '@/assets/categories-icons/Mekla_2.svg';
 import Mekla3 from '@/assets/categories-icons/Mekla_3.svg';
@@ -14,104 +15,70 @@ import Mekla9 from '@/assets/categories-icons/Mekla_9.svg';
 import Mekla10 from '@/assets/categories-icons/Mekla_10.svg';
 import Mekla11 from '@/assets/categories-icons/Mekla_11.svg';
 import Mekla12 from '@/assets/categories-icons/Mekla_12.svg';
-import React from 'react';
 
-const CATEGORIES: { id: string; name: string; Icon: React.FC<SvgProps> }[] = [
-  { id: '1', name: 'Pizza', Icon: Mekla1 },
-  { id: '2', name: 'Burger', Icon: Mekla2 },
-  { id: '3', name: 'Grill', Icon: Mekla3 },
-  { id: '4', name: 'Tunisian', Icon: Mekla4 },
-  { id: '5', name: 'Salad', Icon: Mekla5 },
-  { id: '6', name: 'Pasta', Icon: Mekla6 },
-  { id: '7', name: 'Sushi', Icon: Mekla7 },
-  { id: '8', name: 'Dessert', Icon: Mekla8 },
-  { id: '9', name: 'Drinks', Icon: Mekla9 },
-  { id: '10', name: 'Chicken', Icon: Mekla10 },
-  { id: '11', name: 'Seafood', Icon: Mekla11 },
-  { id: '12', name: 'Sandwich', Icon: Mekla12 },
-];
-
-interface CategoriesSliderProps {
-  onCategoryPress?: (categoryId: string) => void;
-  onSeeAllPress?: () => void;
+export interface Category {
+  id: string;
+  name: string;
+  /** Matched (case-insensitively) against a restaurant's cuisines. */
+  match: string;
+  Icon: React.FC<SvgProps>;
 }
 
-export function CategoriesSlider({ onCategoryPress, onSeeAllPress }: CategoriesSliderProps) {
-  return (
-    <View style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.title}>All Categories</Text>
-        <TouchableOpacity style={styles.seeAllButton} onPress={onSeeAllPress}>
-          <Text style={styles.seeAllText}>See All</Text>
-          <ChevronRight size={16} color="#F5A623" />
-        </TouchableOpacity>
-      </View>
+export const CATEGORIES: Category[] = [
+  { id: 'pizza', name: 'Pizza', match: 'pizza', Icon: Mekla1 },
+  { id: 'burger', name: 'Burger', match: 'burger', Icon: Mekla2 },
+  { id: 'grill', name: 'Grill', match: 'grill', Icon: Mekla3 },
+  { id: 'tunisian', name: 'Tunisian', match: 'tunis', Icon: Mekla4 },
+  { id: 'salads', name: 'Salads', match: 'salad', Icon: Mekla5 },
+  { id: 'pasta', name: 'Pasta', match: 'pasta', Icon: Mekla6 },
+  { id: 'sushi', name: 'Sushi', match: 'sushi', Icon: Mekla7 },
+  { id: 'dessert', name: 'Dessert', match: 'dessert', Icon: Mekla8 },
+  { id: 'drinks', name: 'Drinks', match: 'drink', Icon: Mekla9 },
+  { id: 'chicken', name: 'Chicken', match: 'chicken', Icon: Mekla10 },
+  { id: 'seafood', name: 'Seafood', match: 'sea', Icon: Mekla11 },
+  { id: 'sandwich', name: 'Sandwiches', match: 'sandwich', Icon: Mekla12 },
+];
 
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.scrollContent}
-      >
-        {CATEGORIES.map((category) => (
-          <TouchableOpacity
+/**
+ * Category tiles (57×86): illustration over a label. The selected one's label
+ * turns orange — a signal, not an action. Tapping it again clears it.
+ */
+export function CategoriesSlider({
+  selectedId,
+  onSelect,
+}: {
+  selectedId: string | null;
+  onSelect: (id: string | null) => void;
+}) {
+  const styles = useStyles();
+  return (
+    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.rail}>
+      {CATEGORIES.map((category) => {
+        const selected = category.id === selectedId;
+        return (
+          <Touchable
             key={category.id}
-            style={styles.categoryItem}
-            onPress={() => onCategoryPress?.(category.id)}
+            onPress={() => onSelect(selected ? null : category.id)}
+            accessibilityState={{ selected }}
+            accessibilityLabel={category.name}
+            style={styles.tile}
           >
-            <View style={styles.iconContainer}>
-              <category.Icon width={72} height={72} />
+            <View style={styles.art}>
+              <category.Icon width={54} height={48} />
             </View>
-            <Text style={styles.categoryName}>{category.name}</Text>
-          </TouchableOpacity>
-        ))}
-      </ScrollView>
-    </View>
+            <Text variant="caption" color={selected ? 'primary' : 'ink'} numberOfLines={1} style={styles.label}>
+              {category.name}
+            </Text>
+          </Touchable>
+        );
+      })}
+    </ScrollView>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    paddingVertical: 8,
-  },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    marginBottom: 12,
-  },
-  title: {
-    fontSize: 20,
-    fontFamily: Fonts.semiBold,
-    color: '#1A2B3D',
-  },
-  seeAllButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 2,
-  },
-  seeAllText: {
-    fontSize: 14,
-    color: '#F5A623',
-    fontFamily: Fonts.medium,
-  },
-  scrollContent: {
-    paddingHorizontal: 20,
-    gap: 20,
-  },
-  categoryItem: {
-    alignItems: 'center',
-    width: 72,
-  },
-  iconContainer: {
-    width: 72,
-    height: 72,
-    marginBottom: 8,
-  },
-  categoryName: {
-    fontSize: 13,
-    color: '#1A2B3D',
-    fontFamily: Fonts.medium,
-    textAlign: 'center',
-  },
-});
+const useStyles = createStyles((t) => ({
+  rail: { paddingHorizontal: t.screenPadding, gap: t.space[6] },
+  tile: { width: t.size.categoryTile.w + 6, height: t.size.categoryTile.h, alignItems: 'center', gap: t.space[8] },
+  art: { width: t.size.categoryTile.w, height: t.size.categoryTile.w, alignItems: 'center', justifyContent: 'center' },
+  label: { fontFamily: t.typography.label.fontFamily },
+}));

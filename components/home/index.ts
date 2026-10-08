@@ -1,7 +1,3 @@
-export { HomeHeader } from './home-header';
-export { SearchBar } from './search-bar';
-export { CategoriesSlider } from './categories-slider';
-export { FiltersSlider } from './filters-slider';
+export { HomeHeader, useDeliverToLabel } from './home-header';
+export { CategoriesSlider, CATEGORIES } from './categories-slider';
 export { PopularRestaurants } from './popular-restaurants';
-export { OpenRestaurants } from './open-restaurants';
-export { RestaurantCardSkeleton, RestaurantListSkeleton } from './restaurant-card-skeleton';

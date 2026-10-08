@@ -384,7 +384,7 @@ const useStyles = createStyles((t) => ({
   wellInk: { backgroundColor: t.colors.ink },
   wellWhite: { backgroundColor: t.colors.surface },
   meta: { flexDirection: 'row', alignItems: 'center', gap: t.space[16], flexWrap: 'wrap' },
-  metaItem: { flexDirection: 'row', alignItems: 'center', gap: t.space[8] },
+  metaItem: { flexDirection: 'row', alignItems: 'center', gap: t.space[6] },
   metaWell: {
     width: t.size.metaIconWell,
     height: t.size.metaIconWell,

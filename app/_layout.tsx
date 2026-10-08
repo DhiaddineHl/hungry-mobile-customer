@@ -264,6 +264,8 @@ function RootNavigator() {
           options={{ presentation: "fullScreenModal", animation: "slide_from_bottom" }}
         />
         <Stack.Screen name="notifications" />
+        {/* Search opens in place over Home: a fade keeps the field steady. */}
+        <Stack.Screen name="search" options={{ animation: "fade" }} />
         <Stack.Screen
           name="modal"
           options={{ presentation: "modal", title: "Modal" }}

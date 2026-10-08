@@ -13,3 +13,4 @@ export * from './toast';
 export * from './touchable';
 export * from './auth-inputs';
 export * from './map';
+export * from './restaurant';
