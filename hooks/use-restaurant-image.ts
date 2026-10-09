@@ -1,5 +1,6 @@
 import { RESTAURANT_IMAGE_PLACEHOLDER } from '@/constants/images';
 import { imageAuthHeaders, resolveImageUrl } from '@/services/api/image-url';
+import { isApiOrigin } from '@/services/config/endpoints';
 import type { ImageSource } from 'expo-image';
 import { useCallback, useEffect, useState } from 'react';
 
@@ -25,10 +26,17 @@ export function useRestaurantImageSource() {
     };
   }, []);
 
-  /** An absolute, already-resolved URL → an authenticated source. */
+  /**
+   * An absolute, already-resolved URL → a source, authenticated only when it
+   * points at our own API. `resolveImageUrl` passes absolute URLs through
+   * untouched, so a logo hosted anywhere else must not be handed the
+   * customer's bearer token along with the request.
+   */
   return useCallback(
     (url: string | null | undefined): ImageSource => {
-      if (!url || headers === null) return { uri: RESTAURANT_IMAGE_PLACEHOLDER };
+      if (!url) return { uri: RESTAURANT_IMAGE_PLACEHOLDER };
+      if (!isApiOrigin(url)) return { uri: url };
+      if (headers === null) return { uri: RESTAURANT_IMAGE_PLACEHOLDER };
       return { uri: url, headers };
     },
     [headers]

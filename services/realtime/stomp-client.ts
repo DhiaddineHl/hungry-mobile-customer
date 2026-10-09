@@ -1,5 +1,6 @@
 import { isTokenExpired, refreshAccessToken } from '@/services/keycloak/auth-service';
 import { getTokens } from '@/services/keycloak/token-storage';
+import { API_URL } from '@/services/config/endpoints';
 import { Client, type IMessage, type StompSubscription } from '@stomp/stompjs';
 
 /**
@@ -33,10 +34,9 @@ let client: Client | null = null;
 const registrations = new Set<Registration>();
 
 function resolveBrokerUrl(): string {
-  const apiBase = process.env.EXPO_PUBLIC_API_URL ?? 'http://192.168.100.93:8082';
   // http(s):// -> ws(s):// — same host/port, the gateway proxies /ws/** to
   // hungry-notification (see jfwk-gateway's hungry-notification-ws route).
-  return `${apiBase.replace(/^http/, 'ws')}/ws/websocket`;
+  return `${API_URL.replace(/^http/, 'ws')}/ws/websocket`;
 }
 
 function parseBody(body: string): unknown {
@@ -122,4 +122,18 @@ export function subscribeToTopic(destination: string, listener: Listener): () =>
     registrations.delete(registration);
     registration.subscription?.unsubscribe();
   };
+}
+
+/**
+ * Closes the shared connection and forgets every registration. Called when the
+ * session ends: the socket authenticated with the CONNECT frame of the account
+ * that opened it, and would otherwise stay up — and keep reconnecting — as that
+ * account after someone else signs in. The next `subscribeToTopic` opens a
+ * fresh one with the new account's token.
+ */
+export async function disconnectRealtime(): Promise<void> {
+  const stomp = client;
+  client = null;
+  registrations.clear();
+  await stomp?.deactivate();
 }

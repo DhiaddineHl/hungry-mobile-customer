@@ -34,6 +34,9 @@ interface OrderNotificationData {
   orderCode?: string;
 }
 
+/** An order id as the backend issues them (UUID-like). */
+const ORDER_ID = /^[A-Za-z0-9-]{1,64}$/;
+
 function readData(notification: Notifications.Notification): OrderNotificationData {
   return (notification.request.content.data ?? {}) as OrderNotificationData;
 }
@@ -181,6 +184,9 @@ export function usePushNotifications(): void {
     if (!isAuthenticated) return;
 
     handledResponseIds.current.add(responseId);
-    router.push(`/orders/${data.orderId}`);
+    // The payload is not ours to trust: anything able to post a notification
+    // on this device could put `../something` here and steer navigation.
+    if (!ORDER_ID.test(data.orderId)) return;
+    router.push(`/orders/${encodeURIComponent(data.orderId)}`);
   }, [response, isAuthenticated, router]);
 }

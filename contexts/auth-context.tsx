@@ -14,6 +14,8 @@ import { resolveCustomerForAccount } from '@/hooks/use-customer';
 import { deleteCurrentAccount } from '@/services/api/customer-service';
 import { isApiError } from '@/services/api/client';
 import { clearPushRegistration } from '@/services/notifications/push-service';
+import { disconnectRealtime } from '@/services/realtime/stomp-client';
+import { claimDeviceData, releaseDeviceData } from '@/services/session/account-owner';
 import { useCartStore } from '@/store/cart-store';
 import { useCustomerStore } from '@/store/customer-store';
 import { useFavoritesStore } from '@/store/favorites-store';
@@ -83,7 +85,7 @@ const AuthContext = createContext<AuthContextValue | null>(null);
  * request now goes through the jfwk-gateway, which answers 401 at the edge for
  * anything but `POST /customers` — a bypassed session has no token to send.
  */
-const BYPASS_AUTH = false;
+const BYPASS_AUTH: boolean = __DEV__ && false;
 
 const GUEST_USER: KeycloakUserInfo = {
   sub: 'guest',
@@ -125,7 +127,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // The exact value below must be listed in the Keycloak client's
   // "Valid redirect URIs". If you see Keycloak's "Invalid parameter: redirect_uri"
   // page, copy this string verbatim into that list.
-  console.log('[Auth] OAuth redirect_uri =', redirectUri);
+  if (__DEV__) console.log('[Auth] OAuth redirect_uri =', redirectUri);
 
   // Browser-based Authorization Code + PKCE flow, jumping straight to Google.
   //
@@ -195,6 +197,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           );
           if (tokenResult.success) {
             const userInfo = await fetchUserInfo();
+            if (userInfo?.sub) await claimDeviceData(userInfo.sub);
             setState({
               isAuthenticated: true,
               isLoading: false,
@@ -237,6 +240,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
 
         const [userInfo, authMethod] = await Promise.all([fetchUserInfo(), getAuthMethod()]);
+        if (userInfo?.sub) await claimDeviceData(userInfo.sub);
         setState({ isAuthenticated: true, isLoading: false, user: userInfo, authMethod });
         resolveCustomer(userInfo?.sub);
       } catch {
@@ -250,6 +254,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const result = await loginWithPassword(email, password);
     if (result.success) {
       const userInfo = await fetchUserInfo();
+      // Before the session is marked authenticated, so nothing (the cart sync
+      // above all) can read a previous account's local data under this one.
+      if (userInfo?.sub) await claimDeviceData(userInfo.sub);
       setState({
         isAuthenticated: true,
         isLoading: false,
@@ -283,6 +290,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
    */
   const clearSession = useCallback(
     (options: { local: boolean }) => {
+      // The socket is authenticated as THIS account; it must not outlive it.
+      disconnectRealtime().catch(() => undefined);
       useCustomerStore.getState().clear();
       useDeliveryAddressStore.getState().clear();
       // The inbox is this account's order history in another form.
@@ -290,6 +299,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (options.local) {
         useCartStore.getState().clear();
         useFavoritesStore.getState().clear();
+        releaseDeviceData();
       }
       queryClient.clear();
       setState({ isAuthenticated: false, isLoading: false, user: null, authMethod: null });

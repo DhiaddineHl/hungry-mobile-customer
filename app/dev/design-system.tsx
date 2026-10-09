@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { ScrollView, View } from 'react-native';
-import { useRouter } from 'expo-router';
+import { Redirect, useRouter } from 'expo-router';
 import {
   Avatar,
   Badge,
@@ -47,7 +47,13 @@ import { createStyles } from '@/theme';
  * "Primitives built and shown in a dev screen"). Reachable at /dev/design-system
  * in development builds; the root guard lets it through only under __DEV__.
  */
-export default function DesignSystemGallery() {
+export default function DesignSystemGalleryRoute() {
+  // Release builds still register this route, so a deep link could open it.
+  if (!__DEV__) return <Redirect href="/" />;
+  return <DesignSystemGallery />;
+}
+
+function DesignSystemGallery() {
   const styles = useStyles();
   const router = useRouter();
   const [qty, setQty] = useState(2);

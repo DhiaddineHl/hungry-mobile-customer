@@ -67,9 +67,9 @@ async function fetchWithTimeout(
 /** Maps a thrown network/timeout error to a user-facing message. */
 function networkErrorMessage(err: unknown): string {
   if (err instanceof TimeoutError) {
-    return 'Could not reach the server. Check that the Keycloak URL is correct and reachable from this device.';
+    return "Sign-in is taking too long to respond. Check your connection and try again.";
   }
-  return 'Network error. Please check your connection.';
+  return "You're offline. Check your connection and try again.";
 }
 
 export async function loginWithPassword(email: string, password: string): Promise<AuthResult> {
@@ -82,7 +82,6 @@ export async function loginWithPassword(email: string, password: string): Promis
       scope: 'openid profile email',
     });
 
-    console.log('[Auth] Login → POST', keycloakConfig.tokenEndpoint);
     const response = await fetchWithTimeout(keycloakConfig.tokenEndpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -91,7 +90,7 @@ export async function loginWithPassword(email: string, password: string): Promis
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => null);
-      console.warn('[Auth] Login failed:', response.status, errorData);
+      if (__DEV__) console.warn('[Auth] Login failed:', response.status, errorData);
       if (response.status === 401 || errorData?.error === 'invalid_grant') {
         return { success: false, error: 'Invalid email or password' };
       }
@@ -104,7 +103,7 @@ export async function loginWithPassword(email: string, password: string): Promis
     await saveAuthMethod('password');
     return { success: true, tokens };
   } catch (err) {
-    console.error('[Auth] Login error:', err);
+    if (__DEV__) console.error('[Auth] Login error:', err);
     return { success: false, error: networkErrorMessage(err) };
   }
 }
@@ -115,7 +114,23 @@ export async function loginWithPassword(email: string, password: string): Promis
 // This also removed the Keycloak admin credentials from the app bundle. See
 // services/api/customer-service.ts.
 
-export async function refreshAccessToken(): Promise<AuthResult> {
+/**
+ * The refresh in flight, if any. Keycloak rotates the refresh token on every
+ * use, so two concurrent refreshes would present the same token twice — and
+ * with "Revoke refresh token" on, the loser fails and clears the session. A
+ * screen firing several queries on an expired token would sign the user out at
+ * random. Callers arriving while one is running share its result instead.
+ */
+let refreshInFlight: Promise<AuthResult> | null = null;
+
+export function refreshAccessToken(): Promise<AuthResult> {
+  refreshInFlight ??= doRefreshAccessToken().finally(() => {
+    refreshInFlight = null;
+  });
+  return refreshInFlight;
+}
+
+async function doRefreshAccessToken(): Promise<AuthResult> {
   try {
     const currentTokens = await getTokens();
     if (!currentTokens?.refreshToken) {
@@ -239,13 +254,20 @@ export async function logout(): Promise<void> {
   }
 }
 
+/**
+ * Treat a token this close to `exp` as already expired: one sent with seconds
+ * to spare can expire in transit (or against a server clock running ahead) and
+ * come back 401.
+ */
+const EXPIRY_SKEW_MS = 30_000;
+
 export function isTokenExpired(token: string): boolean {
   try {
     const payload = token.split('.')[1];
     const decoded = atob(payload.replace(/-/g, '+').replace(/_/g, '/'));
     const parsed = JSON.parse(decoded);
     if (typeof parsed.exp !== 'number') return true;
-    return Date.now() >= parsed.exp * 1000;
+    return Date.now() + EXPIRY_SKEW_MS >= parsed.exp * 1000;
   } catch {
     return true;
   }

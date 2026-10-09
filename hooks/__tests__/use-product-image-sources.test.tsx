@@ -32,6 +32,11 @@ jest.mock('@/services/api/image-url', () => ({
   imageAuthHeaders: async () => ({ Authorization: 'Bearer test-token' }),
 }));
 
+// …and `api.test` is that API: only its own origin is handed the token.
+jest.mock('@/services/config/endpoints', () => ({
+  isApiOrigin: (url: string) => url.startsWith('https://api.test/'),
+}));
+
 const mockedProductService = jest.mocked(productService);
 
 const BURGER = '7c9e6679-7425-40de-944b-e07fc1f90ae7';
