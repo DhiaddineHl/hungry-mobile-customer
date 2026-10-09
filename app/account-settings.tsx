@@ -81,7 +81,7 @@ export default function AccountSettingsScreen() {
       reset(data);
       toast.show({ message: 'Changes saved' });
     } catch (error) {
-      setFormError(error instanceof Error ? error.message : 'Something went wrong.');
+      setFormError(error instanceof Error ? error.message : "Your changes weren't saved. Check your connection and try again.");
     } finally {
       setIsSaving(false);
     }

@@ -38,7 +38,8 @@ export const newPasswordSchema = z
     password: z
       .string()
       .min(1, 'Enter your password.')
-      .min(6, 'Use at least 6 characters.'),
+      .min(8, 'Use at least 8 characters.')
+      .max(128, 'Use 128 characters or fewer.'),
     confirmPassword: z.string().min(1, 'Re-enter your password.'),
   })
   .refine((data) => data.password === data.confirmPassword, {
@@ -88,7 +89,8 @@ export const signupSchema = z
     password: z
       .string()
       .min(1, 'Enter your password.')
-      .min(6, 'Use at least 6 characters.'),
+      .min(8, 'Use at least 8 characters.')
+      .max(128, 'Use 128 characters or fewer.'),
     confirmPassword: z.string().min(1, 'Re-enter your password.'),
   })
   .refine((data) => data.password === data.confirmPassword, {

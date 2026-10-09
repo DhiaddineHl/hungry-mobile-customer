@@ -156,7 +156,7 @@ export default function AddressInfoScreen() {
       // address without a session still has to log in.
       router.replace(isAuthenticated ? '/(tabs)' : '/login');
     } catch (err) {
-      setSaveError(err instanceof Error ? err.message : 'Something went wrong.');
+      setSaveError(err instanceof Error ? err.message : "Your address wasn't saved. Check your connection and try again.");
     }
   };
 

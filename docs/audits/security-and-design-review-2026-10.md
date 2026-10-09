@@ -11,7 +11,11 @@ classes the `security-guidance` plugin checks (injection, XSS, SSRF, secrets,
 IDOR, auth bypass, unsafe deserialization, path traversal), extended with the
 mobile-specific ones (token storage and leakage, shared-device data, deep links,
 backups, cleartext transport), plus `npm audit`. The plugin itself is
-hook-driven, so it ran on every edit and every commit made on this branch.
+hook-driven (pattern checks on edits, LLM review at turn end and on
+`git commit`), but its log (`~/.claude/security/log.txt`) shows it did **not**
+fire during this review. Its earlier runs logged "LLM review disabled or no
+API credentials". Re-enable it and let it review this branch's commits (see
+the note at the end).
 Design: the skill's quality floor (contrast, reduced motion, copy that explains
 failures, no template leftovers) and its "generic tells", each checked against
 the handoff spec first. Where the spec decides something, the spec wins.
@@ -306,3 +310,22 @@ three.
   tokens. No inline hex values in screens or components (lint-guarded).
 - Copy is sentence case, buttons are verbs, and empty states invite action, as
   the skill asks.
+
+---
+
+## Note — getting the security-guidance plugin to actually run
+
+The plugin was installed but inactive for this review. To have it check this
+branch and future work:
+
+1. Restart Claude Code so the plugin's hooks load (`/plugin` should list
+   `security-guidance` as enabled).
+2. Make sure an API path is available to it: its earlier runs logged "LLM
+   review disabled or no API credentials". The README covers
+   `SECURITY_REVIEW_MODEL` for gateways and third-party providers.
+3. Confirm with `tail ~/.claude/security/log.txt`: you should see `Stop` and
+   commit-review entries for the session.
+4. Optional: add `.claude/claude-security-guidance.md` with this app's rules
+   (only API-origin URLs get the bearer token; device-local data must go
+   through `claimDeviceData`; endpoints come from `services/config/endpoints`)
+   so the diff reviewer enforces them.

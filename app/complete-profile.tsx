@@ -107,7 +107,7 @@ export default function CompleteProfileScreen() {
       router.replace('/map-select');
     } catch (error) {
       setAuthError(
-        error instanceof Error ? error.message : 'An unexpected error occurred. Please try again.'
+        error instanceof Error ? error.message : "Your details weren't saved. Check your connection and try again."
       );
     }
   };

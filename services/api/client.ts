@@ -1,5 +1,6 @@
 import { isTokenExpired, refreshAccessToken } from '@/services/keycloak/auth-service';
 import { getTokens } from '@/services/keycloak/token-storage';
+import { API_URL } from '@/services/config/endpoints';
 import axios, { AxiosError } from 'axios';
 
 /**
@@ -19,8 +20,8 @@ import axios, { AxiosError } from 'axios';
  *   same extraction picks up.
  */
 export const apiClient = axios.create({
-  // Fallback is a placeholder LAN address; always set EXPO_PUBLIC_API_URL in .env.
-  baseURL: process.env.EXPO_PUBLIC_API_URL ?? 'http://192.168.100.93:8082',
+  // Always set EXPO_PUBLIC_API_URL in .env; the LAN fallback is dev-only.
+  baseURL: API_URL,
   // Same rationale as the keycloak service's fetchWithTimeout: RN networking
   // has no default deadline and an unreachable LAN host would hang forever.
   timeout: 15000,
@@ -62,23 +63,36 @@ export function isApiError(error: unknown, status?: number): error is ApiError {
   return error instanceof ApiError && (status === undefined || error.status === status);
 }
 
+/** What to tell the customer when the server gave nothing presentable. */
+function fallbackMessage(status: number): string {
+  if (status === 401) return 'Your session has ended. Sign in again to continue.';
+  if (status === 403) return "Your account can't do that.";
+  if (status === 404) return "We couldn't find that. It may have been removed.";
+  if (status === 429) return 'Too many attempts. Wait a minute, then try again.';
+  if (status >= 500) return "Hungry's servers aren't responding right now. Try again in a moment.";
+  return "That request didn't go through. Check what you entered and try again.";
+}
+
 apiClient.interceptors.response.use(
   (response) => response,
   (error: AxiosError<Record<string, unknown>>) => {
     if (error.response) {
+      const { status } = error.response;
       const data = error.response.data;
-      const message =
-        (typeof data?.detail === 'string' && data.detail) || // Spring ProblemDetail
-        (typeof data?.message === 'string' && data.message) ||
-        (typeof data?.error === 'string' && data.error) ||
-        `Request failed (${error.response.status})`;
-      throw new ApiError(message, error.response.status, data);
+      if (__DEV__) console.warn(`[API] ${error.config?.method?.toUpperCase()} ${error.config?.url} → ${status}`, data);
+      // Only a 4xx carries text written for the customer (the ProblemDetail
+      // `detail` the backend phrases on purpose). A 5xx body is a stack's
+      // worth of internals at worst and noise at best — it stays on `data`.
+      const serverText =
+        status < 500
+          ? (typeof data?.detail === 'string' && data.detail) || // Spring ProblemDetail
+            (typeof data?.message === 'string' && data.message)
+          : null;
+      throw new ApiError(serverText || fallbackMessage(status), status, data);
     }
     if (error.code === 'ECONNABORTED') {
-      throw new ApiError(
-        'Could not reach the server. Check that the API gateway URL is correct and reachable from this device.'
-      );
+      throw new ApiError("We couldn't reach Hungry in time. Check your connection and try again.");
     }
-    throw new ApiError('Network error. Please check your connection.');
+    throw new ApiError("You're offline. Check your connection and try again.");
   }
 );

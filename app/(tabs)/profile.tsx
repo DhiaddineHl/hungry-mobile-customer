@@ -165,7 +165,7 @@ export default function ProfileScreen() {
           />
         </ListGroup>
 
-        <Text variant="caption" color="inkSubtle" align="center" style={styles.version}>
+        <Text variant="caption" color="inkMuted" align="center" style={styles.version}>
           {t('profile.version', { version })}
         </Text>
       </ScrollView>

@@ -67,7 +67,7 @@ export default function SignupScreen() {
 
       router.push('/verification');
     } catch (error) {
-      setAuthError(error instanceof Error ? error.message : 'Something went wrong.');
+      setAuthError(error instanceof Error ? error.message : "Your account wasn't created. Check your connection and try again.");
     }
   };
 
@@ -207,7 +207,7 @@ export default function SignupScreen() {
               onChangeText={onChange}
               onBlur={onBlur}
               error={errors.confirmPassword?.message}
-              helper="At least 6 characters."
+              helper="At least 8 characters."
               locked={isSubmitting}
               secureTextEntry={!showConfirm}
               autoComplete="password-new"

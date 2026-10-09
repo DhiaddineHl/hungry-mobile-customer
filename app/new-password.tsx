@@ -155,7 +155,7 @@ export default function NewPasswordScreen() {
               onChangeText={onChange}
               onBlur={onBlur}
               error={errors.confirmPassword?.message}
-              helper="At least 6 characters."
+              helper="At least 8 characters."
               locked={isSubmitting}
               secureTextEntry={!showConfirm}
               autoComplete="password-new"
