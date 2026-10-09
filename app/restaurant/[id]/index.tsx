@@ -49,7 +49,7 @@ import { useRestaurant } from '@/hooks/use-restaurants';
 import { productKeys } from '@/services/api/query-keys';
 import type { MenuProduct, MenuSectionData } from '@/services/api/product-view-model';
 import { toTimingRows } from '@/services/api/restaurant-view-model';
-import { formatDT, lineSignature, useCartStore, type NewCartLine } from '@/store/cart-store';
+import { formatDT, lineSignature, selectCartItemCount, useCartStore, type NewCartLine } from '@/store/cart-store';
 import { useFavoritesStore, useIsFavorite } from '@/store/favorites-store';
 import { createStyles, useTheme } from '@/theme';
 
@@ -135,6 +135,7 @@ export default function RestaurantDetailsScreen() {
   // THIS restaurant's share of the cart, for the View cart bar and the
   // per-dish quantity markers. Other restaurants' lines are not counted.
   const cartItems = useCartStore((s) => s.items);
+  const cartCount = useCartStore(selectCartItemCount);
   const addItem = useCartStore((s) => s.addItem);
   const decrement = useCartStore((s) => s.decrement);
   const restaurantCart = useMemo(() => {
@@ -374,6 +375,7 @@ export default function RestaurantDetailsScreen() {
           isFavorite={isFavorite}
           onFavorite={handleFavoritePress}
           onCart={goToCart}
+          cartCount={cartCount}
         />
 
         <View style={styles.body}>

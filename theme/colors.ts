@@ -34,7 +34,9 @@ export const lightColors = {
   dangerSoft: '#FBEAE7',
   focusRing: palette.orangeSoft,
   scrim: 'rgba(0,48,73,0.28)',
-  toast: palette.navy,
+  toast: '#E6F4E9', // light green success toast — softer than a navy slab
+  onToast: '#1E5A2B', // 7.6:1 on toast
+  toastBorder: 'rgba(46,122,61,0.22)',
   spinnerTrackOnInk: 'rgba(255,255,255,0.35)',
   spinnerTrack: 'rgba(0,48,73,0.18)',
   pinHalo: 'rgba(234,134,8,0.16)',

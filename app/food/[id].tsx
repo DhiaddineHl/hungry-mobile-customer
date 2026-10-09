@@ -1,19 +1,27 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { Image, type ImageSource } from 'expo-image';
+import * as Haptics from 'expo-haptics';
 import Animated, {
+  Easing,
   Extrapolation,
   interpolate,
   runOnJS,
   useAnimatedScrollHandler,
   useAnimatedStyle,
+  useReducedMotion,
   useSharedValue,
+  withSequence,
+  withSpring,
+  withTiming,
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AddonGroup, AddToCartBar } from '@/components/food';
 import {
   Badge,
   BottomBar,
+  Counter,
   Divider,
   ErrorBanner,
   HeroHeader,
@@ -40,7 +48,13 @@ import {
 import { useRestaurantImageSourceFromPath } from '@/hooks/use-restaurant-image';
 import { useRestaurant } from '@/hooks/use-restaurants';
 import { formatAmount, selectPrice, toggleAddonSelection } from '@/services/api/product-view-model';
-import { lineSignature, type CartAddon, type NewCartLine, useCartStore } from '@/store/cart-store';
+import {
+  lineSignature,
+  selectCartItemCount,
+  type CartAddon,
+  type NewCartLine,
+  useCartStore,
+} from '@/store/cart-store';
 import { useFavoritesStore, useIsFavorite } from '@/store/favorites-store';
 import { createStyles, useTheme } from '@/theme';
 
@@ -48,6 +62,26 @@ import { createStyles, useTheme } from '@/theme';
 const STICKY_REVEAL = 150;
 
 const lowerFirst = (s: string) => (s ? s.charAt(0).toLowerCase() + s.slice(1) : s);
+
+/** Fly-to-cart: the photo shrinks into the cart button, then the screen closes. */
+const FLY_MS = 650;
+const LAND_PULSE_SPRING = { damping: 10, stiffness: 340, mass: 0.6 };
+/** Pause after the landing pulse so it registers before the screen pops. */
+const AFTER_LAND_MS = 220;
+
+interface Rect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+function measureInWindow(ref: { current: View | null }): Promise<Rect | null> {
+  return new Promise((resolve) => {
+    if (!ref.current) return resolve(null);
+    ref.current.measureInWindow((x, y, width, height) => resolve(width > 0 ? { x, y, width, height } : null));
+  });
+}
 
 /**
  * F1–F3 Dish. Price first: name, price with the old one struck through, the
@@ -84,12 +118,28 @@ export default function FoodDetailsScreen() {
   const addItem = useCartStore((s) => s.addItem);
   const setLineQuantity = useCartStore((s) => s.setQuantity);
   const removeItem = useCartStore((s) => s.removeItem);
+  const cartCount = useCartStore(selectCartItemCount);
+  // Units added but still flying: held back so the counter ticks up when the
+  // photo lands, not the moment the button is tapped.
+  const [inFlightUnits, setInFlightUnits] = useState(0);
+  const shownCartCount = Math.max(0, cartCount - inFlightUnits);
   const toggleFavorite = useFavoritesStore((s) => s.toggle);
   const isFavorite = useIsFavorite('food', id ?? '');
 
   // `imageUrl` is the raw relative `/files/...` path; this resolves it against
   // the current API base and attaches the bearer token that route requires.
   const toImageSource = useRestaurantImageSourceFromPath();
+
+  // Fly-to-cart: refs measured in window space, then mapped into the screen.
+  const rootRef = useRef<View>(null);
+  const heroRef = useRef<View>(null);
+  const heroCartRef = useRef<View>(null);
+  const stickyCartRef = useRef<View>(null);
+  const flightDone = useRef<(() => void) | null>(null);
+  const [flight, setFlight] = useState<{ from: Rect; to: Rect } | null>(null);
+  const flyProgress = useSharedValue(0);
+  const cartPulse = useSharedValue(1);
+  const reduceMotion = useReducedMotion();
 
   const scrollY = useSharedValue(0);
   const scrollHandler = useAnimatedScrollHandler((event) => {
@@ -99,6 +149,80 @@ export default function FoodDetailsScreen() {
   const stickyStyle = useAnimatedStyle(() => ({
     opacity: interpolate(scrollY.get(), [STICKY_REVEAL - 40, STICKY_REVEAL], [0, 1], Extrapolation.CLAMP),
   }));
+
+  const cartPulseStyle = useAnimatedStyle(() => ({ transform: [{ scale: cartPulse.get() }] }));
+
+  const onLanded = useCallback(() => {
+    setInFlightUnits(0);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    cartPulse.set(withSequence(withSpring(1.25, LAND_PULSE_SPRING), withSpring(1, LAND_PULSE_SPRING)));
+    setTimeout(() => {
+      const done = flightDone.current;
+      flightDone.current = null;
+      done?.();
+    }, AFTER_LAND_MS);
+  }, [cartPulse]);
+
+  // Started once the flying copy is mounted at its starting frame.
+  useEffect(() => {
+    if (!flight) return;
+    flyProgress.set(0);
+    flyProgress.set(
+      withTiming(1, { duration: FLY_MS, easing: Easing.linear }, (finished) => {
+        if (finished) runOnJS(onLanded)();
+      }),
+    );
+  }, [flight, flyProgress, onLanded]);
+
+  // Size and corner radius ease in-out; x leads and y lags, so the photo
+  // travels on a slight arc instead of a straight diagonal. It lands a little
+  // smaller than the button and fades as it drops in.
+  const flightStyle = useAnimatedStyle(() => {
+    if (!flight) return { opacity: 0 };
+    const { from, to } = flight;
+    const p = flyProgress.get();
+    const sizeT = Easing.inOut(Easing.cubic)(p);
+    const xT = Easing.out(Easing.cubic)(p);
+    const yT = Easing.in(Easing.quad)(p);
+    const endW = to.width * 0.6;
+    const endH = to.height * 0.6;
+    const width = from.width + (endW - from.width) * sizeT;
+    const height = from.height + (endH - from.height) * sizeT;
+    const fromCx = from.x + from.width / 2;
+    const fromCy = from.y + from.height / 2;
+    const cx = fromCx + (to.x + to.width / 2 - fromCx) * xT;
+    const cy = fromCy + (to.y + to.height / 2 - fromCy) * yT;
+    return {
+      left: cx - width / 2,
+      top: cy - height / 2,
+      width,
+      height,
+      borderRadius: interpolate(sizeT, [0, 1], [0, endW / 2]),
+      opacity: interpolate(p, [0, 0.8, 1], [1, 1, 0.2]),
+    };
+  }, [flight]);
+
+  /**
+   * Shrinks a copy of the photo into whichever cart button is on screen (the
+   * hero's, or the sticky bar's once scrolled), then calls `done`. Skipped
+   * with reduced motion or when anything can't be measured.
+   */
+  const flyToCart = async (done: () => void) => {
+    const skip = () => {
+      setInFlightUnits(0);
+      done();
+    };
+    if (reduceMotion) return skip();
+    const [root, hero, target] = await Promise.all([
+      measureInWindow(rootRef),
+      measureInWindow(heroRef),
+      measureInWindow(showSticky ? stickyCartRef : heroCartRef),
+    ]);
+    if (!root || !hero || !target) return skip();
+    const local = (r: Rect): Rect => ({ ...r, x: r.x - root.x, y: r.y - root.y });
+    flightDone.current = done;
+    setFlight({ from: local(hero), to: local(target) });
+  };
 
   /** The base price, or `null` when nothing applies right now — unorderable, NOT free. */
   const basePrice = useMemo(() => (product ? selectPrice(product.prices, new Date()) : null), [product]);
@@ -145,6 +269,8 @@ export default function FoodDetailsScreen() {
   const goToCart = () => router.push('/(tabs)/cart');
 
   const handleAddToCart = () => {
+    // A second tap while the photo is flying would add the dish twice.
+    if (flight || flightDone.current) return;
     // Checked again even though the button is disabled: what reaches the cart
     // must never depend on a control's enabled-ness alone.
     if (!allRequiredSatisfied || !canAddToCart || !product || !basePrice || !restaurant) return;
@@ -175,14 +301,18 @@ export default function FoodDetailsScreen() {
     // to what it held before this add.
     const lineId = lineSignature(line);
     const before = items.find((i) => i.lineId === lineId)?.quantity ?? 0;
+    // Same render as the add, so the counter never flashes the new total early.
+    setInFlightUnits(quantity);
     addItem(line);
 
-    router.back();
-    toast.show({
-      message: quantity > 1 ? `Added ${quantity} × ${line.name} to cart` : `Added ${line.name} to cart`,
-      actionLabel: 'Undo',
-      onAction: () => (before > 0 ? setLineQuantity(lineId, before) : removeItem(lineId)),
-      aboveBar: true,
+    flyToCart(() => {
+      router.back();
+      toast.show({
+        message: quantity > 1 ? `Added ${quantity} × ${line.name} to cart` : `Added ${line.name} to cart`,
+        actionLabel: 'Undo',
+        onAction: () => (before > 0 ? setLineQuantity(lineId, before) : removeItem(lineId)),
+        aboveBar: true,
+      });
     });
   };
 
@@ -239,126 +369,156 @@ export default function FoodDetailsScreen() {
         ? 'Open this dish from its restaurant to order it.'
         : "This dish isn't available to order right now.";
 
+  const heroSource: ImageSource = imageUrl ? toImageSource(imageUrl) : { uri: PRODUCT_IMAGE_PLACEHOLDER };
+
   return (
     <Screen edges={[]}>
-      <Animated.ScrollView
-        style={styles.flex}
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: bottomInset + 24 }}
-        onScroll={scrollHandler}
-        scrollEventThrottle={16}
-        keyboardShouldPersistTaps="handled"
-      >
-        <HeroHeader
-          source={imageUrl ? toImageSource(imageUrl) : { uri: PRODUCT_IMAGE_PLACEHOLDER }}
-          height={size.dishHero}
-          onBack={() => router.back()}
-          isFavorite={isFavorite}
-          onFavorite={handleToggleFavorite}
-          onCart={goToCart}
+      <View ref={rootRef} collapsable={false} style={styles.flex}>
+        <Animated.ScrollView
+          style={styles.flex}
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={{ paddingBottom: bottomInset + 24 }}
+          onScroll={scrollHandler}
+          scrollEventThrottle={16}
+          keyboardShouldPersistTaps="handled"
         >
-          {basePrice?.discountLabel ? (
-            <Badge label={basePrice.discountLabel} variant="discount" style={styles.heroBadge} />
-          ) : null}
-        </HeroHeader>
-
-        <View style={styles.titleBlock}>
-          <Text variant="title" accessibilityRole="header">
-            {product.name}
-          </Text>
-          <PriceLine price={basePrice?.formatted} oldPrice={basePrice?.original} large />
-          {product.description ? (
-            <Text variant="description" color="inkMuted">
-              {product.description}
-            </Text>
-          ) : null}
-        </View>
-
-        <Divider />
-
-        {isConfigurationPending ? (
-          <View style={styles.optionsLoading}>
-            <Skeleton width="45%" height={18} />
-            <Skeleton width="25%" height={12} />
-            {Array.from({ length: 3 }, (_, i) => (
-              <Skeleton key={i} height={44} radius={12} />
-            ))}
+          <View ref={heroRef} collapsable={false}>
+            <HeroHeader
+              source={heroSource}
+              height={size.dishHero}
+              onBack={() => router.back()}
+              isFavorite={isFavorite}
+              onFavorite={handleToggleFavorite}
+              onCart={goToCart}
+              cartRef={heroCartRef}
+              cartStyle={cartPulseStyle}
+              cartCount={shownCartCount}
+            >
+              {basePrice?.discountLabel ? (
+                <Badge label={basePrice.discountLabel} variant="discount" style={styles.heroBadge} />
+              ) : null}
+            </HeroHeader>
           </View>
-        ) : null}
 
-        {isConfigurationBroken ? (
+          <View style={styles.titleBlock}>
+            <Text variant="title" accessibilityRole="header">
+              {product.name}
+            </Text>
+            <PriceLine price={basePrice?.formatted} oldPrice={basePrice?.original} large />
+            {product.description ? (
+              <Text variant="description" color="inkMuted">
+                {product.description}
+              </Text>
+            ) : null}
+          </View>
+
+          <Divider />
+
+          {isConfigurationPending ? (
+            <View style={styles.optionsLoading}>
+              <Skeleton width="45%" height={18} />
+              <Skeleton width="25%" height={12} />
+              {Array.from({ length: 3 }, (_, i) => (
+                <Skeleton key={i} height={44} radius={12} />
+              ))}
+            </View>
+          ) : null}
+
+          {isConfigurationBroken ? (
+            <View style={styles.section}>
+              <ErrorBanner
+                title="Couldn't load the choices"
+                body="This dish needs choices we couldn't load. Try again."
+                actionLabel="Try again"
+                onAction={() => refetch()}
+              />
+            </View>
+          ) : null}
+
+          {addonGroups.map((group) => (
+            <AddonGroup key={group.id} group={group} selectedIds={selections[group.id] ?? []} onToggle={handleToggle} />
+          ))}
+
           <View style={styles.section}>
-            <ErrorBanner
-              title="Couldn't load the choices"
-              body="This dish needs choices we couldn't load. Try again."
-              actionLabel="Try again"
-              onAction={() => refetch()}
+            <View>
+              <Text variant="sectionTitle" accessibilityRole="header">
+                Special instructions
+              </Text>
+              <Text variant="meta" color="inkMuted">
+                Allergies or anything the kitchen should know
+              </Text>
+            </View>
+            <TextField
+              area
+              placeholder="Add a note"
+              value={specialNote}
+              onChangeText={setSpecialNote}
+              accessibilityLabel="Special instructions"
+              maxLength={200}
             />
           </View>
-        ) : null}
 
-        {addonGroups.map((group) => (
-          <AddonGroup key={group.id} group={group} selectedIds={selections[group.id] ?? []} onToggle={handleToggle} />
-        ))}
+          {/* "Frequently bought together" needs a recommendations source the
+              backend does not have; it returns when one exists. */}
+        </Animated.ScrollView>
 
-        <View style={styles.section}>
-          <View>
-            <Text variant="sectionTitle" accessibilityRole="header">
-              Special instructions
-            </Text>
-            <Text variant="meta" color="inkMuted">
-              Allergies or anything the kitchen should know
-            </Text>
-          </View>
-          <TextField
-            area
-            placeholder="Add a note"
-            value={specialNote}
-            onChangeText={setSpecialNote}
-            accessibilityLabel="Special instructions"
-            maxLength={200}
+        {/* Sticky TopBar — replaces the photo once it has scrolled away. */}
+        <Animated.View
+          style={[styles.sticky, { paddingTop: insets.top }, stickyStyle]}
+          pointerEvents={showSticky ? 'auto' : 'none'}
+        >
+          <TopBar
+            title={product.name ?? ''}
+            onBack={() => router.back()}
+            trailing={
+              <View style={styles.stickyActions}>
+                <IconButton
+                  icon="favourite"
+                  filled={isFavorite}
+                  iconColor={isFavorite ? 'primary' : 'ink'}
+                  onPress={handleToggleFavorite}
+                  accessibilityLabel={isFavorite ? 'Remove from favourites' : 'Favourite'}
+                />
+                <Animated.View ref={stickyCartRef} collapsable={false} style={cartPulseStyle}>
+                  <IconButton
+                    icon="cart"
+                    onPress={goToCart}
+                    accessibilityLabel={
+                      shownCartCount > 0
+                        ? `Go to cart, ${shownCartCount} item${shownCartCount > 1 ? 's' : ''}`
+                        : 'Go to cart'
+                    }
+                    badge={shownCartCount > 0 ? <Counter count={shownCartCount} ring /> : undefined}
+                  />
+                </Animated.View>
+              </View>
+            }
           />
-        </View>
+        </Animated.View>
 
-        {/* "Frequently bought together" needs a recommendations source the
-            backend does not have; it returns when one exists. */}
-      </Animated.ScrollView>
+        {canAddToCart ? (
+          <AddToCartBar
+            quantity={quantity}
+            total={totalLabel}
+            onDecrement={() => setQuantity((q) => Math.max(1, q - 1))}
+            onIncrement={() => setQuantity((q) => q + 1)}
+            onAddToCart={handleAddToCart}
+            disabled={!allRequiredSatisfied}
+            hint={missingGroup ? `Choose ${lowerFirst(missingGroup.title)}` : undefined}
+          />
+        ) : (
+          <BottomBar>
+            <InfoNote style={styles.flex}>{unorderableReason}</InfoNote>
+          </BottomBar>
+        )}
 
-      {/* Sticky TopBar — replaces the photo once it has scrolled away. */}
-      <Animated.View
-        style={[styles.sticky, { paddingTop: insets.top }, stickyStyle]}
-        pointerEvents={showSticky ? 'auto' : 'none'}
-      >
-        <TopBar
-          title={product.name ?? ''}
-          onBack={() => router.back()}
-          trailing={
-            <IconButton
-              icon="favourite"
-              filled={isFavorite}
-              iconColor={isFavorite ? 'primary' : 'ink'}
-              onPress={handleToggleFavorite}
-              accessibilityLabel={isFavorite ? 'Remove from favourites' : 'Favourite'}
-            />
-          }
-        />
-      </Animated.View>
-
-      {canAddToCart ? (
-        <AddToCartBar
-          quantity={quantity}
-          total={totalLabel}
-          onDecrement={() => setQuantity((q) => Math.max(1, q - 1))}
-          onIncrement={() => setQuantity((q) => q + 1)}
-          onAddToCart={handleAddToCart}
-          disabled={!allRequiredSatisfied}
-          hint={missingGroup ? `Choose ${lowerFirst(missingGroup.title)}` : undefined}
-        />
-      ) : (
-        <BottomBar>
-          <InfoNote style={styles.flex}>{unorderableReason}</InfoNote>
-        </BottomBar>
-      )}
+        {/* The photo flying into the cart button; above everything, untouchable. */}
+        {flight ? (
+          <Animated.View pointerEvents="none" style={[styles.flight, flightStyle]}>
+            <Image source={heroSource} style={styles.flightImage} contentFit="cover" />
+          </Animated.View>
+        ) : null}
+      </View>
     </Screen>
   );
 }
@@ -369,6 +529,9 @@ const useStyles = createStyles((t) => ({
   titleBlock: { paddingHorizontal: t.screenPadding, paddingTop: t.space[20], paddingBottom: t.space[20], gap: t.space[8] },
   optionsLoading: { paddingHorizontal: t.screenPadding, paddingTop: t.space[24], gap: t.space[10] },
   section: { paddingHorizontal: t.screenPadding, paddingTop: t.space[28], gap: t.space[14] },
+  stickyActions: { flexDirection: 'row', gap: t.space[8] },
+  flight: { position: 'absolute', overflow: 'hidden' },
+  flightImage: { width: '100%', height: '100%' },
   sticky: {
     position: 'absolute',
     top: 0,

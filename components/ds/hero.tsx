@@ -1,8 +1,10 @@
-import type { ReactNode } from 'react';
+import type { ReactNode, Ref } from 'react';
 import { View, type StyleProp, type ViewStyle } from 'react-native';
 import { Image, type ImageSource } from 'expo-image';
+import Animated, { type AnimatedStyle } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { createStyles, useTheme } from '@/theme';
+import { Counter } from './badges';
 import { IconButton } from './buttons';
 
 /**
@@ -20,6 +22,9 @@ export function HeroHeader({
   onCart,
   dimmed,
   children,
+  cartRef,
+  cartStyle,
+  cartCount = 0,
 }: {
   source: ImageSource | number | undefined;
   height: number;
@@ -31,6 +36,12 @@ export function HeroHeader({
   dimmed?: boolean;
   /** Overlays on the photo (dish discount badge). */
   children?: ReactNode;
+  /** Wrapper around the cart button — measured as the fly-to-cart target. */
+  cartRef?: Ref<View>;
+  /** Animated style on that wrapper (the landing pulse). */
+  cartStyle?: StyleProp<AnimatedStyle<ViewStyle>>;
+  /** Units in the cart — drawn as the orange counter on the cart button. */
+  cartCount?: number;
 }) {
   const styles = useStyles();
   const insets = useSafeAreaInsets();
@@ -51,7 +62,17 @@ export function HeroHeader({
               accessibilityLabel={isFavorite ? 'Remove from favourites' : 'Favourite'}
             />
           ) : null}
-          {onCart ? <IconButton icon="cart" variant="floating" onPress={onCart} accessibilityLabel="Go to cart" /> : null}
+          {onCart ? (
+            <Animated.View ref={cartRef} collapsable={false} style={cartStyle}>
+              <IconButton
+                icon="cart"
+                variant="floating"
+                onPress={onCart}
+                accessibilityLabel={cartCount > 0 ? `Go to cart, ${cartCount} item${cartCount > 1 ? 's' : ''}` : 'Go to cart'}
+                badge={cartCount > 0 ? <Counter count={cartCount} ring /> : undefined}
+              />
+            </Animated.View>
+          ) : null}
         </View>
       </View>
     </View>

@@ -67,14 +67,14 @@ export function ToastHost() {
     <View pointerEvents="box-none" style={[styles.host, { bottom }]}>
       <Animated.View
         key={current.id}
-        entering={FadeInDown.duration(220)}
-        exiting={FadeOutDown.duration(160)}
+        entering={FadeInDown.springify().damping(18).stiffness(220)}
+        exiting={FadeOutDown.duration(180)}
         style={styles.toast}
         accessibilityRole="alert"
         accessibilityLiveRegion="polite"
       >
-        <Icon name="success" color="onInk" />
-        <Text variant="chip" color="onInk" style={styles.flex}>
+        <Icon name="success" color="success" />
+        <Text variant="chip" color="onToast" style={styles.flex}>
           {current.message}
         </Text>
         {current.actionLabel && current.onAction ? (
@@ -86,7 +86,7 @@ export function ToastHost() {
               hide(current.id);
             }}
           >
-            <Text variant="chip" color="onInk" style={styles.action}>
+            <Text variant="chip" color="onToast" style={styles.action}>
               {current.actionLabel}
             </Text>
           </Touchable>
@@ -103,6 +103,8 @@ const useStyles = createStyles((t) => ({
     alignItems: 'center',
     gap: t.space[12],
     backgroundColor: t.colors.toast,
+    borderWidth: 1,
+    borderColor: t.colors.toastBorder,
     borderRadius: t.radius.field,
     paddingVertical: t.space[12],
     paddingHorizontal: t.space[14],

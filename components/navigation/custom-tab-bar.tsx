@@ -76,14 +76,18 @@ function TabItem({
 
   return (
     <View style={styles.item}>
-      <View style={{ opacity: isFocused ? 1 : opacity.tabInactiveIcon }}>
-        <Icon name={icon} size="nav" />
+      {/* The counter is anchored to the icon box, not the item column: the
+          column is as wide as the label, so a % offset drifted off the glyph. */}
+      <View style={styles.iconBox}>
+        <View style={{ opacity: isFocused ? 1 : opacity.tabInactiveIcon }}>
+          <Icon name={icon} size="nav" />
+        </View>
+        {showBadge && (
+          <Animated.View style={[styles.counter, badgeStyle]}>
+            <Counter count={cartItemCount} />
+          </Animated.View>
+        )}
       </View>
-      {showBadge && (
-        <Animated.View style={[styles.counter, badgeStyle]}>
-          <Counter count={cartItemCount} />
-        </Animated.View>
-      )}
       <Text variant="tabLabel" color={isFocused ? 'ink' : 'inkSubtle'} numberOfLines={1}>
         {labelKey ? t(labelKey) : routeName}
       </Text>
@@ -200,5 +204,7 @@ const useStyles = createStyles((t) => ({
   },
   tab: { flex: 1, height: t.size.tabBarItem, alignItems: 'center', justifyContent: 'center' },
   item: { alignItems: 'center', gap: 4 },
-  counter: { position: 'absolute', top: -6, left: '50%', marginLeft: 4 },
+  iconBox: { width: t.size.icon.nav, height: t.size.icon.nav },
+  // Overlaps the glyph's top-right corner.
+  counter: { position: 'absolute', top: -7, left: t.size.icon.nav - 9 },
 }));

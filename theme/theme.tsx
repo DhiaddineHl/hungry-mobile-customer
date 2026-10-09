@@ -37,7 +37,7 @@ export const shadow = {
   floatingButton: sh(0.18, 2, 8, 3), // add buttons, map pill, locate, pin label — NOT hero buttons
   logo: sh(0.12, 2, 8, 2),
   sheet: sh(0.12, -4, 24, 8),
-  toast: sh(0.45, 8, 24, 6),
+  toast: sh(0.12, 6, 18, 4),
 } as const;
 
 export const opacity = { tabInactiveIcon: 0.45, closedThumb: 0.45, disabledImage: 0.5, lockedInput: 0.6, pageBusy: 0.55, upcomingStep: 0.5 } as const;

@@ -1,6 +1,13 @@
 import { useMemo, useState } from 'react';
-import { RefreshControl, ScrollView, View, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native';
+import { RefreshControl, StyleSheet, View, type LayoutChangeEvent } from 'react-native';
 import { useRouter } from 'expo-router';
+import Animated, {
+  Extrapolation,
+  interpolate,
+  useAnimatedScrollHandler,
+  useAnimatedStyle,
+  useSharedValue,
+} from 'react-native-reanimated';
 import {
   AccentHeadline,
   FilterChip,
@@ -29,8 +36,10 @@ import { useRestaurants } from '@/hooks/use-restaurants';
 import { selectUnreadCount, useNotificationStore } from '@/store/notification-store';
 import { createStyles, useTheme } from '@/theme';
 
-/** Scroll distance after which the search field pins under the header (H2). */
-const PIN_SEARCH_AT = 96;
+/** Breathing room above the pinned search field, under the header (H2). */
+const PINNED_TOP_GAP = 8;
+/** Scroll distance over which the pinned bar's divider and shadow fade in. */
+const PIN_FADE = 16;
 
 /**
  * H1–H3 Home. Address first, then "Hungry, {name}?" and search, then browse:
@@ -45,7 +54,10 @@ export default function HomeScreen() {
   const { customer } = useDeliveryAddress();
   const [categoryId, setCategoryId] = useState<string | null>(null);
   const [filters, setFilters] = useState<FilterId[]>([]);
-  const [searchPinned, setSearchPinned] = useState(false);
+  // Where the inline search field sits in the scroll content; the pinned copy
+  // tracks it on the UI thread so the hand-off is seamless.
+  const [searchY, setSearchY] = useState(0);
+  const scrollY = useSharedValue(0);
 
   // The home screen owns the restaurant query; every section reads this one
   // cache entry.
@@ -78,10 +90,26 @@ export default function HomeScreen() {
   const openSearch = () => router.push('/search');
   const openRestaurant = (id: string) => router.push(`/restaurant/${id}`);
 
-  const onScroll = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
-    const pinned = e.nativeEvent.contentOffset.y > PIN_SEARCH_AT;
-    if (pinned !== searchPinned) setSearchPinned(pinned);
-  };
+  const onScroll = useAnimatedScrollHandler((event) => {
+    scrollY.set(event.contentOffset.y);
+  });
+
+  const onSearchLayout = (e: LayoutChangeEvent) => setSearchY(e.nativeEvent.layout.y);
+
+  // The pinned field rides exactly on top of the inline one until it reaches
+  // the header, then stays. It is only visible from that point on, so the
+  // swap has no jump and the list never shifts under the finger.
+  const pinStart = searchY - PINNED_TOP_GAP;
+  const pinnedStyle = useAnimatedStyle(() => {
+    const y = scrollY.get();
+    return {
+      opacity: searchY > 0 && y >= pinStart ? 1 : 0,
+      transform: [{ translateY: Math.max(0, pinStart - y) }],
+    };
+  });
+  const pinnedChromeStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(scrollY.get(), [pinStart, pinStart + PIN_FADE], [0, 1], Extrapolation.CLAMP),
+  }));
 
   const filteredSummary = [
     `${visible.length} ${category ? category.name.toLowerCase() : ''} ${visible.length === 1 ? 'place' : 'places'}`
@@ -142,61 +170,65 @@ export default function HomeScreen() {
   return (
     <Screen>
       <HomeHeader notificationCount={unreadNotifications} onNotificationPress={() => router.push('/notifications')} />
-      {searchPinned ? (
-        <View style={styles.pinned}>
-          <SearchField placeholder="Restaurants, dishes, cuisines" onPress={openSearch} />
-        </View>
-      ) : null}
 
-      <ScrollView
-        style={styles.flex}
-        contentContainerStyle={styles.content}
-        showsVerticalScrollIndicator={false}
-        onScroll={onScroll}
-        scrollEventThrottle={32}
-        refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={refetch} tintColor={colors.ink} />}
-      >
-        <View style={styles.intro}>
-          <AccentHeadline text={firstName ? `Hungry, ${firstName}` : 'Hungry'} accent="?" />
-          <SearchField placeholder="Restaurants, dishes, cuisines" onPress={openSearch} />
-        </View>
-
-        <SectionHeader title="Categories" style={styles.padded} />
-        <CategoriesSlider selectedId={categoryId} onSelect={setCategoryId} />
-
-        <View style={styles.chips}>
-          {FILTERS.map((f) => (
-            <FilterChip key={f.id} label={f.label} selected={filters.includes(f.id)} onPress={() => toggleFilter(f.id)} />
-          ))}
-        </View>
-
-        {!filtering ? (
-          <PopularRestaurants
-            restaurants={restaurants ?? []}
-            isLoading={isPending}
-            onRestaurantPress={openRestaurant}
-          />
-        ) : null}
-
-        <View style={styles.padded}>
-          {filtering ? (
-            <View style={styles.filteredHeader}>
-              <Text variant="meta" color="inkMuted" style={styles.flex}>
-                <Text variant="meta" style={styles.bold}>
-                  {filteredSummary}
-                </Text>
-              </Text>
-              <TextLink label="Clear all" onPress={clearAll} />
+      <View style={styles.flex}>
+        <Animated.ScrollView
+          style={styles.flex}
+          contentContainerStyle={styles.content}
+          showsVerticalScrollIndicator={false}
+          onScroll={onScroll}
+          scrollEventThrottle={16}
+          refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={refetch} tintColor={colors.ink} />}
+        >
+          <View style={styles.intro}>
+            <AccentHeadline text={firstName ? `Hungry, ${firstName}` : 'Hungry'} accent="?" />
+            <View onLayout={onSearchLayout}>
+              <SearchField placeholder="Restaurants, dishes, cuisines" onPress={openSearch} />
             </View>
-          ) : (
-            <SectionHeader
-              title="Open now"
-              meta={restaurants ? `${openCount} ${openCount === 1 ? 'place' : 'places'}` : undefined}
+          </View>
+
+          <SectionHeader title="Categories" style={styles.padded} />
+          <CategoriesSlider selectedId={categoryId} onSelect={setCategoryId} />
+
+          <View style={styles.chips}>
+            {FILTERS.map((f) => (
+              <FilterChip key={f.id} label={f.label} selected={filters.includes(f.id)} onPress={() => toggleFilter(f.id)} />
+            ))}
+          </View>
+
+          {!filtering ? (
+            <PopularRestaurants
+              restaurants={restaurants ?? []}
+              isLoading={isPending}
+              onRestaurantPress={openRestaurant}
             />
-          )}
-          {renderList()}
-        </View>
-      </ScrollView>
+          ) : null}
+
+          <View style={styles.padded}>
+            {filtering ? (
+              <View style={styles.filteredHeader}>
+                <Text variant="meta" color="inkMuted" style={styles.flex}>
+                  <Text variant="meta" style={styles.bold}>
+                    {filteredSummary}
+                  </Text>
+                </Text>
+                <TextLink label="Clear all" onPress={clearAll} />
+              </View>
+            ) : (
+              <SectionHeader
+                title="Open now"
+                meta={restaurants ? `${openCount} ${openCount === 1 ? 'place' : 'places'}` : undefined}
+              />
+            )}
+            {renderList()}
+          </View>
+        </Animated.ScrollView>
+
+        <Animated.View style={[styles.pinned, pinnedStyle]} pointerEvents="box-none">
+          <Animated.View pointerEvents="none" style={[styles.pinnedChrome, pinnedChromeStyle]} />
+          <SearchField placeholder="Restaurants, dishes, cuisines" onPress={openSearch} />
+        </Animated.View>
+      </View>
     </Screen>
   );
 }
@@ -207,7 +239,29 @@ const useStyles = createStyles((t) => ({
   content: { paddingBottom: t.space[32] },
   intro: { paddingHorizontal: t.screenPadding, paddingTop: t.space[12], gap: t.space[16] },
   padded: { paddingHorizontal: t.screenPadding },
-  pinned: { paddingHorizontal: t.screenPadding, paddingBottom: t.space[12], backgroundColor: t.colors.background },
+  pinned: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    paddingHorizontal: t.screenPadding,
+    paddingTop: PINNED_TOP_GAP,
+    paddingBottom: t.space[12],
+    backgroundColor: t.colors.background,
+  },
+  // Divider and a soft shadow fade in once the field has pinned, so the header
+  // and search read as one bar without a hard edge popping in.
+  pinnedChrome: {
+    ...StyleSheet.absoluteFill,
+    backgroundColor: t.colors.background,
+    borderBottomWidth: 1,
+    borderBottomColor: t.colors.divider,
+    shadowColor: t.colors.ink,
+    shadowOpacity: 0.06,
+    shadowOffset: { width: 0, height: 4 },
+    shadowRadius: 8,
+    elevation: 2,
+  },
   chips: { flexDirection: 'row', gap: t.space[8], paddingHorizontal: t.screenPadding, marginTop: t.space[16] },
   filteredHeader: { flexDirection: 'row', alignItems: 'center', gap: t.space[12], marginTop: t.space[28], marginBottom: t.space[14] },
   list: { gap: t.space[24] },
