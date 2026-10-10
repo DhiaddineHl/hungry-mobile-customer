@@ -13,7 +13,7 @@ import {
 } from '@/services/api/restaurant-view-model';
 import type { Page } from '@/schemas/page';
 import type { RestaurantOutput } from '@/schemas/restaurant';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 
 /**
  * Restaurant catalog queries. Query options are colocated and exported (as in
@@ -58,5 +58,19 @@ export function useRestaurants(params: FetchRestaurantsParams = {}) {
 
 /** One restaurant by UUID. `data` is `null` when no such restaurant exists. */
 export function useRestaurant(id: string | null | undefined) {
-  return useQuery(restaurantQueryOptions(id));
+  const queryClient = useQueryClient();
+  return useQuery({
+    ...restaurantQueryOptions(id),
+    // Opened from a list (home card → hero hand-off): show the row the list
+    // already holds — same RestaurantOutput schema — while the detail loads,
+    // instead of a skeleton. The detail still fetches and replaces it.
+    placeholderData: (): RestaurantOutput | undefined => {
+      if (!id) return undefined;
+      for (const [, page] of queryClient.getQueriesData<Page<RestaurantOutput>>({ queryKey: restaurantKeys.lists() })) {
+        const row = page?.content.find((restaurant) => restaurant.id === id);
+        if (row) return row;
+      }
+      return undefined;
+    },
+  });
 }

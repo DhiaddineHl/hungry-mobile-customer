@@ -87,6 +87,15 @@ interface CartState {
    * restaurant's order is confirmed; the other restaurants' lines stay.
    */
   clearRestaurant: (restaurantId: string) => void;
+  /**
+   * The customer emptying their cart. Keeps the sync state, so the engine
+   * still knows a server cart exists and empties it on its next pass.
+   */
+  clearItems: () => void;
+  /**
+   * Forgets the cart AND its server bookkeeping — for when the server cart is
+   * already gone (checkout consumed it) or is not this customer's (sign-out).
+   */
   clear: () => void;
   setSyncState: (patch: Partial<CartSyncState>) => void;
   resetSyncState: () => void;
@@ -207,6 +216,10 @@ export const useCartStore = create<CartState>()(
         set((state) => ({
           items: state.items.filter((i) => i.restaurantId !== restaurantId),
         })),
+
+      // Same reasoning as `clearRestaurant`: resetting `remote` here would drop
+      // the `cartId` that tells the engine there is a server cart to empty.
+      clearItems: () => set({ items: [] }),
 
       clear: () => set({ items: [], remote: { ...EMPTY_SYNC_STATE } }),
 

@@ -4,7 +4,6 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { AuthHeading, AuthPrompt, AuthShell } from '@/components/auth';
 import { ErrorBanner, PrimaryButton, TextField } from '@/components/ds';
-import { AnimatedEntrance } from '@/components/ui/animated-entrance';
 import { ForgotPasswordFormData, forgotPasswordSchema } from '@/schemas/auth';
 import { sendPasswordResetCode } from '@/services/api/customer-service';
 import { usePasswordResetStore } from '@/store/password-reset-store';
@@ -58,53 +57,45 @@ export default function ForgotPasswordScreen() {
 
   return (
     <AuthShell>
-      <AnimatedEntrance>
-        <AuthHeading title="Forgot password?" subtitle="We'll email you a code to reset it." />
-      </AnimatedEntrance>
+      <AuthHeading title="Forgot password?" subtitle="We'll email you a code to reset it." />
 
       {authError ? <ErrorBanner title="Couldn't send the code" body={authError} /> : null}
 
-      <AnimatedEntrance index={1}>
-        <Controller
-          control={control}
-          name="email"
-          render={({ field: { onChange, onBlur, value } }) => (
-            <TextField
-              label="Email"
-              placeholder="Email"
-              value={value}
-              onChangeText={onChange}
-              onBlur={onBlur}
-              error={errors.email?.message}
-              locked={isSubmitting}
-              keyboardType="email-address"
-              autoCapitalize="none"
-              autoComplete="email"
-              textContentType="emailAddress"
-              returnKeyType="send"
-              onSubmitEditing={() => handleSubmit(onSubmit)()}
-            />
-          )}
-        />
-      </AnimatedEntrance>
+      <Controller
+        control={control}
+        name="email"
+        render={({ field: { onChange, onBlur, value } }) => (
+          <TextField
+            label="Email"
+            placeholder="Email"
+            value={value}
+            onChangeText={onChange}
+            onBlur={onBlur}
+            error={errors.email?.message}
+            locked={isSubmitting}
+            keyboardType="email-address"
+            autoCapitalize="none"
+            autoComplete="email"
+            textContentType="emailAddress"
+            returnKeyType="send"
+            onSubmitEditing={() => handleSubmit(onSubmit)()}
+          />
+        )}
+      />
 
-      <AnimatedEntrance index={2}>
-        <PrimaryButton
-          label={authError ? 'Try again' : 'Send code'}
-          loadingLabel="Sending code…"
-          onPress={handleSubmit(onSubmit)}
-          loading={isSubmitting}
-        />
-      </AnimatedEntrance>
+      <PrimaryButton
+        label={authError ? 'Try again' : 'Send code'}
+        loadingLabel="Sending code…"
+        onPress={handleSubmit(onSubmit)}
+        loading={isSubmitting}
+      />
 
-      <AnimatedEntrance index={3}>
-        <AuthPrompt
-          prompt="Remembered it?"
-          action="Go back"
-          disabled={isSubmitting}
-          onPress={() => (router.canGoBack() ? router.back() : router.replace('/login'))}
-        />
-      </AnimatedEntrance>
+      <AuthPrompt
+        prompt="Remembered it?"
+        action="Go back"
+        disabled={isSubmitting}
+        onPress={() => (router.canGoBack() ? router.back() : router.replace('/login'))}
+      />
     </AuthShell>
   );
 }

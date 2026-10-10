@@ -1,3 +1,4 @@
+import { useRef } from 'react';
 import { View, type StyleProp, type ViewStyle } from 'react-native';
 import { Image, type ImageSource } from 'expo-image';
 import { PRODUCT_IMAGE_PLACEHOLDER } from '@/constants/images';
@@ -5,6 +6,8 @@ import { createStyles, useTheme } from '@/theme';
 import { Badge } from './badges';
 import { IconButton } from './buttons';
 import { Skeleton } from './feedback';
+import { measureInWindow } from './fly-to-cart';
+import type { WindowRect } from './hero-transition';
 import { Text } from './text';
 import { Touchable } from './touchable';
 
@@ -21,8 +24,11 @@ interface DishProps {
   meta?: string;
   image: DishImage;
   onPress?: () => void;
-  /** The + button. Omitted when the dish cannot be added from here. */
-  onAdd?: () => void;
+  /**
+   * The + button. Omitted when the dish cannot be added from here. Receives
+   * the photo's window frame (for fly-to-cart), or `null` if it can't be measured.
+   */
+  onAdd?: (image: WindowRect | null) => void;
   /** How many of this dish are in the cart — replaces + with a navy marker. */
   inCart?: number;
   /** Closed restaurant: greyed, no add button. */
@@ -48,6 +54,13 @@ function PriceLine({ price, oldPrice, large }: { price?: string; oldPrice?: stri
       ) : null}
     </View>
   );
+}
+
+/** Ref for the dish photo, and an `onAdd` that hands its window frame along. */
+function useAddFromImage(onAdd: DishProps['onAdd']) {
+  const imageRef = useRef<View>(null);
+  const handleAdd = onAdd ? () => void measureInWindow(imageRef).then(onAdd) : undefined;
+  return { imageRef, handleAdd };
 }
 
 /** Navy count of this dish already in the cart (MenuRow / DishCard). */
@@ -85,9 +98,10 @@ export function DishCard({
 }: DishProps & { style?: StyleProp<ViewStyle> }) {
   const styles = useStyles();
   const { opacity } = useTheme();
+  const { imageRef, handleAdd } = useAddFromImage(onAdd);
   return (
     <Touchable onPress={onPress} accessibilityLabel={`${name}${price ? `, ${price}` : ''}`} style={[styles.card, style]}>
-      <View style={styles.cardImage}>
+      <View ref={imageRef} collapsable={false} style={styles.cardImage}>
         <Image
           source={image ?? { uri: PRODUCT_IMAGE_PLACEHOLDER }}
           style={[styles.fill, disabled && { opacity: opacity.disabledImage }]}
@@ -99,8 +113,8 @@ export function DishCard({
           <View style={styles.cardAdd}>
             <QuantityMarker count={inCart} size={40} />
           </View>
-        ) : !disabled && onAdd ? (
-          <IconButton icon="add" variant="add" onPress={onAdd} accessibilityLabel={`Add ${name}`} style={styles.cardAdd} />
+        ) : !disabled && handleAdd ? (
+          <IconButton icon="add" variant="add" onPress={handleAdd} accessibilityLabel={`Add ${name}`} style={styles.cardAdd} />
         ) : null}
       </View>
       <View style={styles.cardText}>
@@ -151,6 +165,7 @@ export function MenuRow({
 }: DishProps) {
   const styles = useStyles();
   const { opacity } = useTheme();
+  const { imageRef, handleAdd } = useAddFromImage(onAdd);
   return (
     <Touchable onPress={onPress} scaleTo={1} accessibilityLabel={`${name}${price ? `, ${price}` : ''}`} style={styles.row}>
       <View style={styles.rowText}>
@@ -167,7 +182,7 @@ export function MenuRow({
           {discount && !disabled ? <Badge label={discount} variant="discount" /> : null}
         </View>
       </View>
-      <View style={styles.thumb}>
+      <View ref={imageRef} collapsable={false} style={styles.thumb}>
         <Image
           source={image ?? { uri: PRODUCT_IMAGE_PLACEHOLDER }}
           style={[styles.fill, disabled && { opacity: opacity.disabledImage }]}
@@ -178,8 +193,8 @@ export function MenuRow({
           <View style={styles.thumbAdd}>
             <QuantityMarker count={inCart} size={32} />
           </View>
-        ) : !disabled && onAdd ? (
-          <IconButton icon="add" variant="addSmall" onPress={onAdd} accessibilityLabel={`Add ${name}`} style={styles.thumbAdd} />
+        ) : !disabled && handleAdd ? (
+          <IconButton icon="add" variant="addSmall" onPress={handleAdd} accessibilityLabel={`Add ${name}`} style={styles.thumbAdd} />
         ) : null}
       </View>
     </Touchable>

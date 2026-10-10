@@ -11,7 +11,6 @@ import {
   ResendLine,
 } from '@/components/auth';
 import { ErrorBanner, InfoNote, PrimaryButton, Screen, StateView, Text } from '@/components/ds';
-import { AnimatedEntrance } from '@/components/ui/animated-entrance';
 import { isApiError } from '@/services/api/client';
 import {
   sendPasswordResetCode,
@@ -144,51 +143,43 @@ export default function ResetCodeScreen() {
 
   return (
     <AuthShell>
-      <AnimatedEntrance>
-        <AuthHeading title="Check your email" subtitle={`We sent a ${codeLength}-digit code to`} detail={email} />
-      </AnimatedEntrance>
+      <AuthHeading title="Check your email" subtitle={`We sent a ${codeLength}-digit code to`} detail={email} />
 
       {error ? <ErrorBanner title="Couldn't send the code" body={error} /> : null}
       {notice && !error ? <InfoNote>{notice}</InfoNote> : null}
 
-      <AnimatedEntrance index={1}>
-        <View style={styles.codeBlock}>
-          <Text variant="label">Code</Text>
-          <OtpInput
-            ref={otpRef}
-            value={code}
-            onChange={handleCodeChange}
-            editable={!isVerifying}
-            error={!!codeError}
-            autoFocus
-          />
-          <ResendLine
-            seconds={timer}
-            onResend={handleResend}
-            busy={isResending}
-            leading={codeError ? <FieldMessage message={codeError} /> : null}
-          />
-        </View>
-      </AnimatedEntrance>
-
-      <AnimatedEntrance index={2}>
-        <PrimaryButton
-          label="Continue"
-          loadingLabel="Checking code…"
-          onPress={handleVerify}
-          loading={isVerifying}
-          disabled={!isComplete || isResending}
+      <View style={styles.codeBlock}>
+        <Text variant="label">Code</Text>
+        <OtpInput
+          ref={otpRef}
+          value={code}
+          onChange={handleCodeChange}
+          editable={!isVerifying}
+          error={!!codeError}
+          autoFocus
         />
-      </AnimatedEntrance>
-
-      <AnimatedEntrance index={3}>
-        <AuthPrompt
-          prompt="Wrong email?"
-          action="Go back"
-          disabled={isVerifying}
-          onPress={() => (router.canGoBack() ? router.back() : router.replace('/login'))}
+        <ResendLine
+          seconds={timer}
+          onResend={handleResend}
+          busy={isResending}
+          leading={codeError ? <FieldMessage message={codeError} /> : null}
         />
-      </AnimatedEntrance>
+      </View>
+
+      <PrimaryButton
+        label="Continue"
+        loadingLabel="Checking code…"
+        onPress={handleVerify}
+        loading={isVerifying}
+        disabled={!isComplete || isResending}
+      />
+
+      <AuthPrompt
+        prompt="Wrong email?"
+        action="Go back"
+        disabled={isVerifying}
+        onPress={() => (router.canGoBack() ? router.back() : router.replace('/login'))}
+      />
     </AuthShell>
   );
 }

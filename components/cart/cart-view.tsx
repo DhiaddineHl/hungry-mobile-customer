@@ -55,7 +55,7 @@ export function CartView({
   const items = useCartStore((s) => s.items);
   const increment = useCartStore((s) => s.increment);
   const decrement = useCartStore((s) => s.decrement);
-  const clear = useCartStore((s) => s.clear);
+  const clearItems = useCartStore((s) => s.clearItems);
   const replaceAll = useCartStore((s) => s.replaceAll);
 
   // Which fee explanation is open, if any — only one at a time.
@@ -88,7 +88,7 @@ export function CartView({
   // Reversible, so a toast with Undo rather than a confirmation dialog.
   const handleClear = () => {
     const previous = items;
-    clear();
+    clearItems();
     toast.show({ message: 'Cart cleared', actionLabel: 'Undo', onAction: () => replaceAll(previous), aboveBar: true });
   };
 

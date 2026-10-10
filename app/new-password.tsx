@@ -14,7 +14,6 @@ import {
   Text,
   TextField,
 } from '@/components/ds';
-import { AnimatedEntrance } from '@/components/ui/animated-entrance';
 import { NewPasswordFormData, newPasswordSchema } from '@/schemas/auth';
 import { confirmPasswordReset } from '@/services/api/customer-service';
 import { usePasswordResetStore } from '@/store/password-reset-store';
@@ -75,20 +74,16 @@ export default function NewPasswordScreen() {
   if (updatedFor) {
     return (
       <AuthShell>
-        <AnimatedEntrance>
-          <View style={styles.success}>
-            <IconWell icon="success" tone="success" size={72} round iconSize={30} />
-            <Text variant="heading" align="center" accessibilityRole="header">
-              Password updated
-            </Text>
-            <Text variant="bodySmall" color="inkMuted" align="center">
-              {`You can now log in to ${updatedFor} with your new password.`}
-            </Text>
-          </View>
-        </AnimatedEntrance>
-        <AnimatedEntrance index={1}>
-          <PrimaryButton label="Log in" onPress={goToLogin} />
-        </AnimatedEntrance>
+        <View style={styles.success}>
+          <IconWell icon="success" tone="success" size={72} round iconSize={30} />
+          <Text variant="heading" align="center" accessibilityRole="header">
+            Password updated
+          </Text>
+          <Text variant="bodySmall" color="inkMuted" align="center">
+            {`You can now log in to ${updatedFor} with your new password.`}
+          </Text>
+        </View>
+        <PrimaryButton label="Log in" onPress={goToLogin} />
       </AuthShell>
     );
   }
@@ -110,72 +105,62 @@ export default function NewPasswordScreen() {
 
   return (
     <AuthShell>
-      <AnimatedEntrance>
-        <AuthHeading title="New password" subtitle="Choose the password you'll use from now on." />
-      </AnimatedEntrance>
+      <AuthHeading title="New password" subtitle="Choose the password you'll use from now on." />
 
-      <AnimatedEntrance index={1}>
-        <EmailChip email={email} />
-      </AnimatedEntrance>
+      <EmailChip email={email} />
 
       {authError ? <ErrorBanner title="Couldn't save your password" body={`${authError} Try again.`} /> : null}
 
-      <AnimatedEntrance index={2}>
-        <Controller
-          control={control}
-          name="password"
-          render={({ field: { onChange, onBlur, value } }) => (
-            <TextField
-              label="New password"
-              placeholder="Password"
-              value={value}
-              onChangeText={onChange}
-              onBlur={onBlur}
-              error={errors.password?.message}
-              locked={isSubmitting}
-              secureTextEntry={!showPassword}
-              autoComplete="password-new"
-              textContentType="newPassword"
-              autoFocus
-              trailing={<PasswordToggle visible={showPassword} onToggle={() => setShowPassword((v) => !v)} />}
-            />
-          )}
-        />
-      </AnimatedEntrance>
+      <Controller
+        control={control}
+        name="password"
+        render={({ field: { onChange, onBlur, value } }) => (
+          <TextField
+            label="New password"
+            placeholder="Password"
+            value={value}
+            onChangeText={onChange}
+            onBlur={onBlur}
+            error={errors.password?.message}
+            locked={isSubmitting}
+            secureTextEntry={!showPassword}
+            autoComplete="password-new"
+            textContentType="newPassword"
+            autoFocus
+            trailing={<PasswordToggle visible={showPassword} onToggle={() => setShowPassword((v) => !v)} />}
+          />
+        )}
+      />
 
-      <AnimatedEntrance index={3}>
-        <Controller
-          control={control}
-          name="confirmPassword"
-          render={({ field: { onChange, onBlur, value } }) => (
-            <TextField
-              label="Confirm password"
-              placeholder="Re-enter password"
-              value={value}
-              onChangeText={onChange}
-              onBlur={onBlur}
-              error={errors.confirmPassword?.message}
-              helper="At least 8 characters."
-              locked={isSubmitting}
-              secureTextEntry={!showConfirm}
-              autoComplete="password-new"
-              textContentType="newPassword"
-              returnKeyType="go"
-              onSubmitEditing={() => handleSubmit(onSubmit)()}
-              trailing={<PasswordToggle visible={showConfirm} onToggle={() => setShowConfirm((v) => !v)} />}
-            />
-          )}
-        />
-      </AnimatedEntrance>
+      <Controller
+        control={control}
+        name="confirmPassword"
+        render={({ field: { onChange, onBlur, value } }) => (
+          <TextField
+            label="Confirm password"
+            placeholder="Re-enter password"
+            value={value}
+            onChangeText={onChange}
+            onBlur={onBlur}
+            error={errors.confirmPassword?.message}
+            helper="At least 8 characters."
+            locked={isSubmitting}
+            secureTextEntry={!showConfirm}
+            autoComplete="password-new"
+            textContentType="newPassword"
+            returnKeyType="go"
+            onSubmitEditing={() => handleSubmit(onSubmit)()}
+            trailing={<PasswordToggle visible={showConfirm} onToggle={() => setShowConfirm((v) => !v)} />}
+          />
+        )}
+      />
 
-      <AnimatedEntrance index={4}>
-        <PrimaryButton
-          label={authError ? 'Try again' : 'Save password'}
-          loadingLabel="Saving…"
-          onPress={handleSubmit(onSubmit)}
-          loading={isSubmitting}
-        />
-      </AnimatedEntrance>
+      <PrimaryButton
+        label={authError ? 'Try again' : 'Save password'}
+        loadingLabel="Saving…"
+        onPress={handleSubmit(onSubmit)}
+        loading={isSubmitting}
+      />
     </AuthShell>
   );
 }

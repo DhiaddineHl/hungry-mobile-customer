@@ -5,7 +5,6 @@ import { View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { AuthHeading, AuthPrompt, AuthShell, EmailChip, PhoneField, TermsFooter } from '@/components/auth';
 import { ErrorBanner, PrimaryButton, TextField } from '@/components/ds';
-import { AnimatedEntrance } from '@/components/ui/animated-entrance';
 import { useAuth } from '@/contexts/auth-context';
 import { useCompleteSocialProfile } from '@/hooks/use-customer';
 import { useAddressDraftStore } from '@/store/address-draft-store';
@@ -133,86 +132,74 @@ export default function CompleteProfileScreen() {
         />
       }
     >
-      <AnimatedEntrance>
-        <AuthHeading title="Almost there" subtitle="Check your details and add a phone number." align="left" />
-      </AnimatedEntrance>
+      <AuthHeading title="Almost there" subtitle="Check your details and add a phone number." align="left" />
 
       {user?.email ? (
-        <AnimatedEntrance index={1}>
-          <EmailChip email={user.email} />
-        </AnimatedEntrance>
+        <EmailChip email={user.email} />
       ) : null}
 
       {authError ? <ErrorBanner title="Couldn't save your details" body={`${authError} Try again.`} /> : null}
 
-      <AnimatedEntrance index={2}>
-        <View style={styles.row}>
-          <Controller
-            control={control}
-            name="firstName"
-            render={({ field: { onChange, onBlur, value } }) => (
-              <TextField
-                label="First name"
-                placeholder="First name"
-                value={value}
-                onChangeText={onChange}
-                onBlur={onBlur}
-                error={errors.firstName?.message}
-                locked={isSubmitting}
-                autoCapitalize="words"
-                autoComplete="name-given"
-                textContentType="givenName"
-                containerStyle={styles.flex}
-              />
-            )}
-          />
-          <Controller
-            control={control}
-            name="lastName"
-            render={({ field: { onChange, onBlur, value } }) => (
-              <TextField
-                label="Last name"
-                placeholder="Last name"
-                value={value}
-                onChangeText={onChange}
-                onBlur={onBlur}
-                error={errors.lastName?.message}
-                locked={isSubmitting}
-                autoCapitalize="words"
-                autoComplete="name-family"
-                textContentType="familyName"
-                containerStyle={styles.flex}
-              />
-            )}
-          />
-        </View>
-      </AnimatedEntrance>
-
-      <AnimatedEntrance index={3}>
+      <View style={styles.row}>
         <Controller
           control={control}
-          name="phoneNumber"
+          name="firstName"
           render={({ field: { onChange, onBlur, value } }) => (
-            <PhoneField
-              countryCode={COUNTRY_CODE}
+            <TextField
+              label="First name"
+              placeholder="First name"
               value={value}
               onChangeText={onChange}
               onBlur={onBlur}
-              error={errors.phoneNumber?.message}
-              helper="Riders use this number to reach you about an order."
+              error={errors.firstName?.message}
               locked={isSubmitting}
+              autoCapitalize="words"
+              autoComplete="name-given"
+              textContentType="givenName"
+              containerStyle={styles.flex}
             />
           )}
         />
-      </AnimatedEntrance>
+        <Controller
+          control={control}
+          name="lastName"
+          render={({ field: { onChange, onBlur, value } }) => (
+            <TextField
+              label="Last name"
+              placeholder="Last name"
+              value={value}
+              onChangeText={onChange}
+              onBlur={onBlur}
+              error={errors.lastName?.message}
+              locked={isSubmitting}
+              autoCapitalize="words"
+              autoComplete="name-family"
+              textContentType="familyName"
+              containerStyle={styles.flex}
+            />
+          )}
+        />
+      </View>
 
-      <AnimatedEntrance index={4}>
-        <AuthPrompt prompt="Not you?" action="Use a different account" onPress={handleCancel} disabled={isSubmitting} />
-      </AnimatedEntrance>
+      <Controller
+        control={control}
+        name="phoneNumber"
+        render={({ field: { onChange, onBlur, value } }) => (
+          <PhoneField
+            countryCode={COUNTRY_CODE}
+            value={value}
+            onChangeText={onChange}
+            onBlur={onBlur}
+            error={errors.phoneNumber?.message}
+            helper="Riders use this number to reach you about an order."
+            locked={isSubmitting}
+          />
+        )}
+      />
 
-      <AnimatedEntrance index={5}>
-        <TermsFooter />
-      </AnimatedEntrance>
+      <AuthPrompt prompt="Not you?" action="Use a different account" onPress={handleCancel} disabled={isSubmitting} />
+
+      <TermsFooter />
     </AuthShell>
   );
 }

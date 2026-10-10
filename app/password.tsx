@@ -13,7 +13,6 @@ import {
   TextField,
   TextLink,
 } from '@/components/ds';
-import { AnimatedEntrance } from '@/components/ui/animated-entrance';
 import { useAuth } from '@/contexts/auth-context';
 import { PasswordFormData, passwordSchema } from '@/schemas/auth';
 import { createStyles } from '@/theme';
@@ -89,60 +88,52 @@ export default function PasswordScreen() {
 
   return (
     <AuthShell>
-      <AnimatedEntrance>
-        <AuthHeading title="Welcome back" subtitle="Enter your password to continue." />
-      </AnimatedEntrance>
+      <AuthHeading title="Welcome back" subtitle="Enter your password to continue." />
 
-      <AnimatedEntrance index={1}>
-        <EmailChip email={email} onChange={isSubmitting ? undefined : goBackToIdentification} />
-      </AnimatedEntrance>
+      <EmailChip email={email} onChange={isSubmitting ? undefined : goBackToIdentification} />
 
       {requestError ? (
         <ErrorBanner title="Couldn't log in" body={`${requestError} Check your connection and try again.`} />
       ) : null}
 
-      <AnimatedEntrance index={2}>
-        <View style={styles.passwordBlock}>
-          <Controller
-            control={control}
-            name="password"
-            render={({ field: { onChange, onBlur, value } }) => (
-              <TextField
-                label="Password"
-                placeholder="Password"
-                value={value}
-                onChangeText={onChange}
-                onBlur={onBlur}
-                error={errors.password?.message}
-                locked={isSubmitting}
-                secureTextEntry={!visible}
-                autoComplete="password"
-                textContentType="password"
-                autoFocus
-                returnKeyType="go"
-                onSubmitEditing={() => handleSubmit(onSubmit)()}
-                trailing={<PasswordToggle visible={visible} onToggle={() => setVisible((v) => !v)} />}
-              />
-            )}
-          />
-          {!isSubmitting ? (
-            <TextLink
-              label="Forgot password?"
-              onPress={() => router.push({ pathname: '/forgot-password', params: { email } })}
-              style={styles.forgot}
+      <View style={styles.passwordBlock}>
+        <Controller
+          control={control}
+          name="password"
+          render={({ field: { onChange, onBlur, value } }) => (
+            <TextField
+              label="Password"
+              placeholder="Password"
+              value={value}
+              onChangeText={onChange}
+              onBlur={onBlur}
+              error={errors.password?.message}
+              locked={isSubmitting}
+              secureTextEntry={!visible}
+              autoComplete="password"
+              textContentType="password"
+              autoFocus
+              returnKeyType="go"
+              onSubmitEditing={() => handleSubmit(onSubmit)()}
+              trailing={<PasswordToggle visible={visible} onToggle={() => setVisible((v) => !v)} />}
             />
-          ) : null}
-        </View>
-      </AnimatedEntrance>
-
-      <AnimatedEntrance index={3}>
-        <PrimaryButton
-          label={requestError ? 'Try again' : 'Log in'}
-          loadingLabel="Logging in…"
-          onPress={handleSubmit(onSubmit)}
-          loading={isSubmitting}
+          )}
         />
-      </AnimatedEntrance>
+        {!isSubmitting ? (
+          <TextLink
+            label="Forgot password?"
+            onPress={() => router.push({ pathname: '/forgot-password', params: { email } })}
+            style={styles.forgot}
+          />
+        ) : null}
+      </View>
+
+      <PrimaryButton
+        label={requestError ? 'Try again' : 'Log in'}
+        loadingLabel="Logging in…"
+        onPress={handleSubmit(onSubmit)}
+        loading={isSubmitting}
+      />
     </AuthShell>
   );
 }

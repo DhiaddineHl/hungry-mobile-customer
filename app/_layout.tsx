@@ -1,5 +1,5 @@
 import { fontFamily, lightColors, ThemeProvider as DesignThemeProvider } from "@/theme";
-import { ToastHost } from "@/components/ds";
+import { HeroTransitionHost, ToastHost } from "@/components/ds";
 import { AuthProvider, useAuth } from "@/contexts/auth-context";
 import { useFrameworkReady } from "@/hooks/useFrameworkReady";
 import { useCurrentCustomer } from "@/hooks/use-delivery-address";
@@ -9,12 +9,12 @@ import { hasDeliveryAddress } from "@/services/api/customer-service";
 import { queryClient, wireAppFocus } from "@/services/api/query-client";
 import { JetBrainsMono_500Medium } from "@expo-google-fonts/jetbrains-mono";
 import {
-  Montserrat_400Regular,
-  Montserrat_500Medium,
-  Montserrat_600SemiBold,
-  Montserrat_700Bold,
-  Montserrat_800ExtraBold,
-} from "@expo-google-fonts/montserrat";
+  Poppins_400Regular,
+  Poppins_500Medium,
+  Poppins_600SemiBold,
+  Poppins_700Bold,
+  Poppins_800ExtraBold,
+} from "@expo-google-fonts/poppins";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { useFonts } from "expo-font";
 import {
@@ -229,10 +229,16 @@ function RootNavigator() {
           name="address-info"
           options={{ animation: "slide_from_bottom" }}
         />
-        {/* Restaurant details slide in from the side. */}
+        {/* Restaurant details slide in from the side — except when opened
+            from a home card (`?hero=1`): then the card's photo grows into the
+            hero (HeroTransitionHost) and the stack only cross-fades under it. */}
         <Stack.Screen
           name="restaurant/[id]/index"
-          options={{ animation: "slide_from_right" }}
+          options={({ route }) =>
+            (route.params as { hero?: string } | undefined)?.hero
+              ? { animation: "fade", animationDuration: 250 }
+              : { animation: "slide_from_right" }
+          }
         />
         <Stack.Screen
           name="restaurant/[id]/info"
@@ -267,6 +273,8 @@ function RootNavigator() {
         <Stack.Screen name="search" options={{ animation: "fade" }} />
       </Stack>
       {/* Inline success toasts (design system §7) float above every screen. */}
+      {/* The card → restaurant photo hand-off flies above every screen. */}
+      <HeroTransitionHost />
       <ToastHost />
       <StatusBar style="auto" />
     </>
@@ -278,11 +286,11 @@ export default function RootLayout() {
   const [fontsLoaded, fontError] = useFonts({
     // Each weight is its own family, selected by `fontFamily` — Android does
     // not synthesize weights for custom fonts (design system §3).
-    [fontFamily.regular]: Montserrat_400Regular,
-    [fontFamily.medium]: Montserrat_500Medium,
-    [fontFamily.semibold]: Montserrat_600SemiBold,
-    [fontFamily.bold]: Montserrat_700Bold,
-    [fontFamily.extrabold]: Montserrat_800ExtraBold,
+    [fontFamily.regular]: Poppins_400Regular,
+    [fontFamily.medium]: Poppins_500Medium,
+    [fontFamily.semibold]: Poppins_600SemiBold,
+    [fontFamily.bold]: Poppins_700Bold,
+    [fontFamily.extrabold]: Poppins_800ExtraBold,
     [fontFamily.mono]: JetBrainsMono_500Medium,
   });
 

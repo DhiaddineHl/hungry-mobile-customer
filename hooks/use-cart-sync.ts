@@ -24,7 +24,7 @@ import {
   type CartLine,
 } from '@/store/cart-store';
 import { useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useCurrentCustomer } from './use-delivery-address';
 
 /**
@@ -331,28 +331,32 @@ export function useHydrateCart() {
   const isLocalCartEmpty = useCartStore((s) => s.items.length === 0);
 
   /**
-   * Hydration is a one-shot per session, not a subscription. Read only inside
-   * the effect, never in `enabled`: emptying the cart re-enables the query,
-   * which then serves its cached result — and without this guard that would
-   * restore the very cart the customer just emptied.
+   * Hydration is a one-shot per session, not a subscription. Once the local
+   * cart has had lines — restored from here or added by the customer, local
+   * wins either way — emptying it must never pull the server copy back: that
+   * would restore the very cart the customer just emptied.
+   *
+   * State adjusted during render rather than in an effect, so `enabled` below
+   * is already off in the render where the cart first has lines.
    */
-  const done = useRef(false);
+  const [settled, setSettled] = useState(false);
+  if (!isLocalCartEmpty && !settled) setSettled(true);
 
   const query = useQuery({
     queryKey: cartKeys.hydration(customerId ?? ''),
     queryFn: fetchHydratedCart,
-    enabled: !!customerId && isLocalCartEmpty,
+    enabled: !!customerId && isLocalCartEmpty && !settled,
     retry: false,
     staleTime: Infinity,
   });
 
   useEffect(() => {
-    if (done.current || query.data === undefined || !customerId) return;
-    done.current = true;
+    if (settled || query.data === undefined || !customerId) return;
+    // Applying fills the cart, which settles hydration on the next render.
     if (applyHydratedCart(query.data) && query.data) {
       queryClient.setQueryData(cartKeys.active(customerId), query.data.cart);
     }
-  }, [query.data, customerId, queryClient]);
+  }, [settled, query.data, customerId, queryClient]);
 
   return { isHydrating: query.isFetching };
 }

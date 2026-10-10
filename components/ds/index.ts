@@ -15,5 +15,7 @@ export * from './auth-inputs';
 export * from './map';
 export * from './restaurant';
 export * from './hero';
+export * from './hero-transition';
+export * from './fly-to-cart';
 export * from './dish';
 export * from './order';

@@ -123,3 +123,12 @@ export const deliveryKeys = {
    */
   location: (orderId: string) => [...deliveryKeys.all, 'location', orderId] as const,
 };
+
+/**
+ * Announcement cache entries (home-page slider). One leaf: what is live now —
+ * the server picks it, so there are no params to key on.
+ */
+export const announcementKeys = {
+  all: ['announcements'] as const,
+  live: () => [...announcementKeys.all, 'live'] as const,
+};

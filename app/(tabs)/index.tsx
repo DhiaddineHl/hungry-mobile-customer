@@ -6,11 +6,14 @@ import Animated, {
   interpolate,
   useAnimatedScrollHandler,
   useAnimatedStyle,
+  useReducedMotion,
   useSharedValue,
 } from 'react-native-reanimated';
 import {
   AccentHeadline,
   FilterChip,
+  heroTransition,
+  type HeroOrigin,
   RestaurantCard,
   RestaurantCardSkeleton,
   Screen,
@@ -20,6 +23,7 @@ import {
   Text,
   TextLink,
 } from '@/components/ds';
+import { AnnouncementsSlider } from '@/components/home/announcements-slider';
 import { CATEGORIES, CategoriesSlider } from '@/components/home/categories-slider';
 import { HomeHeader } from '@/components/home/home-header';
 import { PopularRestaurants } from '@/components/home/popular-restaurants';
@@ -31,6 +35,7 @@ import {
   type FilterId,
 } from '@/components/home/restaurant-filters';
 import { useAuth } from '@/contexts/auth-context';
+import { useLiveAnnouncements } from '@/hooks/use-announcements';
 import { useDeliveryAddress } from '@/hooks/use-delivery-address';
 import { useRestaurants } from '@/hooks/use-restaurants';
 import { selectUnreadCount, useNotificationStore } from '@/store/notification-store';
@@ -62,6 +67,13 @@ export default function HomeScreen() {
   // The home screen owns the restaurant query; every section reads this one
   // cache entry.
   const { data: restaurants, isPending, error, refetch, isRefetching } = useRestaurants({ sort: 'name' });
+  // The slider reads the same cache entry; Home only drives its pull-to-refresh.
+  const { refetch: refetchAnnouncements } = useLiveAnnouncements();
+
+  const onRefresh = () => {
+    refetch();
+    refetchAnnouncements();
+  };
 
   // Unread rows in the device inbox; the notifications screen clears them.
   const unreadNotifications = useNotificationStore(selectUnreadCount);
@@ -89,6 +101,13 @@ export default function HomeScreen() {
 
   const openSearch = () => router.push('/search');
   const openRestaurant = (id: string) => router.push(`/restaurant/${id}`);
+  const reduceMotion = useReducedMotion();
+  // From a card: its photo grows into the restaurant's hero (HeroTransitionHost).
+  const openRestaurantFromCard = (id: string, origin: HeroOrigin | null) => {
+    if (!origin || reduceMotion) return openRestaurant(id);
+    heroTransition.open(id, origin);
+    router.push(`/restaurant/${id}?hero=1`);
+  };
 
   const onScroll = useAnimatedScrollHandler((event) => {
     scrollY.set(event.contentOffset.y);
@@ -161,7 +180,11 @@ export default function HomeScreen() {
     return (
       <View style={styles.list}>
         {visible.map((restaurant) => (
-          <RestaurantCard key={restaurant.id} restaurant={restaurant} onPress={() => openRestaurant(restaurant.id)} />
+          <RestaurantCard
+            key={restaurant.id}
+            restaurant={restaurant}
+            onPress={(origin) => openRestaurantFromCard(restaurant.id, origin)}
+          />
         ))}
       </View>
     );
@@ -178,7 +201,7 @@ export default function HomeScreen() {
           showsVerticalScrollIndicator={false}
           onScroll={onScroll}
           scrollEventThrottle={16}
-          refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={refetch} tintColor={colors.ink} />}
+          refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={onRefresh} tintColor={colors.ink} />}
         >
           <View style={styles.intro}>
             <AccentHeadline text={firstName ? `Hungry, ${firstName}` : 'Hungry'} accent="?" />
@@ -186,6 +209,8 @@ export default function HomeScreen() {
               <SearchField placeholder="Restaurants, dishes, cuisines" onPress={openSearch} />
             </View>
           </View>
+
+          <AnnouncementsSlider />
 
           <SectionHeader title="Categories" style={styles.padded} />
           <CategoriesSlider selectedId={categoryId} onSelect={setCategoryId} />

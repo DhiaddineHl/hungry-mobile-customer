@@ -1,3 +1,4 @@
+import { useRef } from 'react';
 import { View, type StyleProp, type ViewStyle } from 'react-native';
 import { Image } from 'expo-image';
 import { useRestaurantImageSource } from '@/hooks/use-restaurant-image';
@@ -7,6 +8,7 @@ import { createStyles, Icon, useTheme } from '@/theme';
 import { Badge, PromoTag } from './badges';
 import { MetaRow } from './content';
 import { Skeleton } from './feedback';
+import { useHeroCardHidden, type HeroOrigin } from './hero-transition';
 import { Text } from './text';
 import { Touchable } from './touchable';
 
@@ -50,7 +52,8 @@ export function RestaurantCard({
   style,
 }: {
   restaurant: RestaurantSummary;
-  onPress?: () => void;
+  /** Receives the photo's window frame and source (for the hero hand-off), or `null` if it can't be measured. */
+  onPress?: (origin: HeroOrigin | null) => void;
   style?: StyleProp<ViewStyle>;
 }) {
   const styles = useStyles();
@@ -58,17 +61,31 @@ export function RestaurantCard({
   const imageSource = useRestaurantImageSource();
   const { isFavorite, toggle } = useFavouriteToggle(restaurant);
   const closed = restaurant.isOpen === false;
+  const imageRef = useRef<View>(null);
+  // Its photo is flying to / back from the restaurant hero — don't show it twice.
+  const photoInFlight = useHeroCardHidden(restaurant.id);
+  const source = imageSource(restaurant.bannerImage ?? restaurant.logoUrl);
+
+  const handlePress = onPress
+    ? () => {
+        const node = imageRef.current;
+        if (!node) return onPress(null);
+        node.measureInWindow((x, y, width, height) =>
+          onPress(width > 0 ? { rect: { x, y, width, height }, source } : null),
+        );
+      }
+    : undefined;
 
   return (
     <Touchable
-      onPress={onPress}
+      onPress={handlePress}
       scaleTo={0.98}
       accessibilityLabel={`${restaurant.name}${restaurant.categories ? `, ${restaurant.categories}` : ''}${closed ? ', closed' : ''}`}
       style={[styles.card, style]}
     >
-      <View style={styles.cardImageBox}>
+      <View ref={imageRef} collapsable={false} style={[styles.cardImageBox, photoInFlight && styles.inFlight]}>
         <Image
-          source={imageSource(restaurant.bannerImage ?? restaurant.logoUrl)}
+          source={source}
           style={[styles.fill, closed && { opacity: opacity.closedThumb }]}
           contentFit="cover"
           transition={150}
@@ -205,6 +222,7 @@ const useStyles = createStyles((t) => ({
   fill: { width: '100%', height: '100%' },
   semibold: { fontFamily: t.typography.label.fontFamily },
   card: { gap: t.space[12] },
+  inFlight: { opacity: 0 },
   cardImageBox: {
     height: t.size.restaurantCardImage,
     borderRadius: t.radius.card,

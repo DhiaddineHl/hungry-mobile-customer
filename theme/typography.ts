@@ -1,14 +1,14 @@
-// Hungry customer app — typography. Montserrat (+ JetBrains Mono for coordinates).
+// Hungry customer app — typography. Poppins (+ JetBrains Mono for coordinates).
 // Android does not synthesize weights for custom fonts: load each weight as its
 // own file and select it by fontFamily, not fontWeight.
 import type { TextStyle } from 'react-native';
 
 export const fontFamily = {
-  regular: 'Montserrat-Regular',
-  medium: 'Montserrat-Medium',
-  semibold: 'Montserrat-SemiBold',
-  bold: 'Montserrat-Bold',
-  extrabold: 'Montserrat-ExtraBold',
+  regular: 'Poppins-Regular',
+  medium: 'Poppins-Medium',
+  semibold: 'Poppins-SemiBold',
+  bold: 'Poppins-Bold',
+  extrabold: 'Poppins-ExtraBold',
   mono: 'JetBrainsMono-Medium',
 } as const;
 

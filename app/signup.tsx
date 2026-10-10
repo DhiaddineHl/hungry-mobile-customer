@@ -5,7 +5,6 @@ import { View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { AuthHeading, AuthShell, EmailChip, PhoneField } from '@/components/auth';
 import { ErrorBanner, PasswordToggle, PrimaryButton, Screen, StateView, TextField } from '@/components/ds';
-import { AnimatedEntrance } from '@/components/ui/animated-entrance';
 import { useRegisterCustomer } from '@/hooks/use-customer';
 import { hasDeliveryAddress } from '@/services/api/customer-service';
 import { usePendingVerificationStore } from '@/store/pending-verification-store';
@@ -101,124 +100,112 @@ export default function SignupScreen() {
         />
       }
     >
-      <AnimatedEntrance>
-        <AuthHeading title="Create your account" subtitle="Just a few details and you're in." align="left" />
-      </AnimatedEntrance>
+      <AuthHeading title="Create your account" subtitle="Just a few details and you're in." align="left" />
 
-      <AnimatedEntrance index={1}>
-        <EmailChip email={email} onChange={isSubmitting ? undefined : goBackToIdentification} />
-      </AnimatedEntrance>
+      <EmailChip email={email} onChange={isSubmitting ? undefined : goBackToIdentification} />
 
       {authError ? (
         <ErrorBanner title="Couldn't create your account" body={`${authError} Check your details and try again.`} />
       ) : null}
 
-      <AnimatedEntrance index={2}>
-        <View style={styles.row}>
-          <Controller
-            control={control}
-            name="firstName"
-            render={({ field: { onChange, onBlur, value } }) => (
-              <TextField
-                label="First name"
-                placeholder="First name"
-                value={value}
-                onChangeText={onChange}
-                onBlur={onBlur}
-                error={errors.firstName?.message}
-                locked={isSubmitting}
-                autoCapitalize="words"
-                autoComplete="name-given"
-                textContentType="givenName"
-                containerStyle={styles.flex}
-              />
-            )}
-          />
-          <Controller
-            control={control}
-            name="lastName"
-            render={({ field: { onChange, onBlur, value } }) => (
-              <TextField
-                label="Last name"
-                placeholder="Last name"
-                value={value}
-                onChangeText={onChange}
-                onBlur={onBlur}
-                error={errors.lastName?.message}
-                locked={isSubmitting}
-                autoCapitalize="words"
-                autoComplete="name-family"
-                textContentType="familyName"
-                containerStyle={styles.flex}
-              />
-            )}
-          />
-        </View>
-      </AnimatedEntrance>
-
-      <AnimatedEntrance index={3}>
+      <View style={styles.row}>
         <Controller
           control={control}
-          name="phoneNumber"
-          render={({ field: { onChange, onBlur, value } }) => (
-            <PhoneField
-              countryCode={COUNTRY_CODE}
-              value={value}
-              onChangeText={onChange}
-              onBlur={onBlur}
-              error={errors.phoneNumber?.message}
-              locked={isSubmitting}
-            />
-          )}
-        />
-      </AnimatedEntrance>
-
-      <AnimatedEntrance index={4}>
-        <Controller
-          control={control}
-          name="password"
+          name="firstName"
           render={({ field: { onChange, onBlur, value } }) => (
             <TextField
-              label="Password"
-              placeholder="Password"
+              label="First name"
+              placeholder="First name"
               value={value}
               onChangeText={onChange}
               onBlur={onBlur}
-              error={errors.password?.message}
+              error={errors.firstName?.message}
               locked={isSubmitting}
-              secureTextEntry={!showPassword}
-              autoComplete="password-new"
-              textContentType="newPassword"
-              trailing={<PasswordToggle visible={showPassword} onToggle={() => setShowPassword((v) => !v)} />}
+              autoCapitalize="words"
+              autoComplete="name-given"
+              textContentType="givenName"
+              containerStyle={styles.flex}
             />
           )}
         />
-      </AnimatedEntrance>
-
-      <AnimatedEntrance index={5}>
         <Controller
           control={control}
-          name="confirmPassword"
+          name="lastName"
           render={({ field: { onChange, onBlur, value } }) => (
             <TextField
-              label="Confirm password"
-              placeholder="Re-enter password"
+              label="Last name"
+              placeholder="Last name"
               value={value}
               onChangeText={onChange}
               onBlur={onBlur}
-              error={errors.confirmPassword?.message}
-              helper="At least 8 characters."
+              error={errors.lastName?.message}
               locked={isSubmitting}
-              secureTextEntry={!showConfirm}
-              autoComplete="password-new"
-              textContentType="newPassword"
-              returnKeyType="go"
-              onSubmitEditing={() => handleSubmit(onSubmit)()}
-              trailing={<PasswordToggle visible={showConfirm} onToggle={() => setShowConfirm((v) => !v)} />}
+              autoCapitalize="words"
+              autoComplete="name-family"
+              textContentType="familyName"
+              containerStyle={styles.flex}
             />
           )}
         />
-      </AnimatedEntrance>
+      </View>
+
+      <Controller
+        control={control}
+        name="phoneNumber"
+        render={({ field: { onChange, onBlur, value } }) => (
+          <PhoneField
+            countryCode={COUNTRY_CODE}
+            value={value}
+            onChangeText={onChange}
+            onBlur={onBlur}
+            error={errors.phoneNumber?.message}
+            locked={isSubmitting}
+          />
+        )}
+      />
+
+      <Controller
+        control={control}
+        name="password"
+        render={({ field: { onChange, onBlur, value } }) => (
+          <TextField
+            label="Password"
+            placeholder="Password"
+            value={value}
+            onChangeText={onChange}
+            onBlur={onBlur}
+            error={errors.password?.message}
+            locked={isSubmitting}
+            secureTextEntry={!showPassword}
+            autoComplete="password-new"
+            textContentType="newPassword"
+            trailing={<PasswordToggle visible={showPassword} onToggle={() => setShowPassword((v) => !v)} />}
+          />
+        )}
+      />
+
+      <Controller
+        control={control}
+        name="confirmPassword"
+        render={({ field: { onChange, onBlur, value } }) => (
+          <TextField
+            label="Confirm password"
+            placeholder="Re-enter password"
+            value={value}
+            onChangeText={onChange}
+            onBlur={onBlur}
+            error={errors.confirmPassword?.message}
+            helper="At least 8 characters."
+            locked={isSubmitting}
+            secureTextEntry={!showConfirm}
+            autoComplete="password-new"
+            textContentType="newPassword"
+            returnKeyType="go"
+            onSubmitEditing={() => handleSubmit(onSubmit)()}
+            trailing={<PasswordToggle visible={showConfirm} onToggle={() => setShowConfirm((v) => !v)} />}
+          />
+        )}
+      />
     </AuthShell>
   );
 }

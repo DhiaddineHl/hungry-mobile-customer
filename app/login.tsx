@@ -4,7 +4,6 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { useRouter } from 'expo-router';
 import { AuthHeading, AuthShell, GoogleButton, OrDivider, TermsFooter } from '@/components/auth';
 import { ErrorBanner, PrimaryButton, TextField } from '@/components/ds';
-import { AnimatedEntrance } from '@/components/ui/animated-entrance';
 import { useAuth } from '@/contexts/auth-context';
 import { identificationSchema, IdentificationFormData } from '@/schemas/auth';
 import { lookupAccount } from '@/services/api/customer-service';
@@ -67,59 +66,47 @@ export default function IdentificationScreen() {
 
   return (
     <AuthShell>
-      <AnimatedEntrance>
-        <AuthHeading title="Welcome" subtitle="Hungry? We got you." />
-      </AnimatedEntrance>
+      <AuthHeading title="Welcome" subtitle="Hungry? We got you." />
 
       {authError ? (
         <ErrorBanner title="Couldn't continue" body={`${authError} Check your connection and try again.`} />
       ) : null}
 
-      <AnimatedEntrance index={1}>
-        <Controller
-          control={control}
-          name="email"
-          render={({ field: { onChange, onBlur, value } }) => (
-            <TextField
-              label="Email"
-              placeholder="Email"
-              value={value}
-              onChangeText={onChange}
-              onBlur={onBlur}
-              error={errors.email?.message}
-              locked={busy}
-              keyboardType="email-address"
-              autoCapitalize="none"
-              autoComplete="email"
-              textContentType="emailAddress"
-              returnKeyType="next"
-              onSubmitEditing={() => handleSubmit(onSubmit)()}
-            />
-          )}
-        />
-      </AnimatedEntrance>
+      <Controller
+        control={control}
+        name="email"
+        render={({ field: { onChange, onBlur, value } }) => (
+          <TextField
+            label="Email"
+            placeholder="Email"
+            value={value}
+            onChangeText={onChange}
+            onBlur={onBlur}
+            error={errors.email?.message}
+            locked={busy}
+            keyboardType="email-address"
+            autoCapitalize="none"
+            autoComplete="email"
+            textContentType="emailAddress"
+            returnKeyType="next"
+            onSubmitEditing={() => handleSubmit(onSubmit)()}
+          />
+        )}
+      />
 
-      <AnimatedEntrance index={2}>
-        <PrimaryButton
-          label={authError ? 'Try again' : 'Continue'}
-          loadingLabel="Checking…"
-          onPress={handleSubmit(onSubmit)}
-          loading={isSubmitting}
-          disabled={isGoogleLoading}
-        />
-      </AnimatedEntrance>
+      <PrimaryButton
+        label={authError ? 'Try again' : 'Continue'}
+        loadingLabel="Checking…"
+        onPress={handleSubmit(onSubmit)}
+        loading={isSubmitting}
+        disabled={isGoogleLoading}
+      />
 
-      <AnimatedEntrance index={3}>
-        <OrDivider />
-      </AnimatedEntrance>
+      <OrDivider />
 
-      <AnimatedEntrance index={4}>
-        <GoogleButton onPress={handleGoogleLogin} loading={isGoogleLoading} disabled={isSubmitting} />
-      </AnimatedEntrance>
+      <GoogleButton onPress={handleGoogleLogin} loading={isGoogleLoading} disabled={isSubmitting} />
 
-      <AnimatedEntrance index={5}>
-        <TermsFooter />
-      </AnimatedEntrance>
+      <TermsFooter />
     </AuthShell>
   );
 }
