@@ -1,5 +1,5 @@
 import { keycloakConfig } from './config';
-import { clearTokens, getTokens, saveTokens, TokenSet } from './token-storage';
+import { clearTokens, getTokens, saveAuthMethod, saveTokens, TokenSet } from './token-storage';
 
 interface KeycloakTokenResponse {
   access_token: string;
@@ -18,6 +18,9 @@ export interface KeycloakUserInfo {
   given_name?: string;
   family_name?: string;
   preferred_username?: string;
+  /** Custom attribute; only present if mapped into the userinfo claims, or set
+   *  optimistically by the app after a profile update. */
+  phoneNumber?: string;
 }
 
 export interface AuthResult {
@@ -34,33 +37,39 @@ function parseTokenResponse(data: KeycloakTokenResponse): TokenSet {
   };
 }
 
-async function getAdminToken(): Promise<{ token?: string; error?: string }> {
-  const body = new URLSearchParams({
-    grant_type: 'password',
-    client_id: 'admin-cli',
-    username: process.env.EXPO_PUBLIC_KEYCLOAK_ADMIN_USERNAME ?? 'admin',
-    password: process.env.EXPO_PUBLIC_KEYCLOAK_ADMIN_PASSWORD ?? 'admin',
-  });
+/** Thrown by fetchWithTimeout when a request exceeds the deadline. */
+class TimeoutError extends Error {}
 
-  const url = `${keycloakConfig.url}/realms/master/protocol/openid-connect/token`;
-  console.log('[Auth] Requesting admin token from:', url);
-
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: body.toString(),
-  });
-
-  if (!res.ok) {
-    const errorData = await res.json().catch(() => null);
-    console.error('[Auth] Admin token failed:', res.status, errorData);
-    return {
-      error: errorData?.error_description ?? errorData?.error ?? `Admin auth failed (${res.status})`,
-    };
+/**
+ * fetch() with an AbortController deadline. React Native's fetch has no default
+ * timeout, so an unreachable Keycloak host (wrong IP, blocked port, cleartext
+ * blocked) would otherwise hang the UI forever. 15s is generous for a LAN.
+ */
+async function fetchWithTimeout(
+  url: string,
+  init: RequestInit = {},
+  timeoutMs = 15000
+): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } catch (err) {
+    if (controller.signal.aborted) {
+      throw new TimeoutError(`Request to ${url} timed out after ${timeoutMs}ms`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
   }
+}
 
-  const data = await res.json();
-  return { token: data.access_token };
+/** Maps a thrown network/timeout error to a user-facing message. */
+function networkErrorMessage(err: unknown): string {
+  if (err instanceof TimeoutError) {
+    return "Sign-in is taking too long to respond. Check your connection and try again.";
+  }
+  return "You're offline. Check your connection and try again.";
 }
 
 export async function loginWithPassword(email: string, password: string): Promise<AuthResult> {
@@ -73,7 +82,7 @@ export async function loginWithPassword(email: string, password: string): Promis
       scope: 'openid profile email',
     });
 
-    const response = await fetch(keycloakConfig.tokenEndpoint, {
+    const response = await fetchWithTimeout(keycloakConfig.tokenEndpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: body.toString(),
@@ -81,6 +90,7 @@ export async function loginWithPassword(email: string, password: string): Promis
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => null);
+      if (__DEV__) console.warn('[Auth] Login failed:', response.status, errorData);
       if (response.status === 401 || errorData?.error === 'invalid_grant') {
         return { success: false, error: 'Invalid email or password' };
       }
@@ -90,70 +100,37 @@ export async function loginWithPassword(email: string, password: string): Promis
     const data: KeycloakTokenResponse = await response.json();
     const tokens = parseTokenResponse(data);
     await saveTokens(tokens);
+    await saveAuthMethod('password');
     return { success: true, tokens };
-  } catch {
-    return { success: false, error: 'Network error. Please check your connection.' };
-  }
-}
-
-export async function registerUser(
-  firstName: string,
-  lastName: string,
-  email: string,
-  password: string,
-  phoneNumber?: string
-): Promise<AuthResult> {
-  try {
-    const { token: adminToken, error: tokenError } = await getAdminToken();
-    if (!adminToken) {
-      return { success: false, error: tokenError ?? 'Could not authenticate with Keycloak admin.' };
-    }
-
-    const attributes: Record<string, string[]> = {};
-    if (phoneNumber) {
-      attributes.phoneNumber = [phoneNumber];
-    }
-
-    const registerResponse = await fetch(keycloakConfig.registrationEndpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${adminToken}`,
-      },
-      body: JSON.stringify({
-        username: email,
-        email,
-        firstName,
-        lastName,
-        enabled: true,
-        emailVerified: true,
-        credentials: [{ type: 'password', value: password, temporary: false }],
-        attributes,
-      }),
-    });
-
-    if (!registerResponse.ok) {
-      const errorData = await registerResponse.json().catch(() => null);
-      console.error('[Auth] Registration error:', registerResponse.status, errorData);
-      if (registerResponse.status === 409) {
-        return { success: false, error: 'An account with this email already exists.' };
-      }
-      const message =
-        errorData?.errorMessage ??
-        errorData?.error_description ??
-        errorData?.error ??
-        'Registration failed. Please try again.';
-      return { success: false, error: message };
-    }
-
-    return loginWithPassword(email, password);
   } catch (err) {
-    console.error('[Auth] Registration exception:', err);
-    return { success: false, error: 'Network error. Please check your connection.' };
+    if (__DEV__) console.error('[Auth] Login error:', err);
+    return { success: false, error: networkErrorMessage(err) };
   }
 }
 
-export async function refreshAccessToken(): Promise<AuthResult> {
+// NOTE: the Keycloak Admin API calls (in-app registration, profile updates)
+// were removed — both now go through the backend (POST/PUT /customers), which
+// provisions/updates the Keycloak account and the Customer entity atomically.
+// This also removed the Keycloak admin credentials from the app bundle. See
+// services/api/customer-service.ts.
+
+/**
+ * The refresh in flight, if any. Keycloak rotates the refresh token on every
+ * use, so two concurrent refreshes would present the same token twice — and
+ * with "Revoke refresh token" on, the loser fails and clears the session. A
+ * screen firing several queries on an expired token would sign the user out at
+ * random. Callers arriving while one is running share its result instead.
+ */
+let refreshInFlight: Promise<AuthResult> | null = null;
+
+export function refreshAccessToken(): Promise<AuthResult> {
+  refreshInFlight ??= doRefreshAccessToken().finally(() => {
+    refreshInFlight = null;
+  });
+  return refreshInFlight;
+}
+
+async function doRefreshAccessToken(): Promise<AuthResult> {
   try {
     const currentTokens = await getTokens();
     if (!currentTokens?.refreshToken) {
@@ -166,7 +143,7 @@ export async function refreshAccessToken(): Promise<AuthResult> {
       refresh_token: currentTokens.refreshToken,
     });
 
-    const response = await fetch(keycloakConfig.tokenEndpoint, {
+    const response = await fetchWithTimeout(keycloakConfig.tokenEndpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: body.toString(),
@@ -181,8 +158,8 @@ export async function refreshAccessToken(): Promise<AuthResult> {
     const tokens = parseTokenResponse(data);
     await saveTokens(tokens);
     return { success: true, tokens };
-  } catch {
-    return { success: false, error: 'Network error. Please check your connection.' };
+  } catch (err) {
+    return { success: false, error: networkErrorMessage(err) };
   }
 }
 
@@ -200,7 +177,7 @@ export async function exchangeAuthorizationCode(
       code_verifier: codeVerifier,
     });
 
-    const response = await fetch(keycloakConfig.tokenEndpoint, {
+    const response = await fetchWithTimeout(keycloakConfig.tokenEndpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: body.toString(),
@@ -214,9 +191,13 @@ export async function exchangeAuthorizationCode(
     const data: KeycloakTokenResponse = await response.json();
     const tokens = parseTokenResponse(data);
     await saveTokens(tokens);
+    // The browser flow is only ever entered through the Google button
+    // (`kc_idp_hint=google`), so a session that came out of here is a social
+    // one — which is what exempts it from the e-mail verification gate.
+    await saveAuthMethod('google');
     return { success: true, tokens };
-  } catch {
-    return { success: false, error: 'Network error. Please check your connection.' };
+  } catch (err) {
+    return { success: false, error: networkErrorMessage(err) };
   }
 }
 
@@ -225,7 +206,7 @@ export async function fetchUserInfo(): Promise<KeycloakUserInfo | null> {
     const tokens = await getTokens();
     if (!tokens?.accessToken) return null;
 
-    const response = await fetch(keycloakConfig.userInfoEndpoint, {
+    const response = await fetchWithTimeout(keycloakConfig.userInfoEndpoint, {
       headers: { Authorization: `Bearer ${tokens.accessToken}` },
     });
 
@@ -233,7 +214,7 @@ export async function fetchUserInfo(): Promise<KeycloakUserInfo | null> {
       if (response.status === 401) {
         const refreshResult = await refreshAccessToken();
         if (refreshResult.success && refreshResult.tokens) {
-          const retryResponse = await fetch(keycloakConfig.userInfoEndpoint, {
+          const retryResponse = await fetchWithTimeout(keycloakConfig.userInfoEndpoint, {
             headers: { Authorization: `Bearer ${refreshResult.tokens.accessToken}` },
           });
           if (retryResponse.ok) return retryResponse.json();
@@ -256,7 +237,13 @@ export async function logout(): Promise<void> {
         client_id: keycloakConfig.clientId,
         refresh_token: tokens.refreshToken,
       });
-      await fetch(keycloakConfig.endSessionEndpoint, {
+      // id_token_hint lets Keycloak also terminate the browser SSO session
+      // established by the Authorization Code flow (Google / hosted register),
+      // not just revoke the refresh token.
+      if (tokens.idToken) {
+        body.set('id_token_hint', tokens.idToken);
+      }
+      await fetchWithTimeout(keycloakConfig.endSessionEndpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: body.toString(),
@@ -267,13 +254,20 @@ export async function logout(): Promise<void> {
   }
 }
 
+/**
+ * Treat a token this close to `exp` as already expired: one sent with seconds
+ * to spare can expire in transit (or against a server clock running ahead) and
+ * come back 401.
+ */
+const EXPIRY_SKEW_MS = 30_000;
+
 export function isTokenExpired(token: string): boolean {
   try {
     const payload = token.split('.')[1];
     const decoded = atob(payload.replace(/-/g, '+').replace(/_/g, '/'));
     const parsed = JSON.parse(decoded);
     if (typeof parsed.exp !== 'number') return true;
-    return Date.now() >= parsed.exp * 1000;
+    return Date.now() + EXPIRY_SKEW_MS >= parsed.exp * 1000;
   } catch {
     return true;
   }

@@ -1,17 +1,28 @@
-import { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Platform } from 'react-native';
-import { MapPin } from 'lucide-react-native';
-import LocalisationLogo from '@/assets/localisation-logo.svg';
+import { useEffect, useState } from 'react';
+import { Platform, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import * as Location from 'expo-location';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Fonts } from '@/constants/theme';
+import { AccentHeadline, ErrorBanner, IconWell, PrimaryButton, Screen, SecondaryButton, Text } from '@/components/ds';
+import { useAddressDraftStore } from '@/store/address-draft-store';
+import { createStyles } from '@/theme';
 
+/**
+ * Entry of the address onboarding (not drawn on the board — composed from
+ * StateView parts): use the device position, or pick a point on the map.
+ * Address first — it decides what is available.
+ */
 export default function LocationScreen() {
+  const styles = useStyles();
   const router = useRouter();
-  const insets = useSafeAreaInsets();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const clearDrafts = useAddressDraftStore((s) => s.clear);
+
+  // This screen is the entry point of the address onboarding — drop any
+  // drafts left behind by an abandoned earlier run.
+  useEffect(() => {
+    clearDrafts();
+  }, [clearDrafts]);
 
   const handleAllowLocation = async () => {
     if (Platform.OS === 'web') {
@@ -47,116 +58,46 @@ export default function LocationScreen() {
           },
         });
       } else {
-        setError('Location permission was denied. You can choose your location on the map.');
+        setError('Location access is off. You can choose your address on the map instead.');
       }
     } catch {
-      setError('Could not get your location. Please try again or choose on the map.');
+      setError("Couldn't find your location. Try again or choose on the map.");
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleChooseOnMap = () => {
-    router.push('/map-select');
-  };
-
   return (
-    <View style={[styles.container, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
-      <View style={styles.content}>
-        <View style={styles.imageContainer}>
-          <LocalisationLogo width={240} height={240} />
-        </View>
-
-        {error && (
-          <View style={styles.errorContainer}>
-            <Text style={styles.errorText}>{error}</Text>
-          </View>
-        )}
-
-        <TouchableOpacity
-          style={[styles.allowButton, isLoading && styles.allowButtonDisabled]}
-          onPress={handleAllowLocation}
-          disabled={isLoading}
-          activeOpacity={0.9}
-        >
-          <Text style={styles.allowButtonText}>
-            {isLoading ? 'Getting location...' : 'Allow Location Access'}
-          </Text>
-          <MapPin size={20} color="#FFFFFF" />
-        </TouchableOpacity>
-
-        <Text style={styles.description}>
-          Hungry Will Access Your Location{'\n'}Only When Using The App
+    <Screen edges={['top', 'bottom']}>
+      <View style={styles.body}>
+        <IconWell icon="pin" tone="warm" size={72} round iconSize={30} />
+        <AccentHeadline text="Where should we deliver" accent="?" variant="display" align="center" />
+        <Text variant="bodySmall" color="inkMuted" align="center" style={styles.copy}>
+          Your address decides which restaurants can reach you. Hungry only uses your location while
+          you use the app.
         </Text>
-
-        <TouchableOpacity onPress={handleChooseOnMap} disabled={isLoading}>
-          <Text style={styles.mapLink}>Choose On The Maps</Text>
-        </TouchableOpacity>
       </View>
-    </View>
+      <View style={styles.actions}>
+        {error ? <ErrorBanner title={error} /> : null}
+        <PrimaryButton
+          label="Use my location"
+          loadingLabel="Finding you…"
+          onPress={handleAllowLocation}
+          loading={isLoading}
+        />
+        <SecondaryButton
+          label="Choose on the map"
+          icon="pin"
+          onPress={() => router.push('/map-select')}
+          disabled={isLoading}
+        />
+      </View>
+    </Screen>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#FFFFFF',
-  },
-  content: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 32,
-  },
-  imageContainer: {
-    marginBottom: 48,
-  },
-  errorContainer: {
-    backgroundColor: '#FFF3CD',
-    borderRadius: 10,
-    padding: 12,
-    marginBottom: 16,
-    width: '100%',
-  },
-  errorText: {
-    fontSize: 13,
-    fontFamily: Fonts.regular,
-    color: '#856404',
-    textAlign: 'center',
-    lineHeight: 20,
-  },
-  allowButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    backgroundColor: '#F5A623',
-    paddingVertical: 16,
-    paddingHorizontal: 32,
-    borderRadius: 28,
-    marginBottom: 24,
-    width: '100%',
-  },
-  allowButtonDisabled: {
-    opacity: 0.7,
-  },
-  allowButtonText: {
-    fontSize: 16,
-    fontFamily: Fonts.semiBold,
-    color: '#FFFFFF',
-  },
-  description: {
-    fontSize: 15,
-    fontFamily: Fonts.regular,
-    color: '#666666',
-    textAlign: 'center',
-    lineHeight: 24,
-    marginBottom: 16,
-  },
-  mapLink: {
-    fontSize: 15,
-    fontFamily: Fonts.medium,
-    color: '#F5A623',
-    textDecorationLine: 'underline',
-  },
-});
+const useStyles = createStyles((t) => ({
+  body: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 40, gap: t.space[14] },
+  copy: { maxWidth: 300 },
+  actions: { paddingHorizontal: t.screenPadding, paddingBottom: t.space[16], gap: t.space[12] },
+}));

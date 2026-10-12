@@ -1,23 +1,24 @@
-import { useForm, Controller } from 'react-hook-form';
-import { zodResolver } from '@hookform/resolvers/zod';
-import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  TouchableOpacity,
-  KeyboardAvoidingView,
-  Platform,
-} from 'react-native';
-import { Link } from 'expo-router';
 import { useState } from 'react';
-import { AuthInput, AuthButton, GoogleButton } from '@/components/auth';
-import { loginSchema, LoginFormData } from '@/schemas/auth';
+import { Controller, useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { useRouter } from 'expo-router';
+import { AuthHeading, AuthShell, GoogleButton, OrDivider, TermsFooter } from '@/components/auth';
+import { ErrorBanner, PrimaryButton, TextField } from '@/components/ds';
 import { useAuth } from '@/contexts/auth-context';
-import AuthPageUpperSection from '@/assets/auth-page-upper-section.svg';
+import { identificationSchema, IdentificationFormData } from '@/schemas/auth';
+import { lookupAccount } from '@/services/api/customer-service';
 
-export default function LoginScreen() {
-  const { login, loginWithGoogle } = useAuth();
+/**
+ * A1 Welcome — identification, the single door into the app.
+ *
+ * There is no "log in or sign up?" choice: the user types an address, the
+ * backend says whether an account already stands behind it, and that answer
+ * picks the next screen (the password field, or the sign-up form with the
+ * address already settled). Google is the secondary path below the rule.
+ */
+export default function IdentificationScreen() {
+  const router = useRouter();
+  const { loginWithGoogle } = useAuth();
   const [authError, setAuthError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
@@ -26,22 +27,23 @@ export default function LoginScreen() {
     control,
     handleSubmit,
     formState: { errors },
-  } = useForm<LoginFormData>({
-    resolver: zodResolver(loginSchema),
-    defaultValues: {
-      email: '',
-      password: '',
-    },
+  } = useForm<IdentificationFormData>({
+    resolver: zodResolver(identificationSchema),
+    defaultValues: { email: '' },
   });
 
-  const onSubmit = async (data: LoginFormData) => {
+  const onSubmit = async (data: IdentificationFormData) => {
     setAuthError(null);
     setIsSubmitting(true);
     try {
-      const result = await login(data.email, data.password);
-      if (!result.success) {
-        setAuthError(result.error ?? 'Login failed');
-      }
+      const email = data.email.trim().toLowerCase();
+      const lookup = await lookupAccount(email);
+      // The address travels as a route param rather than in a store: it is not
+      // a secret (unlike the password, which never leaves memory), and a param
+      // survives the screen being remounted by a reload.
+      router.push({ pathname: lookup.registered ? '/password' : '/signup', params: { email } });
+    } catch (error) {
+      setAuthError(error instanceof Error ? error.message : 'We could not reach the server.');
     } finally {
       setIsSubmitting(false);
     }
@@ -52,222 +54,59 @@ export default function LoginScreen() {
     setIsGoogleLoading(true);
     try {
       const result = await loginWithGoogle();
-      if (!result.success && result.error !== 'Google login was cancelled') {
-        setAuthError(result.error ?? 'Google login failed');
+      if (!result.success && !result.error?.toLowerCase().includes('cancel')) {
+        setAuthError(result.error ?? 'Google sign-in failed.');
       }
     } finally {
       setIsGoogleLoading(false);
     }
   };
 
+  const busy = isSubmitting || isGoogleLoading;
+
   return (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-    >
-      <AuthPageUpperSection
-        width="100%"
-        style={styles.svgBackground}
-        preserveAspectRatio="xMidYMid slice"
+    <AuthShell>
+      <AuthHeading title="Welcome" subtitle="Hungry? We got you." />
+
+      {authError ? (
+        <ErrorBanner title="Couldn't continue" body={`${authError} Check your connection and try again.`} />
+      ) : null}
+
+      <Controller
+        control={control}
+        name="email"
+        render={({ field: { onChange, onBlur, value } }) => (
+          <TextField
+            label="Email"
+            placeholder="Email"
+            value={value}
+            onChangeText={onChange}
+            onBlur={onBlur}
+            error={errors.email?.message}
+            locked={busy}
+            keyboardType="email-address"
+            autoCapitalize="none"
+            autoComplete="email"
+            textContentType="emailAddress"
+            returnKeyType="next"
+            onSubmitEditing={() => handleSubmit(onSubmit)()}
+          />
+        )}
       />
-      <ScrollView
-        style={styles.scrollView}
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled"
-      >
-        <View style={styles.backgroundSpacer} />
 
-        <View style={styles.formContainer}>
-            <View style={styles.titleSection}>
-              <Text style={styles.title}>Welcome !</Text>
-              <Text style={styles.subtitle}>Hungry? We got you !</Text>
-            </View>
+      <PrimaryButton
+        label={authError ? 'Try again' : 'Continue'}
+        loadingLabel="Checking…"
+        onPress={handleSubmit(onSubmit)}
+        loading={isSubmitting}
+        disabled={isGoogleLoading}
+      />
 
-            <View style={styles.form}>
-              {authError && (
-                <View style={styles.errorBanner}>
-                  <Text style={styles.errorBannerText}>{authError}</Text>
-                </View>
-              )}
+      <OrDivider />
 
-              <Controller
-                control={control}
-                name="email"
-                render={({ field: { onChange, onBlur, value } }) => (
-                  <AuthInput
-                    label="Email"
-                    placeholder="Email"
-                    value={value}
-                    onChangeText={onChange}
-                    onBlur={onBlur}
-                    error={errors.email?.message}
-                    keyboardType="email-address"
-                    autoCapitalize="none"
-                  />
-                )}
-              />
+      <GoogleButton onPress={handleGoogleLogin} loading={isGoogleLoading} disabled={isSubmitting} />
 
-              <Controller
-                control={control}
-                name="password"
-                render={({ field: { onChange, onBlur, value } }) => (
-                  <AuthInput
-                    label="Password"
-                    placeholder="Password"
-                    value={value}
-                    onChangeText={onChange}
-                    onBlur={onBlur}
-                    error={errors.password?.message}
-                    isPassword
-                  />
-                )}
-              />
-
-              <TouchableOpacity style={styles.forgotPassword}>
-                <Text style={styles.forgotPasswordText}>Forgot Password</Text>
-              </TouchableOpacity>
-
-              <AuthButton
-                title="LOG IN"
-                onPress={handleSubmit(onSubmit)}
-                loading={isSubmitting}
-                disabled={isSubmitting || isGoogleLoading}
-                style={styles.submitButton}
-              />
-
-              <View style={styles.signupRow}>
-                <Text style={styles.signupText}>{"Don't have an account? "}</Text>
-                <Link href="/signup" asChild>
-                  <TouchableOpacity>
-                    <Text style={styles.signupLink}>SIGN UP</Text>
-                  </TouchableOpacity>
-                </Link>
-              </View>
-
-              <View style={styles.dividerRow}>
-                <Text style={styles.dividerText}>Or</Text>
-              </View>
-
-              <GoogleButton onPress={handleGoogleLogin} loading={isGoogleLoading} />
-
-              <Text style={styles.termsText}>
-                By continuing, you automatically accept our{' '}
-                <Text style={styles.termsLink}>Terms & Conditions</Text>,{' '}
-                <Text style={styles.termsLink}>Privacy Policy</Text> and{' '}
-                <Text style={styles.termsLink}>Cookies policy</Text>.
-              </Text>
-            </View>
-          </View>
-      </ScrollView>
-    </KeyboardAvoidingView>
+      <TermsFooter />
+    </AuthShell>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#FFFFFF',
-  },
-  svgBackground: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-  },
-  scrollView: {
-    flex: 1,
-  },
-  scrollContent: {
-    flexGrow: 1,
-  },
-  backgroundSpacer: {
-    height: 240,
-  },
-  formContainer: {
-    flex: 1,
-    backgroundColor: '#FFFFFF',
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    paddingHorizontal: 24,
-    paddingTop: 32,
-    paddingBottom: 24,
-  },
-  titleSection: {
-    alignItems: 'center',
-    marginBottom: 32,
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: '700',
-    color: '#1A2B3D',
-    marginBottom: 8,
-  },
-  subtitle: {
-    fontSize: 16,
-    color: '#666666',
-  },
-  form: {
-    flex: 1,
-  },
-  errorBanner: {
-    backgroundColor: '#FEF2F2',
-    borderRadius: 12,
-    padding: 14,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: '#FECACA',
-  },
-  errorBannerText: {
-    color: '#DC2626',
-    fontSize: 14,
-    textAlign: 'center' as const,
-    fontWeight: '500' as const,
-  },
-  forgotPassword: {
-    alignSelf: 'flex-end',
-    marginBottom: 24,
-  },
-  forgotPasswordText: {
-    fontSize: 14,
-    color: '#F5A623',
-    fontWeight: '500',
-  },
-  submitButton: {
-    marginBottom: 20,
-  },
-  signupRow: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  signupText: {
-    fontSize: 14,
-    color: '#666666',
-  },
-  signupLink: {
-    fontSize: 14,
-    color: '#F5A623',
-    fontWeight: '600',
-  },
-  dividerRow: {
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  dividerText: {
-    fontSize: 14,
-    color: '#999999',
-  },
-  termsText: {
-    fontSize: 12,
-    color: '#999999',
-    textAlign: 'center',
-    marginTop: 20,
-    lineHeight: 18,
-  },
-  termsLink: {
-    color: '#F5A623',
-    textDecorationLine: 'underline',
-  },
-});

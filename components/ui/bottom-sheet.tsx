@@ -1,3 +1,4 @@
+import { lightTheme } from '@/theme';
 import {
   Modal,
   View,
@@ -6,6 +7,7 @@ import {
   Animated,
   PanResponder,
   Dimensions,
+  DimensionValue,
   ViewStyle,
 } from 'react-native';
 import { useEffect, useRef, useCallback } from 'react';
@@ -19,7 +21,7 @@ interface BottomSheetProps {
   visible: boolean;
   onClose: () => void;
   children: React.ReactNode;
-  maxHeight?: string | number;
+  maxHeight?: DimensionValue;
   contentStyle?: ViewStyle;
   showHandle?: boolean;
 }
@@ -179,31 +181,37 @@ export function BottomSheet({
   );
 }
 
+// Design-system sheet: scrim, top radius 28, sheet shadow, 36×4 grabber.
 const styles = StyleSheet.create({
   container: {
     flex: 1,
     justifyContent: 'flex-end',
   },
   backdrop: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.45)',
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: lightTheme.colors.scrim,
   },
   sheet: {
-    backgroundColor: '#FFFFFF',
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    paddingHorizontal: 24,
+    backgroundColor: lightTheme.colors.surface,
+    borderTopLeftRadius: lightTheme.radius.sheet,
+    borderTopRightRadius: lightTheme.radius.sheet,
+    paddingHorizontal: lightTheme.screenPadding,
     paddingTop: 0,
+    ...lightTheme.shadow.sheet,
   },
   handleArea: {
-    paddingTop: 12,
-    paddingBottom: 4,
+    paddingTop: 10,
+    paddingBottom: 12,
     alignItems: 'center',
   },
   handle: {
-    width: 40,
-    height: 4,
+    width: lightTheme.size.sheetGrabber.w,
+    height: lightTheme.size.sheetGrabber.h,
     borderRadius: 2,
-    backgroundColor: '#E0E0E0',
+    backgroundColor: lightTheme.colors.outline,
   },
 });

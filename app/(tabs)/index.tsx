@@ -1,112 +1,294 @@
-import { useState } from 'react';
-import { View, StyleSheet, ScrollView } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useMemo, useState } from 'react';
+import { RefreshControl, StyleSheet, View, type LayoutChangeEvent } from 'react-native';
 import { useRouter } from 'expo-router';
+import Animated, {
+  Extrapolation,
+  interpolate,
+  useAnimatedScrollHandler,
+  useAnimatedStyle,
+  useReducedMotion,
+  useSharedValue,
+} from 'react-native-reanimated';
 import {
-  HomeHeader,
-  SearchBar,
-  CategoriesSlider,
-  FiltersSlider,
-  PopularRestaurants,
-  OpenRestaurants,
-} from '@/components/home';
+  AccentHeadline,
+  FilterChip,
+  heroTransition,
+  type HeroOrigin,
+  RestaurantCard,
+  RestaurantCardSkeleton,
+  Screen,
+  SearchField,
+  SectionHeader,
+  StateView,
+  Text,
+  TextLink,
+} from '@/components/ds';
+import { AnnouncementsSlider } from '@/components/home/announcements-slider';
+import { CATEGORIES, CategoriesSlider } from '@/components/home/categories-slider';
+import { HomeHeader } from '@/components/home/home-header';
+import { PopularRestaurants } from '@/components/home/popular-restaurants';
+import {
+  FILTERS,
+  matchesCategory,
+  matchesFilters,
+  openFirst,
+  type FilterId,
+} from '@/components/home/restaurant-filters';
+import { useAuth } from '@/contexts/auth-context';
+import { useLiveAnnouncements } from '@/hooks/use-announcements';
+import { useDeliveryAddress } from '@/hooks/use-delivery-address';
+import { useRestaurants } from '@/hooks/use-restaurants';
+import { selectUnreadCount, useNotificationStore } from '@/store/notification-store';
+import { createStyles, useTheme } from '@/theme';
 
+/** Breathing room above the pinned search field, under the header (H2). */
+const PINNED_TOP_GAP = 8;
+/** Scroll distance over which the pinned bar's divider and shadow fade in. */
+const PIN_FADE = 16;
+
+/**
+ * H1–H3 Home. Address first, then "Hungry, {name}?" and search, then browse:
+ * categories and filters combine (active filters show a × so they are easy to
+ * clear), popular tiles, and the restaurant list.
+ */
 export default function HomeScreen() {
-  const insets = useSafeAreaInsets();
+  const styles = useStyles();
+  const { colors } = useTheme();
   const router = useRouter();
-  const [selectedFilters, setSelectedFilters] = useState<string[]>([]);
+  const { user } = useAuth();
+  const { customer } = useDeliveryAddress();
+  const [categoryId, setCategoryId] = useState<string | null>(null);
+  const [filters, setFilters] = useState<FilterId[]>([]);
+  // Where the inline search field sits in the scroll content; the pinned copy
+  // tracks it on the UI thread so the hand-off is seamless.
+  const [searchY, setSearchY] = useState(0);
+  const scrollY = useSharedValue(0);
 
-  const handleLocationPress = () => {
-    console.log('Location pressed');
+  // The home screen owns the restaurant query; every section reads this one
+  // cache entry.
+  const { data: restaurants, isPending, error, refetch, isRefetching } = useRestaurants({ sort: 'name' });
+  // The slider reads the same cache entry; Home only drives its pull-to-refresh.
+  const { refetch: refetchAnnouncements } = useLiveAnnouncements();
+
+  const onRefresh = () => {
+    refetch();
+    refetchAnnouncements();
   };
 
-  const handleNotificationPress = () => {
-    console.log('Notification pressed');
+  // Unread rows in the device inbox; the notifications screen clears them.
+  const unreadNotifications = useNotificationStore(selectUnreadCount);
+
+  const firstName = customer?.fullname?.firstName?.trim() || user?.given_name?.trim() || '';
+  const filtering = categoryId !== null || filters.length > 0;
+  const category = CATEGORIES.find((c) => c.id === categoryId);
+
+  const visible = useMemo(
+    () =>
+      (restaurants ?? [])
+        .filter((r) => matchesCategory(r, categoryId) && matchesFilters(r, filters))
+        .sort(openFirst),
+    [restaurants, categoryId, filters],
+  );
+  const openCount = visible.filter((r) => r.isOpen !== false).length;
+
+  const toggleFilter = (id: FilterId) =>
+    setFilters((prev) => (prev.includes(id) ? prev.filter((f) => f !== id) : [...prev, id]));
+
+  const clearAll = () => {
+    setCategoryId(null);
+    setFilters([]);
   };
 
-  const handleSearch = (text: string) => {
-    console.log('Search:', text);
+  const openSearch = () => router.push('/search');
+  const openRestaurant = (id: string) => router.push(`/restaurant/${id}`);
+  const reduceMotion = useReducedMotion();
+  // From a card: its photo grows into the restaurant's hero (HeroTransitionHost).
+  const openRestaurantFromCard = (id: string, origin: HeroOrigin | null) => {
+    if (!origin || reduceMotion) return openRestaurant(id);
+    heroTransition.open(id, origin);
+    router.push(`/restaurant/${id}?hero=1`);
   };
 
-  const handleCategoryPress = (categoryId: string) => {
-    console.log('Category pressed:', categoryId);
-  };
+  const onScroll = useAnimatedScrollHandler((event) => {
+    scrollY.set(event.contentOffset.y);
+  });
 
-  const handleSeeAllCategories = () => {
-    console.log('See all categories');
-  };
+  const onSearchLayout = (e: LayoutChangeEvent) => setSearchY(e.nativeEvent.layout.y);
 
-  const handleFilterPress = (filterId: string) => {
-    setSelectedFilters((prev) =>
-      prev.includes(filterId)
-        ? prev.filter((id) => id !== filterId)
-        : [...prev, filterId]
+  // The pinned field rides exactly on top of the inline one until it reaches
+  // the header, then stays. It is only visible from that point on, so the
+  // swap has no jump and the list never shifts under the finger.
+  const pinStart = searchY - PINNED_TOP_GAP;
+  const pinnedStyle = useAnimatedStyle(() => {
+    const y = scrollY.get();
+    return {
+      opacity: searchY > 0 && y >= pinStart ? 1 : 0,
+      transform: [{ translateY: Math.max(0, pinStart - y) }],
+    };
+  });
+  const pinnedChromeStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(scrollY.get(), [pinStart, pinStart + PIN_FADE], [0, 1], Extrapolation.CLAMP),
+  }));
+
+  const filteredSummary = [
+    `${visible.length} ${category ? category.name.toLowerCase() : ''} ${visible.length === 1 ? 'place' : 'places'}`
+      .replace(/\s+/g, ' ')
+      .trim(),
+    filters.includes('open') ? 'open now' : null,
+  ]
+    .filter(Boolean)
+    .join(' ');
+
+  const renderList = () => {
+    if (isPending) {
+      return (
+        <View style={styles.list}>
+          <RestaurantCardSkeleton />
+          <RestaurantCardSkeleton />
+        </View>
+      );
+    }
+    if (error) {
+      return (
+        <StateView
+          icon="offline"
+          title="Couldn't load restaurants"
+          body="Check your connection, then try again."
+          actions={[{ label: 'Try again', onPress: () => refetch(), loading: isRefetching }]}
+          style={styles.state}
+        />
+      );
+    }
+    if (visible.length === 0) {
+      return filtering ? (
+        <StateView
+          icon="noResults"
+          title="Nothing matches yet"
+          body="Try another category or clear the filters."
+          actions={[{ label: 'Clear filters', onPress: clearAll, variant: 'secondary' }]}
+          style={styles.state}
+        />
+      ) : (
+        <StateView
+          icon="store"
+          title="No restaurants yet"
+          body="There are no restaurants to show right now. Check back soon."
+          style={styles.state}
+        />
+      );
+    }
+    return (
+      <View style={styles.list}>
+        {visible.map((restaurant) => (
+          <RestaurantCard
+            key={restaurant.id}
+            restaurant={restaurant}
+            onPress={(origin) => openRestaurantFromCard(restaurant.id, origin)}
+          />
+        ))}
+      </View>
     );
   };
 
-  const handlePopularRestaurantPress = (restaurantId: string) => {
-    router.push(`/restaurant/${restaurantId}`);
-  };
-
-  const handleRestaurantPress = (restaurantId: string) => {
-    router.push(`/restaurant/${restaurantId}`);
-  };
-
-  const handleSeeAllRestaurants = () => {
-    console.log('See all restaurants');
-  };
-
-  const handleFavoritePress = (restaurantId: string) => {
-    console.log('Favorite pressed:', restaurantId);
-  };
-
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
-      <HomeHeader
-        deliveryLocation="Home"
-        notificationCount={2}
-        onLocationPress={handleLocationPress}
-        onNotificationPress={handleNotificationPress}
-      />
-      <ScrollView
-        style={styles.scrollView}
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.scrollContent}
-      >
-        <SearchBar
-          placeholder="Search the menu"
-          onChangeText={handleSearch}
-        />
-        <CategoriesSlider
-          onCategoryPress={handleCategoryPress}
-          onSeeAllPress={handleSeeAllCategories}
-        />
-        <FiltersSlider
-          selectedFilters={selectedFilters}
-          onFilterPress={handleFilterPress}
-        />
-        <PopularRestaurants
-          onRestaurantPress={handlePopularRestaurantPress}
-        />
-        <OpenRestaurants
-          onRestaurantPress={handleRestaurantPress}
-          onSeeAllPress={handleSeeAllRestaurants}
-          onFavoritePress={handleFavoritePress}
-        />
-      </ScrollView>
-    </View>
+    <Screen>
+      <HomeHeader notificationCount={unreadNotifications} onNotificationPress={() => router.push('/notifications')} />
+
+      <View style={styles.flex}>
+        <Animated.ScrollView
+          style={styles.flex}
+          contentContainerStyle={styles.content}
+          showsVerticalScrollIndicator={false}
+          onScroll={onScroll}
+          scrollEventThrottle={16}
+          refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={onRefresh} tintColor={colors.ink} />}
+        >
+          <View style={styles.intro}>
+            <AccentHeadline text={firstName ? `Hungry, ${firstName}` : 'Hungry'} accent="?" />
+            <View onLayout={onSearchLayout}>
+              <SearchField placeholder="Restaurants, dishes, cuisines" onPress={openSearch} />
+            </View>
+          </View>
+
+          <AnnouncementsSlider />
+
+          <SectionHeader title="Categories" style={styles.padded} />
+          <CategoriesSlider selectedId={categoryId} onSelect={setCategoryId} />
+
+          <View style={styles.chips}>
+            {FILTERS.map((f) => (
+              <FilterChip key={f.id} label={f.label} selected={filters.includes(f.id)} onPress={() => toggleFilter(f.id)} />
+            ))}
+          </View>
+
+          {!filtering ? (
+            <PopularRestaurants
+              restaurants={restaurants ?? []}
+              isLoading={isPending}
+              onRestaurantPress={openRestaurant}
+            />
+          ) : null}
+
+          <View style={styles.padded}>
+            {filtering ? (
+              <View style={styles.filteredHeader}>
+                <Text variant="meta" color="inkMuted" style={styles.flex}>
+                  <Text variant="meta" style={styles.bold}>
+                    {filteredSummary}
+                  </Text>
+                </Text>
+                <TextLink label="Clear all" onPress={clearAll} />
+              </View>
+            ) : (
+              <SectionHeader
+                title="Open now"
+                meta={restaurants ? `${openCount} ${openCount === 1 ? 'place' : 'places'}` : undefined}
+              />
+            )}
+            {renderList()}
+          </View>
+        </Animated.ScrollView>
+
+        <Animated.View style={[styles.pinned, pinnedStyle]} pointerEvents="box-none">
+          <Animated.View pointerEvents="none" style={[styles.pinnedChrome, pinnedChromeStyle]} />
+          <SearchField placeholder="Restaurants, dishes, cuisines" onPress={openSearch} />
+        </Animated.View>
+      </View>
+    </Screen>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#FFFFFF',
+const useStyles = createStyles((t) => ({
+  flex: { flex: 1 },
+  bold: { fontFamily: t.typography.itemTitle.fontFamily, color: t.colors.ink },
+  content: { paddingBottom: t.space[32] },
+  intro: { paddingHorizontal: t.screenPadding, paddingTop: t.space[12], gap: t.space[16] },
+  padded: { paddingHorizontal: t.screenPadding },
+  pinned: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    paddingHorizontal: t.screenPadding,
+    paddingTop: PINNED_TOP_GAP,
+    paddingBottom: t.space[12],
+    backgroundColor: t.colors.background,
   },
-  scrollView: {
-    flex: 1,
+  // Divider and a soft shadow fade in once the field has pinned, so the header
+  // and search read as one bar without a hard edge popping in.
+  pinnedChrome: {
+    ...StyleSheet.absoluteFill,
+    backgroundColor: t.colors.background,
+    borderBottomWidth: 1,
+    borderBottomColor: t.colors.divider,
+    shadowColor: t.colors.ink,
+    shadowOpacity: 0.06,
+    shadowOffset: { width: 0, height: 4 },
+    shadowRadius: 8,
+    elevation: 2,
   },
-  scrollContent: {
-    paddingBottom: 20,
-  },
-});
+  chips: { flexDirection: 'row', gap: t.space[8], paddingHorizontal: t.screenPadding, marginTop: t.space[16] },
+  filteredHeader: { flexDirection: 'row', alignItems: 'center', gap: t.space[12], marginTop: t.space[28], marginBottom: t.space[14] },
+  list: { gap: t.space[24] },
+  state: { paddingVertical: t.space[32] },
+}));

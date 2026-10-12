@@ -1,6 +1,7 @@
+import { ScrollView, View } from 'react-native';
+import { Badge, Separated, Text } from '@/components/ds';
 import { BottomSheet } from '@/components/ui/bottom-sheet';
-import { Fonts } from '@/constants/theme';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { createStyles } from '@/theme';
 
 interface Timing {
   day: string;
@@ -15,72 +16,37 @@ interface TimingsModalProps {
   onClose: () => void;
 }
 
+/** Opening hours, one row per day; today is marked, closed days muted. */
 export function TimingsModal({ visible, timings, onClose }: TimingsModalProps) {
+  const styles = useStyles();
   return (
     <BottomSheet visible={visible} onClose={onClose} maxHeight="65%">
-      <Text style={styles.title}>Timings</Text>
-
+      <Text variant="heading" accessibilityRole="header" style={styles.title}>
+        Opening hours
+      </Text>
       <ScrollView showsVerticalScrollIndicator={false}>
-        {timings.map((timing, index) => (
-          <View key={index} style={styles.row}>
-            <Text style={[
-              styles.day,
-              timing.isToday && styles.todayDay,
-              timing.isClosed && styles.closedDay,
-            ]}>
-              {timing.day}:
-            </Text>
-            <Text style={[
-              styles.hours,
-              timing.isClosed && styles.closedHours,
-            ]}>
-              {timing.hours}
-            </Text>
-          </View>
-        ))}
+        <Separated>
+          {timings.map((timing) => (
+            <View key={timing.day} style={styles.row}>
+              <View style={styles.day}>
+                <Text variant={timing.isToday ? 'itemTitle' : 'itemLabel'} color={timing.isClosed ? 'inkMuted' : 'ink'}>
+                  {timing.day}
+                </Text>
+                {timing.isToday ? <Badge label="Today" variant="status" /> : null}
+              </View>
+              <Text variant="meta" color={timing.isClosed ? 'inkMuted' : 'ink'} tabular>
+                {timing.hours}
+              </Text>
+            </View>
+          ))}
+        </Separated>
       </ScrollView>
     </BottomSheet>
   );
 }
 
-const styles = StyleSheet.create({
-  title: {
-    fontSize: 20,
-    fontFamily: Fonts.bold,
-    color: '#1A2B3D',
-    textAlign: 'center',
-    marginBottom: 24,
-    marginTop: 8,
-  },
-  row: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    paddingVertical: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F5F5F5',
-    gap: 16,
-  },
-  day: {
-    fontSize: 15,
-    fontFamily: Fonts.semiBold,
-    color: '#1A2B3D',
-    minWidth: 130,
-  },
-  todayDay: {
-    color: '#F5A623',
-  },
-  closedDay: {
-    color: '#F5A623',
-  },
-  hours: {
-    fontSize: 15,
-    fontFamily: Fonts.regular,
-    color: '#444444',
-    flex: 1,
-    textAlign: 'right',
-  },
-  closedHours: {
-    color: '#AAAAAA',
-  },
-});
+const useStyles = createStyles((t) => ({
+  title: { marginBottom: t.space[8] },
+  row: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: t.space[12] },
+  day: { flexDirection: 'row', alignItems: 'center', gap: t.space[8] },
+}));

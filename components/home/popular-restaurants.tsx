@@ -1,127 +1,91 @@
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
+import { ScrollView, View } from 'react-native';
 import { Image } from 'expo-image';
-import { Fonts } from '@/constants/theme';
+import { SectionHeader, Skeleton, Text, Touchable } from '@/components/ds';
+import { useRestaurantImageSource } from '@/hooks/use-restaurant-image';
+import type { RestaurantSummary } from '@/services/api/restaurant-view-model';
+import { createStyles, useTheme } from '@/theme';
 
-const POPULAR_RESTAURANTS = [
-  {
-    id: '1',
-    name: 'Taxi Pizza',
-    subtitle: 'Khzema',
-    image: require('@/assets/restaurants-images/restaurant-1.png'),
-    hasRoundedImage: true,
-  },
-  {
-    id: '2',
-    name: 'Tacoth',
-    subtitle: '',
-    image: require('@/assets/restaurants-images/restaurant-2.png'),
-    hasRoundedImage: false,
-    backgroundColor: '#F5A623',
-  },
-  {
-    id: '3',
-    name: 'Papadam Food',
-    subtitle: 'Khzema',
-    image: require('@/assets/restaurants-images/restaurant-3.png'),
-    hasRoundedImage: true,
-  },
-];
+/** How many restaurants the strip shows. */
+const POPULAR_COUNT = 8;
 
-interface PopularRestaurantsProps {
+/**
+ * "Popular near you" — 96 logo tiles with the name and time under each.
+ *
+ * There is no popularity signal in the backend: no ratings, no order counts.
+ * This is the first N open restaurants of the same list — a placeholder
+ * ordering, NOT a popularity ranking.
+ */
+export function PopularRestaurants({
+  restaurants,
+  isLoading = false,
+  onRestaurantPress,
+}: {
+  restaurants: RestaurantSummary[];
+  isLoading?: boolean;
   onRestaurantPress?: (restaurantId: string) => void;
-}
+}) {
+  const styles = useStyles();
+  const { radius } = useTheme();
+  const imageSource = useRestaurantImageSource();
+  const popular = restaurants.filter((r) => r.isOpen !== false).slice(0, POPULAR_COUNT);
 
-export function PopularRestaurants({ onRestaurantPress }: PopularRestaurantsProps) {
+  // The list below carries the empty state; this strip just steps aside.
+  if (!isLoading && popular.length === 0) return null;
+
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Popular</Text>
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.scrollContent}
-      >
-        {POPULAR_RESTAURANTS.map((restaurant) => (
-          <TouchableOpacity
-            key={restaurant.id}
-            style={styles.restaurantItem}
-            onPress={() => onRestaurantPress?.(restaurant.id)}
-          >
-            <View
-              style={[
-                styles.imageContainer,
-                restaurant.hasRoundedImage && styles.imageContainerRounded,
-                restaurant.backgroundColor && { backgroundColor: restaurant.backgroundColor },
-              ]}
-            >
-              <Image
-                source={restaurant.image}
-                style={[
-                  styles.restaurantImage,
-                  restaurant.hasRoundedImage && styles.restaurantImageRounded,
-                ]}
-                contentFit="contain"
-              />
-            </View>
-            <Text style={styles.restaurantName}>{restaurant.name}</Text>
-            {restaurant.subtitle ? (
-              <Text style={styles.restaurantSubtitle}>{restaurant.subtitle}</Text>
-            ) : null}
-          </TouchableOpacity>
-        ))}
+    <View>
+      <SectionHeader title="Popular near you" style={styles.header} />
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.rail}>
+        {isLoading
+          ? Array.from({ length: 4 }, (_, i) => (
+              <View key={i} style={styles.tile}>
+                <Skeleton width={96} height={96} radius={radius.thumb} />
+                <Skeleton width={70} height={12} />
+              </View>
+            ))
+          : popular.map((restaurant) => (
+              <Touchable
+                key={restaurant.id}
+                onPress={() => onRestaurantPress?.(restaurant.id)}
+                accessibilityLabel={restaurant.name}
+                style={styles.tile}
+              >
+                <View style={styles.logo}>
+                  <Image
+                    source={imageSource(restaurant.logoUrl ?? restaurant.bannerImage)}
+                    style={styles.fill}
+                    contentFit="cover"
+                  />
+                </View>
+                <View>
+                  <Text variant="itemTitle" numberOfLines={2}>
+                    {restaurant.name}
+                  </Text>
+                  {restaurant.deliveryTime ? (
+                    <Text variant="caption" color="inkMuted">
+                      {restaurant.deliveryTime}
+                    </Text>
+                  ) : null}
+                </View>
+              </Touchable>
+            ))}
       </ScrollView>
     </View>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    paddingVertical: 16,
-  },
-  title: {
-    fontSize: 20,
-    fontFamily: Fonts.bold,
-    color: '#1A2B3D',
-    paddingHorizontal: 20,
-    marginBottom: 16,
-  },
-  scrollContent: {
-    paddingHorizontal: 20,
-    gap: 16,
-  },
-  restaurantItem: {
-    alignItems: 'center',
-    width: 100,
-  },
-  imageContainer: {
-    width: 100,
-    height: 100,
-    marginBottom: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 20,
+const useStyles = createStyles((t) => ({
+  header: { paddingHorizontal: t.screenPadding },
+  rail: { paddingHorizontal: t.screenPadding, gap: t.space[14] },
+  tile: { width: t.size.popularTile, gap: t.space[8] },
+  logo: {
+    width: t.size.popularTile,
+    height: t.size.popularTile,
+    borderRadius: t.radius.thumb,
     overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: t.colors.divider,
+    backgroundColor: t.colors.surfaceSunken,
   },
-  imageContainerRounded: {
-    backgroundColor: 'transparent',
-  },
-  restaurantImage: {
-    width: '100%',
-    height: '100%',
-  },
-  restaurantImageRounded: {
-    borderRadius: 20,
-  },
-  restaurantName: {
-    fontSize: 14,
-    fontFamily: Fonts.semiBold,
-    color: '#1A2B3D',
-    textAlign: 'center',
-  },
-  restaurantSubtitle: {
-    fontSize: 12,
-    fontFamily: Fonts.regular,
-    color: '#8A8A8A',
-    textAlign: 'center',
-    marginTop: 2,
-  },
-});
+  fill: { width: '100%', height: '100%' },
+}));

@@ -1,1 +1,1 @@
-export { AddressTypeSelector } from './address-type-selector';
+export { MapPlaceholder } from './map-placeholder';

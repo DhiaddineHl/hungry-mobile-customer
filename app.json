@@ -6,32 +6,39 @@
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "hungrycustomer",
-    "userInterfaceStyle": "automatic",
+    "userInterfaceStyle": "light",
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "config": {
-        "googleMapsApiKey": "AIzaSyARacWYMueK_9OOkL7Xn0O4EUXZS4YkDAQ"
+      "infoPlist": {
+        "CFBundleDevelopmentRegion": "en",
+        "CFBundleLocalizations": [
+          "en",
+          "fr"
+        ]
       }
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#003049",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
-      "config": {
-        "googleMaps": {
-          "apiKey": "AIzaSyARacWYMueK_9OOkL7Xn0O4EUXZS4YkDAQ"
-        }
-      }
+      "package": "com.hungry.customer",
+      "allowBackup": false,
+      "googleServicesFile": "./google-services.json"
     },
     "web": {
       "output": "static",
       "favicon": "./assets/images/favicon.png"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "eb77a000-b8ff-4398-83c3-90b0cfb4f5b5"
+      }
     },
     "plugins": [
       "expo-router",
@@ -41,10 +48,7 @@
           "image": "./assets/images/splash-icon.png",
           "imageWidth": 200,
           "resizeMode": "contain",
-          "backgroundColor": "#ffffff",
-          "dark": {
-            "backgroundColor": "#000000"
-          }
+          "backgroundColor": "#003049"
         }
       ],
       [
@@ -54,7 +58,20 @@
           "locationAlwaysAndWhenInUsePermission": "Allow Hungry to use your location."
         }
       ],
-      "expo-secure-store"
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/android-icon-monochrome.png",
+          "color": "#EA8608",
+          "defaultChannel": "orders"
+        }
+      ],
+      "expo-localization",
+      "expo-secure-store",
+      "expo-font",
+      "expo-image",
+      "expo-status-bar",
+      "expo-web-browser"
     ],
     "experiments": {
       "typedRoutes": true,

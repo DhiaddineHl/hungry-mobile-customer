@@ -1,27 +1,34 @@
-import AuthPageUpperSection from '@/assets/auth-page-upper-section.svg';
-import { AuthButton, AuthInput, GoogleButton, PhoneInput } from '@/components/auth';
-import { useAuth } from '@/contexts/auth-context';
-import { SignupFormData, signupSchema } from '@/schemas/auth';
-import { zodResolver } from '@hookform/resolvers/zod';
-import { Link } from 'expo-router';
 import { useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
-import {
-  KeyboardAvoidingView,
-  Platform,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-} from 'react-native';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { View } from 'react-native';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import { AuthHeading, AuthShell, EmailChip, PhoneField } from '@/components/auth';
+import { ErrorBanner, PasswordToggle, PrimaryButton, Screen, StateView, TextField } from '@/components/ds';
+import { useRegisterCustomer } from '@/hooks/use-customer';
+import { hasDeliveryAddress } from '@/services/api/customer-service';
+import { usePendingVerificationStore } from '@/store/pending-verification-store';
+import { SignupFormData, signupSchema } from '@/schemas/auth';
+import { createStyles } from '@/theme';
 
+const COUNTRY_CODE = '+216';
+
+/**
+ * A3 Sign up — account creation, reached only from the identification screen
+ * and only for an address it found no account for. That address arrives as a
+ * route param, is shown back as a chip and is not asked for again.
+ */
 export default function SignupScreen() {
-  const { register: registerUser, loginWithGoogle } = useAuth();
-  const [countryCode] = useState('+216');
+  const styles = useStyles();
+  const router = useRouter();
+  const params = useLocalSearchParams<{ email?: string }>();
+  const email = params.email ?? '';
+  const registerCustomer = useRegisterCustomer();
+  const startVerification = usePendingVerificationStore((state) => state.start);
   const [authError, setAuthError] = useState<string | null>(null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isGoogleLoading, setIsGoogleLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
+  const isSubmitting = registerCustomer.isPending;
 
   const {
     control,
@@ -29,320 +36,181 @@ export default function SignupScreen() {
     formState: { errors },
   } = useForm<SignupFormData>({
     resolver: zodResolver(signupSchema),
-    defaultValues: {
-      firstName: '',
-      lastName: '',
-      phoneNumber: '',
-      email: '',
-      password: '',
-      confirmPassword: '',
-    },
+    defaultValues: { firstName: '', lastName: '', phoneNumber: '', password: '', confirmPassword: '' },
   });
 
   const onSubmit = async (data: SignupFormData) => {
     setAuthError(null);
-    setIsSubmitting(true);
     try {
-      const result = await registerUser(
-        data.firstName,
-        data.lastName,
-        data.email,
-        data.password,
-        `${countryCode}${data.phoneNumber}`
-      );
-      if (!result.success) {
-        setAuthError(result.error ?? 'Registration failed');
-      }
-    } catch {
-      setAuthError('An unexpected error occurred. Please try again.');
-    } finally {
-      setIsSubmitting(false);
+      // One backend call creates the Keycloak login account and the Customer
+      // entity in sync, and mails the one-time code the next screen asks for.
+      const customer = await registerCustomer.mutateAsync({
+        firstName: data.firstName,
+        lastName: data.lastName,
+        email,
+        password: data.password,
+        phoneNumber: `${COUNTRY_CODE}${data.phoneNumber.replace(/\s/g, '')}`,
+      });
+
+      // No sign-in here: the account exists but its e-mail is unproven. The
+      // verification screen signs in once the code is accepted — which is why
+      // it needs the password, handed over in memory rather than route params.
+      // Whether an address is still needed is carried through so verification
+      // knows where to send the user next.
+      startVerification({
+        email,
+        password: data.password,
+        firstName: data.firstName,
+        needsAddress: !hasDeliveryAddress(customer),
+      });
+
+      router.push('/verification');
+    } catch (error) {
+      setAuthError(error instanceof Error ? error.message : "Your account wasn't created. Check your connection and try again.");
     }
   };
 
-  const handleGoogleSignup = async () => {
-    setAuthError(null);
-    setIsGoogleLoading(true);
-    try {
-      const result = await loginWithGoogle();
-      if (!result.success && result.error !== 'Google login was cancelled') {
-        setAuthError(result.error ?? 'Google signup failed');
-      }
-    } finally {
-      setIsGoogleLoading(false);
-    }
-  };
+  // back(), not push('/login'), so the stack doesn't grow when the user
+  // ping-pongs between identification and this screen.
+  const goBackToIdentification = () => (router.canGoBack() ? router.back() : router.replace('/login'));
+
+  if (!email) {
+    return (
+      <Screen>
+        <StateView
+          icon="mail"
+          title="Which email?"
+          body="We don't know which address to create the account for. Start again and we'll pick it back up."
+          actions={[{ label: 'Continue', onPress: () => router.replace('/login') }]}
+        />
+      </Screen>
+    );
+  }
 
   return (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+    <AuthShell
+      compact
+      footer={
+        <PrimaryButton
+          label={authError ? 'Try again' : 'Create account'}
+          loadingLabel="Creating account…"
+          onPress={handleSubmit(onSubmit)}
+          loading={isSubmitting}
+          style={styles.flex}
+        />
+      }
     >
-      <AuthPageUpperSection
-        width="100%"
-        style={styles.svgBackground}
-        preserveAspectRatio="xMidYMid slice"
+      <AuthHeading title="Create your account" subtitle="Just a few details and you're in." align="left" />
+
+      <EmailChip email={email} onChange={isSubmitting ? undefined : goBackToIdentification} />
+
+      {authError ? (
+        <ErrorBanner title="Couldn't create your account" body={`${authError} Check your details and try again.`} />
+      ) : null}
+
+      <View style={styles.row}>
+        <Controller
+          control={control}
+          name="firstName"
+          render={({ field: { onChange, onBlur, value } }) => (
+            <TextField
+              label="First name"
+              placeholder="First name"
+              value={value}
+              onChangeText={onChange}
+              onBlur={onBlur}
+              error={errors.firstName?.message}
+              locked={isSubmitting}
+              autoCapitalize="words"
+              autoComplete="name-given"
+              textContentType="givenName"
+              containerStyle={styles.flex}
+            />
+          )}
+        />
+        <Controller
+          control={control}
+          name="lastName"
+          render={({ field: { onChange, onBlur, value } }) => (
+            <TextField
+              label="Last name"
+              placeholder="Last name"
+              value={value}
+              onChangeText={onChange}
+              onBlur={onBlur}
+              error={errors.lastName?.message}
+              locked={isSubmitting}
+              autoCapitalize="words"
+              autoComplete="name-family"
+              textContentType="familyName"
+              containerStyle={styles.flex}
+            />
+          )}
+        />
+      </View>
+
+      <Controller
+        control={control}
+        name="phoneNumber"
+        render={({ field: { onChange, onBlur, value } }) => (
+          <PhoneField
+            countryCode={COUNTRY_CODE}
+            value={value}
+            onChangeText={onChange}
+            onBlur={onBlur}
+            error={errors.phoneNumber?.message}
+            locked={isSubmitting}
+          />
+        )}
       />
-      <ScrollView
-          style={styles.scrollView}
-          contentContainerStyle={styles.scrollContent}
-          showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled"
-        >
-          <View style={styles.backgroundSpacer} />
 
-          <View style={styles.formContainer}>
-            <View style={styles.titleSection}>
-              <Text style={styles.title}>Sign Up to Hungry</Text>
-              <Text style={styles.subtitle}>Hungry? We got you !</Text>
-            </View>
+      <Controller
+        control={control}
+        name="password"
+        render={({ field: { onChange, onBlur, value } }) => (
+          <TextField
+            label="Password"
+            placeholder="Password"
+            value={value}
+            onChangeText={onChange}
+            onBlur={onBlur}
+            error={errors.password?.message}
+            locked={isSubmitting}
+            secureTextEntry={!showPassword}
+            autoComplete="password-new"
+            textContentType="newPassword"
+            trailing={<PasswordToggle visible={showPassword} onToggle={() => setShowPassword((v) => !v)} />}
+          />
+        )}
+      />
 
-            <View style={styles.form}>
-              {authError && (
-                <View style={styles.errorBanner}>
-                  <Text style={styles.errorBannerText}>{authError}</Text>
-                </View>
-              )}
-
-              <View style={styles.nameRow}>
-                <View style={styles.nameField}>
-                  <Controller
-                    control={control}
-                    name="firstName"
-                    render={({ field: { onChange, onBlur, value } }) => (
-                      <AuthInput
-                        label="First Name"
-                        placeholder="First Name"
-                        value={value}
-                        onChangeText={onChange}
-                        onBlur={onBlur}
-                        error={errors.firstName?.message}
-                        autoCapitalize="words"
-                      />
-                    )}
-                  />
-                </View>
-                <View style={styles.nameField}>
-                  <Controller
-                    control={control}
-                    name="lastName"
-                    render={({ field: { onChange, onBlur, value } }) => (
-                      <AuthInput
-                        label="Last Name"
-                        placeholder="Last Name"
-                        value={value}
-                        onChangeText={onChange}
-                        onBlur={onBlur}
-                        error={errors.lastName?.message}
-                        autoCapitalize="words"
-                      />
-                    )}
-                  />
-                </View>
-              </View>
-
-              <Controller
-                control={control}
-                name="phoneNumber"
-                render={({ field: { onChange, value } }) => (
-                  <PhoneInput
-                    label="Phone Number"
-                    value={value}
-                    onChangeText={onChange}
-                    countryCode={countryCode}
-                    error={errors.phoneNumber?.message}
-                  />
-                )}
-              />
-
-              <Controller
-                control={control}
-                name="email"
-                render={({ field: { onChange, onBlur, value } }) => (
-                  <AuthInput
-                    label="Email"
-                    placeholder="Email"
-                    value={value}
-                    onChangeText={onChange}
-                    onBlur={onBlur}
-                    error={errors.email?.message}
-                    keyboardType="email-address"
-                    autoCapitalize="none"
-                  />
-                )}
-              />
-
-              <Controller
-                control={control}
-                name="password"
-                render={({ field: { onChange, onBlur, value } }) => (
-                  <AuthInput
-                    label="Password"
-                    placeholder="Password"
-                    value={value}
-                    onChangeText={onChange}
-                    onBlur={onBlur}
-                    error={errors.password?.message}
-                    isPassword
-                  />
-                )}
-              />
-
-              <Controller
-                control={control}
-                name="confirmPassword"
-                render={({ field: { onChange, onBlur, value } }) => (
-                  <AuthInput
-                    label="Verify Password"
-                    placeholder="Password"
-                    value={value}
-                    onChangeText={onChange}
-                    onBlur={onBlur}
-                    error={errors.confirmPassword?.message}
-                    isPassword
-                  />
-                )}
-              />
-
-              <AuthButton
-                title="SIGN UP"
-                onPress={handleSubmit(onSubmit)}
-                loading={isSubmitting}
-                disabled={isSubmitting || isGoogleLoading}
-                style={styles.submitButton}
-              />
-
-              <View style={styles.loginRow}>
-                <Text style={styles.loginText}>Already have an account ? </Text>
-                <Link href="/login" asChild>
-                  <TouchableOpacity>
-                    <Text style={styles.loginLink}>LOGIN</Text>
-                  </TouchableOpacity>
-                </Link>
-              </View>
-
-              <View style={styles.dividerRow}>
-                <Text style={styles.dividerText}>Or</Text>
-              </View>
-
-              <GoogleButton onPress={handleGoogleSignup} loading={isGoogleLoading} />
-
-              <Text style={styles.termsText}>
-                By continuing, you automatically accept our{' '}
-                <Text style={styles.termsLink}>Terms & Conditions</Text>,{' '}
-                <Text style={styles.termsLink}>Privacy Policy</Text> and{' '}
-                <Text style={styles.termsLink}>Cookies policy</Text>.
-              </Text>
-            </View>
-          </View>
-      </ScrollView>
-    </KeyboardAvoidingView>
+      <Controller
+        control={control}
+        name="confirmPassword"
+        render={({ field: { onChange, onBlur, value } }) => (
+          <TextField
+            label="Confirm password"
+            placeholder="Re-enter password"
+            value={value}
+            onChangeText={onChange}
+            onBlur={onBlur}
+            error={errors.confirmPassword?.message}
+            helper="At least 8 characters."
+            locked={isSubmitting}
+            secureTextEntry={!showConfirm}
+            autoComplete="password-new"
+            textContentType="newPassword"
+            returnKeyType="go"
+            onSubmitEditing={() => handleSubmit(onSubmit)()}
+            trailing={<PasswordToggle visible={showConfirm} onToggle={() => setShowConfirm((v) => !v)} />}
+          />
+        )}
+      />
+    </AuthShell>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#FFFFFF',
-  },
-  svgBackground: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-  },
-  scrollView: {
-    flex: 1,
-  },
-  scrollContent: {
-    flexGrow: 1,
-  },
-  backgroundSpacer: {
-    height: 200,
-  },
-  formContainer: {
-    flex: 1,
-    backgroundColor: '#FFFFFF',
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    paddingHorizontal: 24,
-    paddingTop: 32,
-    paddingBottom: 24,
-  },
-  titleSection: {
-    alignItems: 'center',
-    marginBottom: 24,
-  },
-  title: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: '#1A2B3D',
-    marginBottom: 8,
-  },
-  subtitle: {
-    fontSize: 16,
-    color: '#666666',
-  },
-  form: {
-    flex: 1,
-  },
-  errorBanner: {
-    backgroundColor: '#FEF2F2',
-    borderRadius: 12,
-    padding: 14,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: '#FECACA',
-  },
-  errorBannerText: {
-    color: '#DC2626',
-    fontSize: 14,
-    textAlign: 'center' as const,
-    fontWeight: '500' as const,
-  },
-  nameRow: {
-    flexDirection: 'row',
-    gap: 12,
-  },
-  nameField: {
-    flex: 1,
-  },
-  submitButton: {
-    marginTop: 8,
-    marginBottom: 20,
-  },
-  loginRow: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  loginText: {
-    fontSize: 14,
-    color: '#666666',
-  },
-  loginLink: {
-    fontSize: 14,
-    color: '#F5A623',
-    fontWeight: '600',
-  },
-  dividerRow: {
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  dividerText: {
-    fontSize: 14,
-    color: '#999999',
-  },
-  termsText: {
-    fontSize: 12,
-    color: '#999999',
-    textAlign: 'center',
-    marginTop: 20,
-    lineHeight: 18,
-  },
-  termsLink: {
-    color: '#F5A623',
-    textDecorationLine: 'underline',
-  },
-});
+const useStyles = createStyles((t) => ({
+  flex: { flex: 1 },
+  row: { flexDirection: 'row', gap: t.space[10], alignItems: 'flex-start' },
+}));

@@ -1,100 +1,96 @@
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
-import { ChevronDown, Bell } from 'lucide-react-native';
-import { Fonts } from '@/constants/theme';
-import LogoHungry from '@/assets/logo-hungry.svg';
+import { useState } from 'react';
+import { View } from 'react-native';
+import { useRouter } from 'expo-router';
+import { Counter, IconButton, Text, Touchable } from '@/components/ds';
+import { AddressPopover } from '@/components/home/address-popover';
+import { formatAddressName, useDeliveryAddress } from '@/hooks/use-delivery-address';
+import { useAddressDraftStore } from '@/store/address-draft-store';
+import { createStyles, Icon } from '@/theme';
 
-interface HomeHeaderProps {
-  deliveryLocation?: string;
-  notificationCount?: number;
-  onLocationPress?: () => void;
-  onNotificationPress?: () => void;
+/** `Home · Sahloul` — the saved label, then the area it is in (design system §10). */
+export function useDeliverToLabel(): string {
+  const { selected } = useDeliveryAddress();
+  if (!selected) return 'Choose an address';
+  const area = selected.details.municipality ?? selected.details.state ?? null;
+  const name = formatAddressName(selected.name);
+  return area ? `${name} · ${area}` : name;
 }
 
+/**
+ * Home header: "Deliver to" address switcher on the left (address first — it
+ * decides what is available), the filled navy bell with its counter on the
+ * right. Stays pinned while the page scrolls.
+ */
 export function HomeHeader({
-  deliveryLocation = 'Home',
-  notificationCount = 2,
-  onLocationPress,
+  notificationCount = 0,
   onNotificationPress,
-}: HomeHeaderProps) {
+}: {
+  notificationCount?: number;
+  onNotificationPress?: () => void;
+}) {
+  const styles = useStyles();
+  const router = useRouter();
+  const { addresses, selectedName, select } = useDeliveryAddress();
+  const label = useDeliverToLabel();
+  const [popoverVisible, setPopoverVisible] = useState(false);
+
+  // Starting a fresh single-address entry: clear any onboarding drafts so the
+  // save screen commits just this new address, then jump into the map picker.
+  const handleAddNew = () => {
+    useAddressDraftStore.getState().clear();
+    router.push('/map-select');
+  };
+
   return (
-    <View style={styles.container}>
-      <TouchableOpacity style={styles.locationContainer} onPress={onLocationPress}>
-        <Text style={styles.deliverLabel}>DELIVER TO</Text>
-        <View style={styles.locationRow}>
-          <Text style={styles.locationText}>{deliveryLocation}</Text>
-          <ChevronDown size={16} color="#F5A623" />
+    <View style={styles.header}>
+      <Touchable
+        onPress={() => setPopoverVisible(true)}
+        scaleTo={0.98}
+        accessibilityLabel={`Deliver to ${label}. Change address`}
+        style={styles.address}
+      >
+        <Text variant="caption" color="inkMuted">
+          Deliver to
+        </Text>
+        <View style={styles.addressLine}>
+          <Text variant="rowTitle" numberOfLines={1} style={styles.shrink}>
+            {label}
+          </Text>
+          <Icon name="chevronDown" size="row" />
         </View>
-      </TouchableOpacity>
+      </Touchable>
 
-      <View style={styles.logoContainer}>
-        <LogoHungry width={100} height={32} />
-      </View>
+      <IconButton
+        icon="bell"
+        variant="filled"
+        onPress={onNotificationPress}
+        accessibilityLabel={notificationCount > 0 ? `Notifications, ${notificationCount} unread` : 'Notifications'}
+        badge={notificationCount > 0 ? <Counter count={notificationCount} ring /> : undefined}
+      />
 
-      <TouchableOpacity style={styles.notificationContainer} onPress={onNotificationPress}>
-        <Bell size={24} color="#1A2B3D" />
-        {notificationCount > 0 && (
-          <View style={styles.badge}>
-            <Text style={styles.badgeText}>{notificationCount}</Text>
-          </View>
-        )}
-      </TouchableOpacity>
+      <AddressPopover
+        visible={popoverVisible}
+        addresses={addresses}
+        selectedName={selectedName}
+        onClose={() => setPopoverVisible(false)}
+        onSelect={select}
+        onAddNew={handleAddNew}
+      />
     </View>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
+const useStyles = createStyles((t) => ({
+  header: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    backgroundColor: '#FFFFFF',
+    gap: t.space[12],
+    paddingHorizontal: t.screenPadding,
+    paddingTop: t.space[8],
+    paddingBottom: t.space[8],
+    backgroundColor: t.colors.background,
   },
-  locationContainer: {
-    flex: 1,
-  },
-  deliverLabel: {
-    fontSize: 11,
-    fontFamily: Fonts.semiBold,
-    color: '#1A2B3D',
-    letterSpacing: 0.5,
-    marginBottom: 2,
-  },
-  locationRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  locationText: {
-    fontSize: 14,
-    color: '#F5A623',
-    fontFamily: Fonts.medium,
-  },
-  logoContainer: {
-    flex: 1,
-    alignItems: 'center',
-  },
-  notificationContainer: {
-    flex: 1,
-    alignItems: 'flex-end',
-    position: 'relative',
-  },
-  badge: {
-    position: 'absolute',
-    top: -4,
-    right: -4,
-    backgroundColor: '#F5A623',
-    borderRadius: 10,
-    minWidth: 18,
-    height: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 4,
-  },
-  badgeText: {
-    fontSize: 11,
-    fontFamily: Fonts.semiBold,
-    color: '#FFFFFF',
-  },
-});
+  address: { flex: 1, minHeight: t.size.minTouch, justifyContent: 'center' },
+  addressLine: { flexDirection: 'row', alignItems: 'center', gap: t.space[4] },
+  shrink: { flexShrink: 1 },
+}));
