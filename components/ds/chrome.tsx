@@ -3,7 +3,7 @@ import { View, type StyleProp, type ViewStyle } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { createStyles, useTheme } from '@/theme';
 import { IconButton } from './buttons';
-import { Text } from './text';
+import { AccentHeadline, Text } from './text';
 
 // ---------------------------------------------------------------------------
 // TopBar — outlined back + sectionTitle + optional trailing. Margin 4×16.
@@ -15,6 +15,7 @@ export function TopBar({
   trailing,
   divider,
   center,
+  accent = true,
   backLabel = 'Back',
   style,
 }: {
@@ -26,6 +27,8 @@ export function TopBar({
   divider?: boolean;
   /** Centred title, no back (Profile scrolled). */
   center?: boolean;
+  /** Orange full stop after the title, like every page title. Off for names (a dish, a restaurant). */
+  accent?: boolean;
   backLabel?: string;
   style?: StyleProp<ViewStyle>;
 }) {
@@ -42,12 +45,40 @@ export function TopBar({
             style={[styles.title, center && styles.titleCenter]}
           >
             {title}
+            {accent && !/[.?!]$/.test(title) ? (
+              <Text variant="sectionTitle" color="primary">
+                .
+              </Text>
+            ) : null}
           </Text>
         ) : (
           <View style={styles.title} />
         )}
         {trailing}
       </View>
+    </View>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// PageTitle — a tab root's board title: display size, ink, orange full stop,
+// optional trailing actions. One component so every tab reads the same.
+// ---------------------------------------------------------------------------
+
+export function PageTitle({
+  title,
+  trailing,
+  style,
+}: {
+  title: string;
+  trailing?: ReactNode;
+  style?: StyleProp<ViewStyle>;
+}) {
+  const styles = useStyles();
+  return (
+    <View style={[styles.pageTitle, style]}>
+      <AccentHeadline text={title} accent="." numberOfLines={1} style={styles.title} />
+      {trailing}
     </View>
   );
 }
@@ -105,6 +136,7 @@ const useStyles = createStyles((t) => ({
     minHeight: t.size.iconButton,
   },
   barCenter: { justifyContent: 'center' },
+  pageTitle: { flexDirection: 'row', alignItems: 'center', gap: t.space[12], paddingTop: t.space[16] },
   title: { flex: 1 },
   titleCenter: { textAlign: 'center' },
   bottomBar: {

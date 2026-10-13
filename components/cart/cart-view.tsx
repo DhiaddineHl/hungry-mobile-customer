@@ -7,11 +7,13 @@ import {
   CartItem,
   IconButton,
   InfoNote,
+  PageTitle,
   PillButton,
   PrimaryButton,
   RestaurantGroupHeader,
   Screen,
   Separated,
+  Skeleton,
   StateView,
   SummaryLine,
   Text,
@@ -95,7 +97,7 @@ export function CartView({
   if (items.length === 0) {
     return (
       <Screen>
-        <TopBar title="Your cart" onBack={onBack} />
+        {inTab ? <PageTitle title="Your cart" style={styles.pageTitle} /> : <TopBar title="Your cart" onBack={onBack} />}
         <StateView
           icon="cart"
           title="Your cart is empty"
@@ -115,24 +117,30 @@ export function CartView({
     );
   }
 
+  const actions = (
+    <View style={styles.trailing}>
+      {inTab ? (
+        <IconButton icon="receipt" variant="plain" onPress={() => router.push('/orders')} accessibilityLabel="My orders" />
+      ) : null}
+      <TextLink label="Clear" onPress={handleClear} accessibilityLabel="Clear the cart" />
+    </View>
+  );
+
+  // While a quantity change or removal is being priced, the backend figures
+  // are stale: skeletons stand in for them and Continue waits.
+  const lineSkeleton = isUpdating ? <Skeleton width={64} height={14} /> : undefined;
+
   return (
     <Screen>
-      <TopBar
-        title="Your cart"
-        onBack={onBack}
-        trailing={
-          <View style={styles.trailing}>
-            {inTab ? (
-              <IconButton icon="receipt" variant="plain" onPress={() => router.push('/orders')} accessibilityLabel="My orders" />
-            ) : null}
-            <TextLink label="Clear" onPress={handleClear} accessibilityLabel="Clear the cart" />
-          </View>
-        }
-      />
+      {inTab ? (
+        <PageTitle title="Your cart" trailing={actions} style={styles.pageTitle} />
+      ) : (
+        <TopBar title="Your cart" onBack={onBack} trailing={actions} />
+      )}
 
       <ScrollView
         style={styles.flex}
-        contentContainerStyle={[styles.content, { paddingBottom: bottomInset + 24 }]}
+        contentContainerStyle={[styles.content, inTab && styles.contentBelowTitle, { paddingBottom: bottomInset + 24 }]}
         showsVerticalScrollIndicator={false}
       >
         {orderCount > 1 ? (
@@ -177,26 +185,37 @@ export function CartView({
         ))}
 
         <Card padded style={styles.summary}>
-          <SummaryLine label="Subtotal" value={formatDT(quote ? quote.subtotal : cartSubtotal(items))} />
+          <SummaryLine
+            label="Subtotal"
+            value={formatDT(quote ? quote.subtotal : cartSubtotal(items))}
+            placeholder={lineSkeleton}
+          />
           {quote && quote.discountTotal > 0 ? (
             <SummaryLine label="Discount" value={`−${formatDT(quote.discountTotal)}`} valueColor="success" />
           ) : null}
           <SummaryLine
             label="Service"
             value={quote ? formatDT(quote.serviceFee) : '—'}
+            placeholder={lineSkeleton}
             trailing={<IconButton icon="info" variant="plain" iconColor="inkMuted" onPress={() => setFeeSheet('service')} accessibilityLabel="What is the service fee?" style={styles.infoButton} />}
           />
           <SummaryLine
             label="Delivery"
             value={quote && quote.deliveryPriced ? (quote.deliveryFee === 0 ? 'Free' : formatDT(quote.deliveryFee)) : '—'}
             valueColor={quote && quote.deliveryPriced && quote.deliveryFee === 0 ? 'success' : undefined}
+            placeholder={lineSkeleton}
             trailing={<IconButton icon="info" variant="plain" iconColor="inkMuted" onPress={() => setFeeSheet('delivery')} accessibilityLabel="What is the delivery fee?" style={styles.infoButton} />}
           />
           {quote?.additionalFees.map((fee) => (
             <SummaryLine key={fee.code ?? fee.label} label={fee.label} value={formatDT(fee.amount)} />
           ))}
           <View style={styles.rule} />
-          <SummaryLine label="Total" value={formatDT(total)} total />
+          <SummaryLine
+            label="Total"
+            value={formatDT(total)}
+            total
+            placeholder={isUpdating ? <Skeleton width={84} height={18} /> : undefined}
+          />
           {priceFootnote ? (
             <Text variant="caption" color="inkMuted">
               {priceFootnote}
@@ -206,7 +225,13 @@ export function CartView({
       </ScrollView>
 
       <BottomBar withSafeArea={!inTab}>
-        <PrimaryButton label="Continue" right={formatDT(total)} onPress={() => router.push('/order-details')} style={styles.flex} />
+        <PrimaryButton
+          label="Continue"
+          right={isUpdating ? undefined : formatDT(total)}
+          disabled={isUpdating}
+          onPress={() => router.push('/order-details')}
+          style={styles.flex}
+        />
       </BottomBar>
 
       <ServiceFeeModal visible={feeSheet === 'service'} onClose={() => setFeeSheet(null)} />
@@ -218,7 +243,9 @@ export function CartView({
 const useStyles = createStyles((t) => ({
   flex: { flex: 1 },
   trailing: { flexDirection: 'row', alignItems: 'center', gap: t.space[4] },
+  pageTitle: { paddingHorizontal: t.screenPadding },
   content: { paddingHorizontal: t.screenPadding, paddingTop: t.space[12], gap: t.space[20] },
+  contentBelowTitle: { paddingTop: t.space[20] },
   group: { gap: t.space[4] },
   summary: { gap: t.space[10] },
   infoButton: { width: 28, height: 28 },
