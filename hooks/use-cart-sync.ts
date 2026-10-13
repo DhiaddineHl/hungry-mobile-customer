@@ -210,7 +210,8 @@ export function useCartQuote(): {
 
   return {
     quote: current,
-    isUpdating: !current && items.length > 0 && syncStatus !== 'error' && !query.error,
+    // No customer means no server cart to wait for (Continue must not hang on it).
+    isUpdating: !!customerId && !current && items.length > 0 && syncStatus !== 'error' && !query.error,
     error: syncStatus === 'error' ? syncError : query.error,
   };
 }

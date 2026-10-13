@@ -2,7 +2,7 @@ import { ScrollView, View } from 'react-native';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import {
-  AccentHeadline,
+  PageTitle,
   Screen,
   SectionHeader,
   Separated,
@@ -43,9 +43,7 @@ export default function FavoritesScreen() {
 
   return (
     <Screen>
-      <View style={styles.header}>
-        <AccentHeadline text="Favourites" accent="." />
-      </View>
+      <PageTitle title="Favourites" style={styles.header} />
 
       {items.length === 0 ? (
         // S-V1.
@@ -120,7 +118,7 @@ function FavouriteRow({ item, onPress, onRemove }: { item: FavoriteItem; onPress
 const useStyles = createStyles((t) => ({
   flex: { flex: 1 },
   fill: { width: '100%', height: '100%' },
-  header: { paddingHorizontal: t.screenPadding, paddingTop: t.space[16] },
+  header: { paddingHorizontal: t.screenPadding },
   content: { paddingHorizontal: t.screenPadding, paddingBottom: t.space[32] },
   section: { marginTop: t.space[20] },
   row: { flexDirection: 'row', alignItems: 'center', gap: t.space[14], paddingVertical: t.space[10] },

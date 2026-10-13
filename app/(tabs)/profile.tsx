@@ -8,6 +8,7 @@ import {
   Card,
   ListGroup,
   ListRow,
+  PageTitle,
   PillButton,
   Screen,
   SegmentedControl,
@@ -79,9 +80,7 @@ export default function ProfileScreen() {
         onScroll={onScroll}
         scrollEventThrottle={32}
       >
-        <Text variant="display" accessibilityRole="header" style={styles.title}>
-          {t('profile.title')}
-        </Text>
+        <PageTitle title={t('profile.title')} style={styles.title} />
 
         <Touchable onPress={() => router.push('/account-settings')} scaleTo={0.99} accessibilityLabel={`${fullName}, ${t('profile.accountManagement')}`}>
           <Card padded style={styles.profileCard}>
@@ -176,7 +175,7 @@ export default function ProfileScreen() {
 const useStyles = createStyles((t) => ({
   flex: { flex: 1 },
   content: { paddingHorizontal: t.screenPadding, paddingBottom: t.space[32] },
-  title: { marginTop: t.space[16], marginBottom: t.space[20] },
+  title: { marginBottom: t.space[20] },
   profileCard: { flexDirection: 'row', alignItems: 'center', gap: t.space[14] },
   version: { marginTop: t.space[28] },
 }));

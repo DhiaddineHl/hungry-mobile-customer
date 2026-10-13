@@ -367,6 +367,7 @@ export default function FoodDetailsScreen() {
         >
           <TopBar
             title={product.name ?? ''}
+            accent={false}
             onBack={() => router.back()}
             trailing={
               <View style={styles.stickyActions}>

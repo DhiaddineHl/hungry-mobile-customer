@@ -208,6 +208,7 @@ export function SummaryLine({
   total,
   valueColor,
   trailing,
+  placeholder,
 }: {
   label: string;
   value: string;
@@ -215,6 +216,8 @@ export function SummaryLine({
   valueColor?: ColorToken;
   /** Info button after the label (fee explanations). */
   trailing?: ReactNode;
+  /** Shown instead of the value while it is being recalculated (a Skeleton). */
+  placeholder?: ReactNode;
 }) {
   const styles = useStyles();
   return (
@@ -225,9 +228,11 @@ export function SummaryLine({
         </Text>
         {trailing}
       </View>
-      <Text variant={total ? 'price' : 'description'} color={valueColor ?? 'ink'} tabular>
-        {value}
-      </Text>
+      {placeholder ?? (
+        <Text variant={total ? 'price' : 'description'} color={valueColor ?? 'ink'} tabular>
+          {value}
+        </Text>
+      )}
     </View>
   );
 }
